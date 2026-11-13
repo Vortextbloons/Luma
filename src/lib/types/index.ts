@@ -1,4 +1,5 @@
-export type AppId = 'Spotify' | 'Stremio' | 'Custom';
+export type AppId = 'YouTube' | 'Spotify' | 'Stremio' | 'Custom';
+export type ExecutableAppId = Exclude<AppId, 'YouTube'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
 export interface Settings {
   accent: 'violet' | 'blue' | 'mint' | 'peach';
@@ -6,7 +7,7 @@ export interface Settings {
   fullscreen: boolean;
   wallpaper: string;
   sections: { continue: boolean; apps: boolean; featured: boolean };
-  paths: Record<AppId, string>;
+  paths: Record<ExecutableAppId, string>;
   order: AppId[];
 }
 export interface MediaItem { title: string; subtitle: string; artwork: string; progress?: number }

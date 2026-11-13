@@ -100,8 +100,8 @@ fn registry_app(name: &str) -> Option<PathBuf> {
             let text = String::from_utf16_lossy(
                 &buffer[..buffer.iter().position(|v| *v == 0).unwrap_or(buffer.len())],
             );
-            if let Ok(path) = validate(text.trim_matches('"')) {
-                return Some(path);
+            if validate(text.trim_matches('"')).is_ok() {
+                return Some(PathBuf::from(text.trim_matches('"')));
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::commands::youtube;
 use axum::{
     extract::{
         ws::{Message, WebSocketUpgrade},
@@ -41,6 +42,31 @@ pub enum NavigationCommand {
     Activate,
     Back,
     Home,
+}
+
+impl NavigationCommand {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Activate => "activate",
+            Self::Back => "back",
+            Self::Home => "home",
+        }
+    }
+}
+
+pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
+    if app.get_webview_window("youtube").is_some() {
+        youtube::forward(app, command.as_str());
+        if matches!(command, NavigationCommand::Home) {
+            let _ = app.emit("remote-navigation", command);
+        }
+    } else {
+        let _ = app.emit("remote-navigation", command);
+    }
 }
 
 #[derive(Deserialize)]
@@ -88,10 +114,10 @@ fn authorized(
     origin: &str,
     websocket: bool,
 ) -> Result<(), StatusCode> {
-    if websocket || headers.contains_key("origin") {
-        if headers.get("origin").and_then(|v| v.to_str().ok()) != Some(origin) {
-            return Err(StatusCode::FORBIDDEN);
-        }
+    if (websocket || headers.contains_key("origin"))
+        && headers.get("origin").and_then(|v| v.to_str().ok()) != Some(origin)
+    {
+        return Err(StatusCode::FORBIDDEN);
     }
     let bearer = headers
         .get("authorization")
@@ -160,10 +186,7 @@ async fn command(
     Json(command): Json<Command>,
 ) -> Result<StatusCode, StatusCode> {
     authorized(&headers, &server.token, &server.origin, false)?;
-    server
-        .app
-        .emit("remote-navigation", command.command)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    navigate(&server.app, command.command);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -192,12 +215,10 @@ async fn websocket(
                             if last.elapsed() < std::time::Duration::from_millis(30) { continue; }
                             last = std::time::Instant::now();
                             let response = match serde_json::from_str::<Command>(&text) {
-                                Ok(command) => match server.app.emit("remote-navigation", command.command) {
-                                    Ok(()) => {
-                                        let state = server.app.state::<Remote>().state.lock().ok().map(|s| s.clone());
-                                        serde_json::json!({"accepted": true, "state": state}).to_string()
-                                    }
-                                    Err(_) => "{\"error\":\"Navigation unavailable\"}".into(),
+                                Ok(command) => {
+                                    navigate(&server.app, command.command);
+                                    let state = server.app.state::<Remote>().state.lock().ok().map(|s| s.clone());
+                                    serde_json::json!({"accepted": true, "state": state}).to_string()
                                 },
                                 Err(_) => "{\"error\":\"Invalid navigation command\"}".into(),
                             };

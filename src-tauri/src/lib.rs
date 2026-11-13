@@ -1,7 +1,8 @@
+mod frame;
 mod commands;
 mod remote;
 
-use commands::{apps, media};
+use commands::{apps, media, youtube};
 use remote::server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -10,11 +11,14 @@ pub fn run() {
         .manage(apps::Apps::default())
         .manage(media::Media::default())
         .manage(server::Remote::default())
+        .manage(frame::Frame::default())
+        .manage(youtube::Bridge::default())
         .setup(|app| {
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                server::initialize(handle).await;
+                server::initialize(handle.clone()).await;
+                if let Err(error) = frame::initialize(handle).await { eprintln!("Display Box: {error}"); }
             });
             Ok(())
         })
@@ -25,9 +29,14 @@ pub fn run() {
             apps::detect_apps,
             media::media_state,
             media::media_control,
+            frame::frame_status,
+            frame::configure_frame,
+            frame::frame_pairing,
             server::remote_status,
             server::configure_remote,
-            server::update_app_state
+            server::update_app_state,
+            youtube::open_youtube,
+            youtube::close_youtube
         ])
         .build(tauri::generate_context!())
         .expect("error while running Luma");

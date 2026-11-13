@@ -3,7 +3,7 @@ import type { AppId, Settings } from '../types';
 const defaults: Settings = {
   accent: 'violet', density: 'comfortable', fullscreen: false, wallpaper: '',
   sections: { continue: true, apps: true, featured: true },
-  paths: { Spotify: '', Stremio: '', Custom: '' }, order: ['Spotify', 'Stremio', 'Custom'],
+  paths: { Spotify: '', Stremio: '', Custom: '' }, order: ['YouTube', 'Spotify', 'Stremio', 'Custom'],
 };
 
 export function createSettings() {
@@ -17,8 +17,8 @@ export function createSettings() {
       if (data.density === 'compact') value.density = data.density;
       value.fullscreen = data.fullscreen === true;
       if (typeof data.wallpaper === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(data.wallpaper)) value.wallpaper = data.wallpaper;
-      for (const id of defaults.order) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
-      if (Array.isArray(data.order) && data.order.length === 3 && new Set(data.order).size === 3 && data.order.every(id => defaults.order.includes(id))) value.order = data.order;
+      for (const id of ['Spotify', 'Stremio', 'Custom'] as const) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
+      if (Array.isArray(data.order) && data.order.length === 4 && new Set(data.order).size === 4 && data.order.every(id => defaults.order.includes(id))) value.order = data.order;
       if (data.sections && typeof data.sections === 'object') {
         for (const key of ['continue', 'apps', 'featured'] as const) if (typeof data.sections[key] === 'boolean') value.sections[key] = data.sections[key];
       }

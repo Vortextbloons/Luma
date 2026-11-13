@@ -3,8 +3,9 @@ import type { NavigationCommand } from '../types';
 export function createNavigation(back: () => void, home: () => void) {
   const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
   function focus(el?: HTMLElement) {
-    el?.focus({ preventScroll: true });
-    el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   }
   function dispatch(command: NavigationCommand) {
     if (command === 'back') { back(); return; }
@@ -28,7 +29,7 @@ export function createNavigation(back: () => void, home: () => void) {
       const distance = Math.abs(primary) + Math.abs(secondary) * 3;
       if (primary * sign > 4 && distance < score) { best = el; score = distance; }
     }
-    focus(best);
+    if (best) focus(best);
   }
   function keydown(event: KeyboardEvent) {
     if (event.key === 'Tab') {

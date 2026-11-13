@@ -11,9 +11,9 @@
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
   import { createSettings } from './lib/state/settings.svelte';
   import { createNavigation } from './lib/services/navigation';
-  import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote } from './lib/services/tauri';
+  import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote, openYouTube } from './lib/services/tauri';
   import { continueWatching, featured, heroArtwork } from './lib/demo';
-  import type { AppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
+  import type { AppId, ExecutableAppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
 
   const preferences = createSettings();
   const settings = preferences.value;
@@ -39,6 +39,7 @@
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
   });
   onMount(() => {
+    navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
     let disposed = false;
     const cleanup: (() => void)[] = [];
     async function start() {
@@ -49,13 +50,12 @@
         cleanup.push(await onRemote(state => remote = state));
         media = await mediaState();
         remote = await remoteStatus();
-        const paths = await invoke<Record<AppId, string>>('app_paths');
+        const paths = await invoke<Record<ExecutableAppId, string>>('app_paths');
         settings.paths = paths;
         await detect(false);
         await getCurrentWindow().setFullscreen(settings.fullscreen);
       } catch (error) { message = String(error); }
       finally { if (disposed) cleanup.splice(0).forEach(stop => stop()); }
-      navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
     }
     void start();
     return () => { disposed = true; cleanup.splice(0).forEach(stop => stop()); };
@@ -75,7 +75,10 @@
     if (launching) return;
     if (!native) { message = 'App launching is available in the Luma desktop app.'; return; }
     launching = id;
-    try { await launchApp(id); message = `${id} launch requested.`; } catch (error) { message = String(error); }
+    try {
+      if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Press Ctrl+W there to return to Luma.'; }
+      else { await launchApp(id); message = `${id} launch requested.`; }
+    } catch (error) { message = String(error); }
     finally { launching = null; }
   }
   async function fullscreen() {
@@ -84,7 +87,7 @@
   }
   async function detect(announce = true) {
     try {
-      const apps = await invoke<{ name: AppId; path: string | null }[]>('detect_apps');
+      const apps = await invoke<{ name: ExecutableAppId; path: string | null }[]>('detect_apps');
       for (const app of apps) if (app.path && !settings.paths[app.name]) settings.paths[app.name] = app.path;
       if (announce) message = apps.map(app => app.path ? `${app.name} found.` : `${app.name} was not found; configure its path manually.`).join(' ');
     } catch (error) { message = String(error); }
