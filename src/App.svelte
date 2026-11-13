@@ -1,70 +1,125 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import MediaRow from './lib/MediaRow.svelte';
-  let settings = $state({ accent: 'violet', density: 'comfortable', fullscreen: false, sections: true, paths: { Spotify: '', Stremio: '', Custom: '' }, order: ['Spotify', 'Stremio', 'Custom'], wallpaper: '' });
-  let open = $state(false);
-  let message = $state('');
+  import { invoke } from '@tauri-apps/api/core';
+  import TopNav from './lib/components/TopNav.svelte';
+  import Hero from './lib/components/Hero.svelte';
+  import MediaRow from './lib/components/MediaRow.svelte';
+  import AppDock from './lib/components/AppDock.svelte';
+  import MediaControls from './lib/components/MediaControls.svelte';
+  import SettingsPanel from './lib/components/SettingsPanel.svelte';
+  import DetailsDialog from './lib/components/DetailsDialog.svelte';
+  import { createSettings } from './lib/state/settings.svelte';
+  import { createNavigation } from './lib/services/navigation';
+  import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote } from './lib/services/tauri';
+  import { continueWatching, featured, heroArtwork } from './lib/demo';
+  import type { AppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
+
+  const preferences = createSettings();
+  const settings = preferences.value;
+  let tab = $state('Home');
+  let panel = $state(false);
+  let details = $state<MediaItem | null>(null);
+  let message = $state(preferences.error);
+  let media = $state<MediaState>({ available: false, title: '', artist: '', playing: false, canToggle: false, canNext: false, canPrevious: false, error: null });
+  let remote = $state<RemoteStatus>({ running: false, lan: false, address: '', token: '', origin: '', error: null });
+  let mediaBusy = $state(false);
+  let launching = $state<AppId | null>(null);
   let previous: HTMLElement | null = null;
-  onMount(() => {
-    try { const saved = localStorage.getItem('luma-v1'); if (saved) settings = { ...settings, ...JSON.parse(saved) }; } catch { message = 'Unable to load saved preferences.'; }
-    if (settings.fullscreen) getCurrentWindow().setFullscreen(true).catch(e => message = String(e));
-  });
+  const navigation = createNavigation(back, home);
+  const showHome = $derived(tab === 'Home');
+
   $effect(() => {
     document.documentElement.dataset.accent = settings.accent;
     document.documentElement.dataset.density = settings.density;
-    try { localStorage.setItem('luma-v1', JSON.stringify(settings)); } catch { message = 'Unable to save preferences.'; }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ accent: settings.accent, density: settings.density, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
+    catch { message = 'Preferences could not be saved. Try a smaller wallpaper or free local storage.'; }
   });
-  async function launch(name: string) {
-    try { await invoke('launch_app', { name, path: settings.paths[name as keyof typeof settings.paths] }); message = `${name} started.`; } catch (e) { message = String(e); }
+  $effect(() => {
+    if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
+  });
+  onMount(() => {
+    let disposed = false;
+    const cleanup: (() => void)[] = [];
+    async function start() {
+      if (!native) { message = 'Browser preview. Native app launching, fullscreen, remote server, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
+      try {
+        cleanup.push(await onNavigation(navigation.dispatch));
+        cleanup.push(await onMedia(state => media = state));
+        cleanup.push(await onRemote(state => remote = state));
+        media = await mediaState();
+        remote = await remoteStatus();
+        const paths = await invoke<Record<AppId, string>>('app_paths');
+        settings.paths = paths;
+        await detect(false);
+        await getCurrentWindow().setFullscreen(settings.fullscreen);
+      } catch (error) { message = String(error); }
+      finally { if (disposed) cleanup.splice(0).forEach(stop => stop()); }
+      navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+    }
+    void start();
+    return () => { disposed = true; cleanup.splice(0).forEach(stop => stop()); };
+  });
+  function rememberFocus() { previous = document.activeElement as HTMLElement; }
+  function back() {
+    if (panel) panel = false;
+    else if (details) details = null;
+    else { home(); return; }
+    requestAnimationFrame(() => navigation.focus(previous ?? undefined));
+  }
+  function home() { panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function navigate(value: string) { tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function openSettings() { rememberFocus(); message = ''; panel = true; }
+  function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
+  async function launch(id: AppId) {
+    if (launching) return;
+    if (!native) { message = 'App launching is available in the Luma desktop app.'; return; }
+    launching = id;
+    try { await launchApp(id); message = `${id} launch requested.`; } catch (error) { message = String(error); }
+    finally { launching = null; }
   }
   async function fullscreen() {
-    try { await getCurrentWindow().setFullscreen(!settings.fullscreen); settings.fullscreen = !settings.fullscreen; } catch (e) { message = String(e); }
+    try { const value = !await getCurrentWindow().isFullscreen(); await getCurrentWindow().setFullscreen(value); settings.fullscreen = value; }
+    catch (error) { message = String(error); }
   }
-  function close() { open = false; requestAnimationFrame(() => previous?.focus()); }
-  function show() { previous = document.activeElement as HTMLElement; open = true; requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('dialog button')?.focus()); }
-  function key(event: KeyboardEvent) {
-    if (event.key === 'Escape') { close(); return; }
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
-    if (event.key === 'Backspace') { event.preventDefault(); close(); window.scrollTo(0, 0); return; }
-    const elements = [...document.querySelectorAll<HTMLElement>(open ? 'dialog button,dialog input,dialog select' : 'main button')].filter(e => e.getClientRects().length && !e.hasAttribute('disabled'));
-    if (event.key === 'Home') { event.preventDefault(); close(); elements[0]?.focus(); return; }
-    if (!event.key.startsWith('Arrow')) return;
-    event.preventDefault();
-    const current = document.activeElement as HTMLElement;
-    if (!elements.includes(current)) { elements[0]?.focus(); return; }
-    const a = current.getBoundingClientRect();
-    const vertical = ['ArrowUp','ArrowDown'].includes(event.key);
-    const sign = ['ArrowDown','ArrowRight'].includes(event.key) ? 1 : -1;
-    let best: HTMLElement | undefined; let score = Infinity;
-    for (const e of elements) {
-      if (e === current) continue;
-      const b = e.getBoundingClientRect(); const dx = b.x+b.width/2-a.x-a.width/2; const dy = b.y+b.height/2-a.y-a.height/2;
-      const primary = vertical ? dy : dx; const secondary = vertical ? dx : dy;
-      const distance = Math.abs(primary)+Math.abs(secondary)*3;
-      if (primary*sign > 4 && distance < score) { best=e; score=distance; }
-    }
-    best?.focus({preventScroll:true}); best?.scrollIntoView({block:'nearest',inline:'nearest'});
+  async function detect(announce = true) {
+    try {
+      const apps = await invoke<{ name: AppId; path: string | null }[]>('detect_apps');
+      for (const app of apps) if (app.path && !settings.paths[app.name]) settings.paths[app.name] = app.path;
+      if (announce) message = apps.map(app => app.path ? `${app.name} found.` : `${app.name} was not found; configure its path manually.`).join(' ');
+    } catch (error) { message = String(error); }
+  }
+  async function savePaths() {
+    try { await saveAppPaths(settings.paths); message = 'Approved application paths saved.'; }
+    catch (error) { message = String(error); }
+  }
+  async function network(lan: boolean, origin: string) {
+    try { remote = await configureRemote(lan, origin); }
+    catch (error) { message = String(error); }
+  }
+  async function refreshMedia() {
+    if (!native) return;
+    try { media = await mediaState(); } catch (error) { message = String(error); }
+  }
+  async function control(action: 'toggle' | 'previous' | 'next') {
+    mediaBusy = true;
+    try { await mediaControl(action); await refreshMedia(); } catch (error) { message = String(error); }
+    finally { mediaBusy = false; }
   }
 </script>
-<svelte:window onkeydown={key}/>
+
+<svelte:window onkeydown={navigation.keydown} />
 <main class="app-shell">
-  <header class="topbar"><span class="brand">? luma<span class="brand-sub">TV</span></span><nav class="nav-pill"><button class="nav-btn is-active" onclick={() => window.scrollTo(0,0)}>Home</button><button class="nav-btn" onclick={() => document.getElementById('apps')?.scrollIntoView()}>Apps</button><button class="nav-btn" onclick={show}>Settings</button></nav></header>
-  <section class="hero" style:background-image={settings.wallpaper ? `url(${settings.wallpaper})` : undefined}>
-    <div class="hero-art"></div><div class="hero-shade"></div>
-    <div class="relative z-10 flex h-full flex-col justify-end p-[6vw] pb-24 max-w-3xl"><p class="eyebrow">FEATURED TONIGHT</p><h1 class="text-6xl font-semibold tracking-tight my-5">Killers of the<br/>Flower Moon</h1><p class="hero-desc">A story of love, greed, and betrayal in the heart of 1920s Oklahoma.</p><div class="flex gap-4 mt-6"><button class="rounded-xl bg-white text-black px-7 py-3" onclick={() => launch('Stremio')}>Open Stremio</button><button class="rounded-xl bg-white/15 px-7 py-3" onclick={() => message = 'Killers of the Flower Moon · Crime drama · 2023. Demo artwork; playback is available through your installed apps.'}>Details</button></div></div>
-  </section>
-  <section id="apps" class="px-[4.4vw] py-8"><h2 class="text-2xl mb-5">Your apps</h2><div class="flex gap-5">{#each settings.order as name (name)}<button class="flex-1 rounded-2xl bg-white/10 p-10 text-2xl transition-transform hover:scale-105" onclick={() => launch(name)}>{name}</button>{/each}</div></section>
-  {#if settings.sections}<MediaRow onselect={(title) => message = `${title} · Demo content. Open Stremio to browse available titles.`}/>{/if}
-  {#if message}<p role="status" class="px-[4.4vw] py-6 text-white/80">{message}</p>{/if}
-  {#if open}<dialog open class="fixed inset-0 z-50 m-auto max-h-[90vh] w-[min(650px,95vw)] overflow-auto rounded-3xl border border-white/20 bg-[#14151c] p-8 text-white shadow-2xl"><button class="float-right" onclick={close}>Close</button><h2 class="text-3xl mb-6">Customize Luma</h2><div class="grid gap-5">
-    <label>Accent <select bind:value={settings.accent}><option>violet</option><option>blue</option><option>mint</option><option>peach</option></select></label>
-    <label>Density <select bind:value={settings.density}><option>comfortable</option><option>compact</option></select></label>
-    <button onclick={fullscreen}>{settings.fullscreen ? 'Use windowed mode' : 'Use fullscreen'}</button>
-    <label><input type="checkbox" bind:checked={settings.sections}/> Show featured titles</label>
-    <label>Wallpaper <input type="file" accept="image/*" onchange={async event => { const file=event.currentTarget.files?.[0]; if (!file) return; if (file.size>3000000) { message='Choose an image under 3 MB.'; return; } const reader=new FileReader(); reader.onload=()=>settings.wallpaper=String(reader.result); reader.readAsDataURL(file); }}/></label><button onclick={() => settings.wallpaper=''}>Reset wallpaper</button>
-    {#each settings.order as name, index (name)}<label>{name} executable <input class="w-full" bind:value={settings.paths[name as keyof typeof settings.paths]} placeholder="C:\Program Files\…\app.exe"/></label><button disabled={index===0} onclick={() => { const order=[...settings.order]; [order[index-1],order[index]]=[order[index]!,order[index-1]!]; settings.order=order; }}>Move {name} earlier</button>{/each}
-    <p>Remote server and Spotify media sessions are not connected in this build.</p>
-  </div></dialog>{/if}
+  <TopNav active={tab} {navigate} settings={openSettings} />
+  {#if showHome}
+    <Hero wallpaper={settings.wallpaper} launch={() => launch('Stremio')} details={() => select({ title: 'Killers of the Flower Moon', subtitle: 'Crime drama · 2023 · 3h 26m', artwork: heroArtwork })} />
+  {:else}<div class="h-32" aria-hidden="true"></div>{/if}
+  {#if (showHome && settings.sections.continue) || tab === 'Watch'}<MediaRow id="continue" title="Continue watching" items={continueWatching} onselect={select} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
+  {#if tab === 'Music'}<MediaControls state={media} busy={mediaBusy} {control} launch={() => launch('Spotify')} refresh={refreshMedia} />{/if}
+  {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
+{#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
+  <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back</span></footer>
 </main>
+{#if panel}<SettingsPanel {message} {settings} {remote} {native} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />{/if}
+{#if details}<DetailsDialog {message} item={details} close={back} launch={() => launch('Stremio')} />{/if}

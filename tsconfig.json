@@ -2,6 +2,8 @@
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "target": "ESNext",
+    "strict": true,
+    "noEmit": true,
     "useDefineForClassFields": true,
     "allowJs": true,
     "checkJs": true,

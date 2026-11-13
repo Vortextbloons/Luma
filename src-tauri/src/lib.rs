@@ -1,17 +1,40 @@
-#[tauri::command]
-fn launch_app(name: &str, path: &str) -> Result<(), String> {
-    if !["Spotify", "Stremio", "Custom"].contains(&name) { return Err("Application is not approved.".into()); }
-    let executable = std::path::Path::new(path);
-    if !executable.is_absolute() || !executable.is_file() || executable.extension().and_then(|v| v.to_str()).map(|v| !v.eq_ignore_ascii_case("exe")).unwrap_or(true) {
-        return Err(format!("Configure an absolute path to an installed {} .exe in Settings.", name));
-    }
-    std::process::Command::new(executable).spawn().map_err(|e| format!("Could not start {name}: {e}"))?;
-    Ok(())
-}
+mod commands;
+mod remote;
+
+use commands::{apps, media};
+use remote::server;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![launch_app])
-        .run(tauri::generate_context!())
+    let app = tauri::Builder::default()
+        .manage(apps::Apps::default())
+        .manage(media::Media::default())
+        .manage(server::Remote::default())
+        .setup(|app| {
+            apps::load(app.handle()).map_err(std::io::Error::other)?;
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                server::initialize(handle).await;
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            apps::launch_app,
+            apps::app_paths,
+            apps::save_app_paths,
+            apps::detect_apps,
+            media::media_state,
+            media::media_control,
+            server::remote_status,
+            server::configure_remote,
+            server::update_app_state
+        ])
+        .build(tauri::generate_context!())
         .expect("error while running Luma");
+    app.run(|app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            server::stop(app);
+            media::stop(app);
+        }
+    });
 }
