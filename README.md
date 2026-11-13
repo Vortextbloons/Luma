@@ -53,3 +53,9 @@ Spotify's local icon comes from its [official design asset download](https://dev
 ## Validation limits
 
 Automated checks cover frontend types/build, directional focus/modal navigation, executable-path rejection, and remote authentication/origin/command validation. Visual 1080p/4K behavior and playback against a live Spotify installation should also be checked on the target TV/PC. Packaged Store applications depend on Windows exposing a usable executable alias or manually configured executable.
+
+## System tray and Windows startup
+
+Closing the main window hides Luma in the system tray while its servers keep running. Left-click the tray icon or choose **Open Luma TV** to restore the launcher. Choose **Quit Luma and stop server** to exit completely.
+
+In Settings → Background server, enable **Start server when Windows starts** to launch quietly after Windows sign-in. Startup runs the same application with `--background`, without showing the launcher. Display Box must be enabled separately for the photo frame to connect. A single-instance guard prevents a second copy from occupying the server ports; opening Luma again restores the running instance. Configure startup from the installed application so Windows points to its permanent executable location.

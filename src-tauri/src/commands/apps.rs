@@ -171,7 +171,7 @@ pub fn save_app_paths(
 }
 
 #[tauri::command]
-pub fn launch_app(name: String, apps: State<Apps>) -> Result<(), String> {
+pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Result<(), String> {
     if !IDS.contains(&name.as_str()) {
         return Err("Application is not approved.".into());
     }
@@ -196,6 +196,9 @@ pub fn launch_app(name: String, apps: State<Apps>) -> Result<(), String> {
     command
         .spawn()
         .map_err(|e| format!("Could not start {name}: {e}"))?;
+    if let Some(window) = app.get_webview_window("main") {
+        window.minimize().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

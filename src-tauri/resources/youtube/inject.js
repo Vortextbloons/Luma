@@ -4,7 +4,7 @@
   if (window.top !== window) return;
   if (location.hostname !== 'www.youtube.com' || !/^\/tv\/?$/.test(location.pathname)) return;
 
-  const BRIDGE = window.__LUMA_BRIDGE || 'http://127.0.0.1:9876/integrations';
+  const BRIDGE = window.__LUMA_BRIDGE;
   const UA = window.__LUMA_UA || navigator.userAgent;
   const categories = ['sponsor', 'selfpromo', 'interaction', 'intro', 'outro', 'preview', 'hook', 'filler'];
   const segmentColors = {
@@ -203,6 +203,7 @@
   const brandingCache = new Map();
 
   async function bridgeJSON(path, params) {
+    if (!BRIDGE) return null;
     const query = new URLSearchParams(params);
     const response = await fetch(`${BRIDGE}/${path}?${query}`, { cache: 'no-store' });
     if (!response.ok) return null;
@@ -210,6 +211,7 @@
   }
 
   async function bridgeImage(videoId) {
+    if (!BRIDGE) return null;
     const response = await fetch(`${BRIDGE}/dearrow-thumbnail?videoID=${encodeURIComponent(videoId)}`, { cache: 'force-cache' });
     if (!response.ok) return null;
     const blob = await response.blob();
@@ -453,7 +455,8 @@
   };
 
   function exit() {
-    fetch(`${BRIDGE}/youtube-exit`, { cache: 'no-store' }).catch(() => {});
+    if (!BRIDGE) return;
+    fetch(`${BRIDGE}/exit`, { cache: 'no-store' }).catch(() => {});
   }
 
   window.addEventListener('keydown', event => {

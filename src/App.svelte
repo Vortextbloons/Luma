@@ -113,6 +113,8 @@
 
 <svelte:window onkeydown={navigation.keydown} />
 <main class="app-shell">
+  {#if panel}<SettingsPanel {message} {settings} {remote} {native} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />
+  {:else}
   <TopNav active={tab} {navigate} settings={openSettings} />
   {#if showHome}
     <Hero wallpaper={settings.wallpaper} launch={() => launch('Stremio')} details={() => select({ title: 'Killers of the Flower Moon', subtitle: 'Crime drama · 2023 · 3h 26m', artwork: heroArtwork })} />
@@ -123,6 +125,6 @@
   {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
 {#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
   <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back</span></footer>
+  {/if}
 </main>
-{#if panel}<SettingsPanel {message} {settings} {remote} {native} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />{/if}
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => launch('Stremio')} />{/if}

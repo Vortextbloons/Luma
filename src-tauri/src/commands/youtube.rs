@@ -245,9 +245,15 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
         serde_json::to_string(USER_AGENT).map_err(|e| e.to_string())?,
         serde_json::to_string(&bridge).map_err(|e| e.to_string())?,
     );
-    WebviewWindowBuilder::new(&app, "youtube", WebviewUrl::External(url))
+    let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+    let size = main.inner_size().map_err(|e| e.to_string())?;
+    let position = main.outer_position().map_err(|e| e.to_string())?;
+    let scale = main.scale_factor().map_err(|e| e.to_string())?;
+    let restore = main.clone();
+    let window = WebviewWindowBuilder::new(&app, "youtube", WebviewUrl::External(url))
         .title("Luma TV")
-        .inner_size(1280.0, 720.0)
+        .inner_size(size.width as f64 / scale, size.height as f64 / scale)
+        .position(position.x as f64 / scale, position.y as f64 / scale)
         .min_inner_size(720.0, 405.0)
         .fullscreen(fullscreen)
         .user_agent(USER_AGENT)
@@ -255,6 +261,15 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
         .on_navigation(|url| url.scheme() == "about" || allowed(url.host_str()))
         .build()
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
+    window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = restore.show();
+                let _ = restore.unminimize();
+                let _ = restore.set_focus();
+            }
+        });
+    window.set_focus().map_err(|e| e.to_string())?;
+    main.hide().map_err(|e| e.to_string())?;
     Ok(())
 }
 
