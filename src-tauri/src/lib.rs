@@ -35,8 +35,7 @@ pub fn run() {
             server::remote_status,
             server::configure_remote,
             server::update_app_state,
-            youtube::open_youtube,
-            youtube::close_youtube
+            youtube::open_youtube
         ])
         .build(tauri::generate_context!())
         .expect("error while running Luma");

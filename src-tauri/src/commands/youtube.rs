@@ -258,11 +258,6 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
     Ok(())
 }
 
-#[tauri::command]
-pub fn close_youtube(app: AppHandle) {
-    close(&app);
-}
-
 pub fn close(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("youtube") {
         let _ = window.close();

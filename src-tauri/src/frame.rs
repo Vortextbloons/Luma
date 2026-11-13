@@ -110,10 +110,10 @@ pub async fn initialize(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn frame_status(app: tauri::AppHandle) -> Result<Status, String> {
     let frame = app.state::<Frame>();
-    let saved = frame.saved.lock().map_err(|e| e.to_string())?;
+    let (enabled, paired) = { let saved = frame.saved.lock().map_err(|e| e.to_string())?; (saved.enabled, !saved.token.is_empty()) };
     let pairing = frame.pairing.lock().map_err(|e| e.to_string())?;
     let addresses = local_addresses();
-    Ok(Status { enabled: saved.enabled && frame.task.lock().map_err(|e| e.to_string())?.is_some(), paired: !saved.token.is_empty(), addresses, pc_name: pc_name(), code: pairing.as_ref().filter(|p| p.expires > Instant::now() && p.attempts < 10).map(|p| p.code.clone()) })
+    Ok(Status { enabled: enabled && frame.task.lock().map_err(|e| e.to_string())?.is_some(), paired, addresses, pc_name: pc_name(), code: pairing.as_ref().filter(|p| p.expires > Instant::now() && p.attempts < 10).map(|p| p.code.clone()) })
 }
 fn local_addresses() -> Vec<String> {
     let mut addresses = Vec::new();
