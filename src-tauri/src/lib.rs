@@ -102,6 +102,7 @@ pub fn run() {
             spotify::spotify_start,
             frame::frame_status,
             frame::configure_frame,
+            frame::forget_remotes,
             frame::frame_pairing,
             frame::phone_pairing,
             frame::phone_remote_qr,

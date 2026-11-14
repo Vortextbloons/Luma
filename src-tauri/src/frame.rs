@@ -1,6 +1,9 @@
 use crate::{
     commands::{apps, media, youtube},
-    remote::server::{self, NavigationCommand},
+    remote::{
+        credentials,
+        server::{self, NavigationCommand},
+    },
 };
 use axum::{
     body::Body,
@@ -19,16 +22,25 @@ use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
 const PHONE_COOKIE: &str = "luma_phone";
+const PHONE_COOKIE_MAX_AGE: u32 = 30 * 24 * 60 * 60;
 const PHONE_LOCAL_URL: &str = "http://localhost:9877/";
 const PHONE: &str = include_str!("phone.html");
 const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const DISPLAY_CREDENTIAL: &str = "display";
+const PHONE_CREDENTIAL: &str = "phone";
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Deserialize)]
 struct Saved {
     enabled: bool,
+    #[serde(default)]
     token: String,
     #[serde(default)]
     phone_token: String,
+}
+
+#[derive(Serialize)]
+struct Disk {
+    enabled: bool,
 }
 struct Pairing {
     code: String,
@@ -77,11 +89,23 @@ fn path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("display-box.json"))
 }
 fn save(app: &tauri::AppHandle, saved: &Saved) -> Result<(), String> {
+    persist(DISPLAY_CREDENTIAL, &saved.token)?;
+    persist(PHONE_CREDENTIAL, &saved.phone_token)?;
     std::fs::write(
         path(app)?,
-        serde_json::to_vec(saved).map_err(|e| e.to_string())?,
+        serde_json::to_vec(&Disk {
+            enabled: saved.enabled,
+        })
+        .map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
+}
+fn persist(kind: &str, token: &str) -> Result<(), String> {
+    if token.is_empty() {
+        credentials::delete(kind)
+    } else {
+        credentials::save(kind, token)
+    }
 }
 fn random_token() -> Result<String, String> {
     let mut bytes = [0u8; 32];
@@ -89,7 +113,12 @@ fn random_token() -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |n, (a, b)| n | (a ^ b)) == 0
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let mut difference = a.len() ^ b.len();
+    for index in 0..a.len().max(b.len()) {
+        difference |= usize::from(a.get(index).unwrap_or(&0) ^ b.get(index).unwrap_or(&0));
+    }
+    difference == 0
 }
 fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
@@ -342,7 +371,7 @@ async fn phone_pair(
     save(&app, &replacement).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     *saved = replacement;
     let cookie = format!(
-        "{PHONE_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000",
+        "{PHONE_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={PHONE_COOKIE_MAX_AGE}",
         saved.phone_token
     );
     let mut response = Json(serde_json::json!({"pcName": pc_name()})).into_response();
@@ -528,6 +557,17 @@ fn volume(_: &str) -> Result<(), String> {
     Err("PC volume requires Windows.".into())
 }
 
+async fn secure_headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers
+        .entry(header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
+    headers
+        .entry("x-content-type-options")
+        .or_insert(HeaderValue::from_static("nosniff"));
+    response
+}
 async fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9877")
         .await
@@ -546,6 +586,7 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/apps", get(apps_list))
         .route("/apps/{command}/icon", get(app_icon))
         .layer(DefaultBodyLimit::max(4096))
+        .layer(axum::middleware::from_fn(secure_headers))
         .with_state(app.clone());
     let task = tauri::async_runtime::spawn(async move {
         let _ = axum::serve(listener, router).await;
@@ -558,12 +599,24 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
 }
 pub async fn initialize(app: tauri::AppHandle) -> Result<(), String> {
     let file = path(&app)?;
-    let saved: Saved = if file.exists() {
+    let disk: Saved = if file.exists() {
         serde_json::from_slice(&std::fs::read(file).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?
     } else {
         Saved::default()
     };
+    let saved = Saved {
+        enabled: disk.enabled,
+        token: credentials::read(DISPLAY_CREDENTIAL)?
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| disk.token.clone()),
+        phone_token: credentials::read(PHONE_CREDENTIAL)?
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| disk.phone_token.clone()),
+    };
+    if !disk.token.is_empty() || !disk.phone_token.is_empty() {
+        save(&app, &saved)?;
+    }
     let enabled = saved.enabled;
     *app.state::<Frame>()
         .saved
@@ -608,18 +661,27 @@ fn local_addresses() -> Vec<String> {
 #[tauri::command]
 pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Status, String> {
     let frame = app.state::<Frame>();
+    {
+        let mut saved = frame.saved.lock().map_err(|e| e.to_string())?;
+        let previous = saved.enabled;
+        saved.enabled = enabled;
+        if let Err(error) = save(&app, &saved) {
+            saved.enabled = previous;
+            return Err(error);
+        }
+    }
     if enabled {
         let running = frame.task.lock().map_err(|e| e.to_string())?.is_some();
         if !running {
-            start(&app).await?;
+            if let Err(error) = start(&app).await {
+                if let Ok(mut saved) = frame.saved.lock() {
+                    saved.enabled = false;
+                    let _ = save(&app, &saved);
+                }
+                return Err(error);
+            }
         }
-    }
-    {
-        let mut saved = frame.saved.lock().map_err(|e| e.to_string())?;
-        saved.enabled = enabled;
-        save(&app, &saved)?;
-    }
-    if !enabled {
+    } else {
         crate::remote::pointer::stop_all(&app);
         crate::remote::pointer::show_cursor(&app);
         if let Some(task) = frame.task.lock().map_err(|e| e.to_string())?.take() {
@@ -628,6 +690,21 @@ pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Sta
         *frame.pairing.lock().map_err(|e| e.to_string())? = None;
         *frame.phone_pairing.lock().map_err(|e| e.to_string())? = None;
     }
+    frame_status(app)
+}
+#[tauri::command]
+pub fn forget_remotes(app: tauri::AppHandle) -> Result<Status, String> {
+    let frame = app.state::<Frame>();
+    {
+        let mut saved = frame.saved.lock().map_err(|e| e.to_string())?;
+        saved.token.clear();
+        saved.phone_token.clear();
+        save(&app, &saved)?;
+    }
+    crate::remote::pointer::stop_all(&app);
+    crate::remote::pointer::show_cursor(&app);
+    *frame.pairing.lock().map_err(|e| e.to_string())? = None;
+    *frame.phone_pairing.lock().map_err(|e| e.to_string())? = None;
     frame_status(app)
 }
 #[tauri::command]
@@ -675,6 +752,13 @@ pub fn open_phone_remote(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn token_comparison_rejects_prefixes_and_different_lengths() {
+        assert!(same("abcdef", "abcdef"));
+        assert!(!same("abcdef", "abcde"));
+        assert!(!same("abcdef", "abcdeg"));
+        assert!(!same("", "a"));
+    }
     #[test]
     fn pairing_expires_and_locks_after_ten_guesses() {
         let now = Instant::now();

@@ -965,7 +965,7 @@
     try {
       const { response, data } = await request('/phone/state');
       if (response.status === 401) {
-        showPairing();
+        showPairing('This web remote is no longer paired. Choose Connect in Luma for a new code.');
         return;
       }
       if (!response.ok) {

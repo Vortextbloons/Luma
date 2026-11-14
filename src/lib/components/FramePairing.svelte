@@ -147,6 +147,10 @@
     {:else}
       <button class="panel-secondary" disabled={busy} onclick={() => connect()}>Connect a remote</button>
     {/if}
+    {#if !pairingOnly && (status.paired || status.phonePaired)}
+      <button class="panel-secondary" disabled={busy} onclick={() => run('forget_remotes')}>Forget paired remotes</button>
+      <p class="remote-note">Paired browsers and Display Boxes will need a new code.</p>
+    {/if}
   {:else if busy}<p class="remote-note" role="status">Preparing your connection?</p>
   {:else if native}<button class="panel-secondary" disabled={busy} onclick={() => connect()}>Try again</button>
   {:else if !native}<p class="panel-description">Available in the desktop application.</p>{/if}

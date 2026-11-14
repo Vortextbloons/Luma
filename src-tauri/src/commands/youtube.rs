@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -61,6 +61,8 @@ fn reply(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response {
         .header("access-control-allow-private-network", "true")
         .header("vary", "origin")
         .header("content-type", content_type)
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
         .body(Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -145,10 +147,20 @@ async fn dearrow_thumbnail(headers: HeaderMap, Query(query): Query<VideoQuery>) 
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(';').next())
+                .map(str::trim)
+                .filter(|value| value.starts_with("image/"))
                 .unwrap_or("image/jpeg")
                 .to_string();
             match response.bytes().await {
-                Ok(body) => reply(StatusCode::OK, &content_type, body.to_vec()),
+                Ok(body) => {
+                    let mut response = reply(StatusCode::OK, &content_type, body.to_vec());
+                    response.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, max-age=86400"),
+                    );
+                    response
+                }
                 Err(_) => reply(StatusCode::BAD_GATEWAY, "text/plain", Vec::new()),
             }
         }
@@ -286,7 +298,7 @@ async fn bridge(app: &AppHandle) -> Result<String, String> {
 }
 
 fn allowed(host: Option<&str>) -> bool {
-    let Some(host) = host else { return true };
+    let Some(host) = host else { return false };
     [
         "youtube.com",
         "youtu.be",
@@ -299,6 +311,14 @@ fn allowed(host: Option<&str>) -> bool {
     ]
     .iter()
     .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+}
+
+fn permitted(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "about" => url.path() == "blank",
+        "https" => allowed(url.host_str()),
+        _ => false,
+    }
 }
 
 fn script(bridge: &str) -> Result<String, String> {
@@ -339,7 +359,7 @@ fn create(
         .user_agent(USER_AGENT)
         .initialization_script(script(bridge)?)
         .initialization_script(crate::background::MOTION_INIT)
-        .on_navigation(|url| url.scheme() == "about" || allowed(url.host_str()))
+        .on_navigation(permitted)
         .build()
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
     window.on_window_event(move |event| {
@@ -420,5 +440,31 @@ pub fn forward(app: &AppHandle, command: &str) {
     }
     if let Some(window) = app.get_webview_window("youtube") {
         navigate(&window, command);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::permitted;
+
+    fn permits(value: &str) -> bool {
+        permitted(&value.parse().expect("test URL"))
+    }
+
+    #[test]
+    fn only_https_provider_pages_can_replace_the_youtube_page() {
+        assert!(permits("about:blank"));
+        assert!(permits("https://www.youtube.com/tv"));
+        assert!(permits("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"));
+        for value in [
+            "http://www.youtube.com/tv",
+            "file:///C:/Users/viewer/Downloads/page.html",
+            "data:text/html,<script>alert(1)</script>",
+            "blob:https://www.youtube.com/9f1c",
+            "about:srcdoc",
+            "https://youtube.com.example.com/tv",
+        ] {
+            assert!(!permits(value), "{value}");
+        }
     }
 }
