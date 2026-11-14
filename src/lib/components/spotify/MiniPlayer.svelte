@@ -16,7 +16,7 @@
 </script>
 
 {#if visible}
-  <aside class="mini-player" data-placement={placement} aria-label="Now playing">
+  <aside class="mini-player" class:is-docked={placement !== 'bar'} data-placement={placement} aria-label="Now playing">
     <div class="mini-player-brand" aria-hidden="true"><ProviderIcon provider="spotify" /><span>Spotify</span></div>
     <button class="mini-player-open" onclick={onopen} aria-label="Open now playing">
       <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>

@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, ExecutableAppId, NavigationCommand, OpenOutcome, StremioStatus, YouTubeFeedItem } from '../types';
+import type { ActivitySnapshot, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
@@ -14,6 +14,10 @@ export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');
 export const openYouTubeVideo = (videoId: string, fullscreen: boolean) => invoke<void>('youtube_open_video', { videoId, fullscreen });
 export const onYouTubeFeed = (callback: (items: YouTubeFeedItem[]) => void) => listen<YouTubeFeedItem[]>('youtube-feed', event => callback(event.payload));
 export const activitySnapshot = () => invoke<ActivitySnapshot>('activity_snapshot');
+export const steamRecentGames = () => invoke<SteamGame[]>('steam_recent_games');
+export const steamStoreRecommendations = (appid: number) => invoke<SteamGame[]>('steam_recommendations', { appid });
+export const steamOpenGame = (appid: number) => invoke<void>('steam_open_game', { appid });
+export const steamOpenStore = (appid: number) => invoke<void>('steam_open_store', { appid });
 export const openActivity = (id: string, fullscreen: boolean) => invoke<OpenOutcome>('open_activity', { id, fullscreen });
 export const stremioStatus = () => invoke<StremioStatus>('stremio_status');
 export const stremioLinkStart = () => invoke<StremioStatus>('stremio_link_start');

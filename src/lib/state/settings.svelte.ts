@@ -4,7 +4,11 @@ import { resolveThemeId } from '../services/theme';
 
 const executable = ['Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
 const placements: WidgetPlacement[] = ['bar', 'top-right', 'bottom-right', 'bottom-left'];
-const appOrder: AppId[] = ['YouTube', 'Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'];
+const appOrder: AppId[] = ['YouTube', 'Spotify', 'Stremio', 'Steam', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'];
+const legacyOrders: AppId[][] = [
+  ['YouTube', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
+  ['YouTube', 'Spotify', 'Steam', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
+];
 
 function defaultSettings(): Settings {
   return {
@@ -40,11 +44,7 @@ export function createSettings() {
       if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
       value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
-      if (Array.isArray(data.order)) {
-        const order = data.order.filter((id): id is AppId => appOrder.includes(id) && typeof id === 'string');
-        value.order = [...new Set([...order, ...appOrder.filter(id => !order.includes(id))])].filter(id => id !== 'Custom');
-        value.order.push('Custom');
-      }
+      if (Array.isArray(data.order)) value.order = normalizeAppOrder(data.order, true);
       const spotify = data.widgets?.spotify;
       if (spotify && typeof spotify === 'object') {
         if (typeof spotify.enabled === 'boolean') value.widgets.spotify.enabled = spotify.enabled;
@@ -56,9 +56,25 @@ export function createSettings() {
   return state;
 }
 
-export function moveApp(settings: Settings, id: AppId, direction: -1 | 1) {
-  const index = settings.order.indexOf(id);
-  const target = index + direction;
-  if (id === 'Custom' || target < 0 || target >= settings.order.length || settings.order[target] === 'Custom') return;
-  [settings.order[index], settings.order[target]] = [settings.order[target], settings.order[index]];
+export function defaultAppOrder(): AppId[] {
+  return [...appOrder];
+}
+
+export function normalizeAppOrder(value: unknown, migrateLegacy = false): AppId[] {
+  const source = Array.isArray(value) ? value : [];
+  const known = source.filter((id): id is AppId => typeof id === 'string' && appOrder.includes(id as AppId) && id !== 'Custom');
+  const order = [...new Set(known)];
+  for (const id of appOrder) if (id !== 'Custom' && !order.includes(id)) order.push(id);
+  order.push('Custom');
+  return migrateLegacy && legacyOrders.some(legacy => order.join() === legacy.join()) ? [...appOrder] : order;
+}
+
+export function moveAppTo(settings: Settings, id: AppId, index: number) {
+  if (id === 'Custom') return;
+  const order = settings.order.filter(app => app !== 'Custom');
+  const from = order.indexOf(id);
+  if (from < 0) return;
+  order.splice(from, 1);
+  order.splice(Math.max(0, Math.min(index, order.length)), 0, id);
+  settings.order = [...order, 'Custom'];
 }

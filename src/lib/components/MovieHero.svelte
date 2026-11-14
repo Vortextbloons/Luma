@@ -24,6 +24,31 @@
   let shownKey = $state('');
   const active = $derived(Math.min(index, slides.length - 1));
   const item = $derived(slides[active]);
+  let loadedArt = $state('');
+  let loadedShape = $state<HeroSlide['artShape']>();
+  $effect(() => {
+    const slide = item;
+    let cancelled = false;
+    if (!slide?.art) { loadedArt = ''; return; }
+    const candidates = [slide.art];
+    if (slide.key.startsWith('steam:')) {
+      const id = slide.key.split(':')[1];
+      candidates.push(`https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/library_hero.jpg`, `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`);
+    }
+    const image = new Image();
+    let attempt = 0;
+    image.onload = () => {
+      if (!cancelled) { loadedArt = image.src; loadedShape = slide.artShape; }
+    };
+    image.onerror = () => {
+      if (cancelled) return;
+      attempt += 1;
+      if (attempt < candidates.length) image.src = candidates[attempt];
+      else loadedArt = '';
+    };
+    image.src = candidates[0];
+    return () => { cancelled = true; image.onload = null; image.onerror = null; };
+  });
   $effect(() => {
     if (shownKey !== sourceKey) {
       shownKey = sourceKey;
@@ -34,14 +59,12 @@
 
 {#if item}
   <section class="hero" class:is-inset={inset} aria-label={item.eyebrow}>
-    {#key item.key}
-      {#if item.art}
-        <img class="hero-art" class:is-shaped={item.artShape} src={item.art} alt="" decoding="async" fetchpriority="high" />
-        {#if item.artShape}
-          <img class="hero-cover" class:is-portrait={item.artShape === 'portrait'} src={item.art} alt="" decoding="async" />
-        {/if}
+    {#if loadedArt}
+      <img class="hero-art" class:is-shaped={loadedShape} src={loadedArt} alt="" decoding="async" fetchpriority="high" />
+      {#if loadedShape}
+        <img class="hero-cover" class:is-portrait={loadedShape === 'portrait'} src={loadedArt} alt="" decoding="async" />
       {/if}
-    {/key}
+    {/if}
     <div class="hero-shade" aria-hidden="true"></div>
     {#key item.key}
       <div class="hero-inner">

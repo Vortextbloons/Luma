@@ -9,10 +9,12 @@ mod integrations;
 mod remote;
 mod sound;
 
-use commands::{apps, media, services, session, stremio, youtube};
+use commands::{apps, media, services, session, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
+
+pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
 
 #[tauri::command]
 fn updates_enabled(app: tauri::AppHandle) -> bool {
@@ -80,6 +82,10 @@ pub fn run() {
             background::hide_to_tray,
             background::set_startup,
             apps::launch_app,
+            steam::steam_recent_games,
+            steam::steam_open_game,
+            steam::steam_open_store,
+            steam::steam_recommendations,
             session::close_launched_app,
             apps::app_paths,
             apps::save_app_paths,
@@ -108,6 +114,7 @@ pub fn run() {
             frame::open_phone_remote,
             server::update_app_state,
             server::update_appearance,
+            server::update_app_order,
             youtube::open_youtube,
             youtube::youtube_feed,
             youtube::youtube_open_video,

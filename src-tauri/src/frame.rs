@@ -273,12 +273,15 @@ async fn pair(
 async fn state(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Response, StatusCode> {
     authorized(&app, &headers)?;
     let state = server::snapshot_live(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(
-        serde_json::json!({"pcName": pc_name(), "connected": true, "state": state}),
-    ))
+    let mut response = Json(serde_json::json!({"pcName": pc_name(), "connected": true, "state": state})).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    Ok(response)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -382,6 +385,15 @@ async fn phone_pair(
     );
     Ok(response)
 }
+async fn phone_disconnect(headers: HeaderMap) -> Result<Response, StatusCode> {
+    same_origin(&headers)?;
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static("luma_phone=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+    );
+    Ok(response)
+}
 async fn phone_state(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -395,9 +407,12 @@ async fn phone_state(
 async fn apps_list(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Response, StatusCode> {
     remote_authorized(&app, &headers)?;
-    let apps: Vec<serde_json::Value> = apps::catalog()
+    let order = server::snapshot(&app)
+        .map(|state| state.app_order().to_vec())
+        .unwrap_or_default();
+    let apps: Vec<serde_json::Value> = apps_in_order(&order)
         .into_iter()
         .map(|entry| {
             serde_json::json!({
@@ -407,14 +422,51 @@ async fn apps_list(
             })
         })
         .collect();
-    Ok(Json(serde_json::json!({ "apps": apps })))
+    let mut response = Json(serde_json::json!({ "apps": apps })).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    Ok(response)
 }
+
+fn apps_in_order(order: &[String]) -> Vec<apps::CatalogEntry> {
+    let rank: std::collections::HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.as_str(), index))
+        .collect();
+    let mut catalog = apps::catalog();
+    catalog.sort_by_key(|entry| rank.get(entry.name).copied().unwrap_or(usize::MAX));
+    catalog
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayoutRequest {
+    order: Vec<String>,
+}
+
+async fn phone_layout(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<LayoutRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    same_origin(&headers)?;
+    phone_authorized(&app, &headers)?;
+    if request.order.len() > 32 || request.order.iter().any(|name| name.len() > 64) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    server::set_app_order(&app, request.order, true)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({"accepted": true, "state": state})))
+}
+
 async fn app_icon(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
     axum::extract::Path(command): axum::extract::Path<String>,
-) -> Result<Response, StatusCode> {
-    remote_authorized(&app, &headers)?;
+) -> Result<Response, StatusCode> {    remote_authorized(&app, &headers)?;
     let entry = apps::catalog()
         .into_iter()
         .find(|entry| entry.command == command)
@@ -525,6 +577,7 @@ async fn phone_socket(
     Ok(upgrade.max_message_size(4096).max_frame_size(4096).write_buffer_size(0).on_upgrade(move |mut socket| async move {
         let mut last_state: Option<String> = None;
         let mut appearance = app.state::<server::Remote>().subscribe_appearance();
+        let mut app_order = app.state::<server::Remote>().subscribe_app_order();
         loop {
             tokio::select! {
                 message = socket.recv() => {
@@ -568,6 +621,12 @@ async fn phone_socket(
                         let response = serde_json::json!({ "appearance": appearance });
                         if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
                     }
+                }
+                changed = app_order.changed() => {
+                    if changed.is_err() { break; }
+                    let order = app_order.borrow_and_update().clone();
+                    let response = serde_json::json!({ "appOrder": order });
+                    if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
                 }
             }
         }
@@ -650,7 +709,9 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/state", get(state))
         .route("/command", post(command))
         .route("/phone/pair", post(phone_pair))
+        .route("/phone/disconnect", post(phone_disconnect))
         .route("/phone/state", get(phone_state))
+        .route("/phone/layout", post(phone_layout))
         .route("/phone/ws", get(phone_socket))
         .route("/phone/command", post(phone_command))
         .route("/phone/sound/{preset}/{role}", get(phone_sound))
@@ -863,6 +924,18 @@ mod tests {
         assert_eq!(saved.token, "saved");
         assert!(saved.phone_token.is_empty());
     }
+    #[test]
+    fn app_catalog_follows_the_synced_order() {
+        let names: Vec<&str> = apps_in_order(&["Netflix".into(), "YouTube".into()])
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(names[0], "Netflix");
+        assert_eq!(names[1], "YouTube");
+        assert_eq!(names.len(), apps::catalog().len());
+        assert_eq!(names.last().copied(), Some("Custom"));
+    }
+
     #[test]
     fn pairing_one_device_does_not_replace_the_other_credential() {
         let saved = Saved {

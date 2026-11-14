@@ -350,6 +350,7 @@ fn create(
     let restore = main.clone();
     let window = WebviewWindowBuilder::new(app, "youtube", WebviewUrl::External(url))
         .title("Luma TV")
+        .additional_browser_args(crate::BROWSER_ARGS)
         .inner_size(size.width as f64 / scale, size.height as f64 / scale)
         .position(position.x as f64 / scale, position.y as f64 / scale)
         .min_inner_size(720.0, 405.0)

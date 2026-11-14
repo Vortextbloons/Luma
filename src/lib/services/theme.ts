@@ -136,12 +136,33 @@ const graphite: ThemeTokens = {
   '--accent-soft': '#d7dae23d',
 };
 
+const onyx: ThemeTokens = {
+  ...semantic,
+  '--bg': '#000000',
+  '--bg-soft': '#000000',
+  '--ambient': '#000000',
+  '--surface': '#0a0a0a',
+  '--surface-2': '#040404',
+  '--surface-3': '#131313',
+  '--line': '#ffffff16',
+  '--line-strong': '#ffffff2b',
+  '--text': '#f7f7f7',
+  '--text-dim': '#cfcfcf',
+  '--muted': '#9c9c9c',
+  '--dim': '#828282',
+  '--accent': '#ededed',
+  '--accent-strong': '#ffffff',
+  '--accent-ink': '#000000',
+  '--accent-soft': '#ffffff0a',
+};
+
 export const themes: ThemeDefinition[] = [
   { id: 'violet-night', name: 'Violet Night', description: 'Lavender glow on a midnight base.', tokens: violetNight },
   { id: 'sapphire', name: 'Sapphire', description: 'Cool blue light over deep navy.', tokens: sapphire },
   { id: 'mint', name: 'Mint', description: 'A soft jade atmosphere.', tokens: mint },
   { id: 'ember', name: 'Ember', description: 'Warm peach light over charcoal.', tokens: ember },
   { id: 'graphite', name: 'Graphite', description: 'Neutral, quiet, and distraction-free.', tokens: graphite },
+  { id: 'onyx', name: 'Onyx', description: 'Pure black with no ambient glow.', tokens: onyx },
 ];
 
 export const defaultThemeId: ThemeId = 'violet-night';

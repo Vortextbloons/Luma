@@ -1,4 +1,4 @@
-use crate::commands::youtube;
+use crate::commands::{apps, youtube};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Mutex};
 use tauri::{Emitter, Manager};
@@ -64,6 +64,13 @@ pub struct AppState {
     window_fullscreen: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     appearance: Option<Appearance>,
+    app_order: Vec<String>,
+}
+
+impl AppState {
+    pub(crate) fn app_order(&self) -> &[String] {
+        &self.app_order
+    }
 }
 
 fn valid_token_value(value: &str) -> bool {
@@ -115,6 +122,45 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), String> {
             return Err(format!("Theme name is invalid: {}.", theme.id));
         }
         validate_tokens(&theme.tokens)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn normalize_app_order(order: Vec<String>) -> Vec<String> {
+    let names: Vec<String> = apps::catalog()
+        .into_iter()
+        .map(|entry| entry.name.to_string())
+        .collect();
+    let mut result: Vec<String> = Vec::new();
+    for name in order {
+        if name == "Custom" || !names.iter().any(|known| known == &name) || result.contains(&name) {
+            continue;
+        }
+        result.push(name);
+    }
+    for name in &names {
+        if name != "Custom" && !result.contains(name) {
+            result.push(name.clone());
+        }
+    }
+    result.push("Custom".into());
+    result
+}
+
+pub(crate) fn set_app_order(
+    app: &tauri::AppHandle,
+    order: Vec<String>,
+    notify_frontend: bool,
+) -> Result<(), String> {
+    let order = normalize_app_order(order);
+    {
+        let remote = app.state::<Remote>();
+        let mut state = remote.state.lock().map_err(|error| error.to_string())?;
+        state.app_order = order.clone();
+        remote.app_order.send_replace(order.clone());
+    }
+    if notify_frontend {
+        let _ = app.emit_to("main", "app-order", order);
     }
     Ok(())
 }
@@ -267,6 +313,7 @@ pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
 pub struct Remote {
     state: Mutex<AppState>,
     appearance: tokio::sync::watch::Sender<Option<Appearance>>,
+    app_order: tokio::sync::watch::Sender<Vec<String>>,
 }
 
 impl Default for Remote {
@@ -279,8 +326,10 @@ impl Default for Remote {
                 window: None,
                 window_fullscreen: None,
                 appearance: None,
+                app_order: Vec::new(),
             }),
             appearance: tokio::sync::watch::channel(None).0,
+            app_order: tokio::sync::watch::channel(Vec::new()).0,
         }
     }
 }
@@ -290,6 +339,10 @@ impl Remote {
         &self,
     ) -> tokio::sync::watch::Receiver<Option<Appearance>> {
         self.appearance.subscribe()
+    }
+
+    pub(crate) fn subscribe_app_order(&self) -> tokio::sync::watch::Receiver<Vec<String>> {
+        self.app_order.subscribe()
     }
 }
 
@@ -359,6 +412,11 @@ pub fn update_app_state(
     state.fullscreen = fullscreen;
     state.sound = sound;
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_app_order(app: tauri::AppHandle, order: Vec<String>) -> Result<(), String> {
+    set_app_order(&app, order, false)
 }
 
 #[tauri::command]
@@ -446,6 +504,22 @@ mod tests {
     }
 
     #[test]
+    fn app_order_keeps_known_apps_and_forces_custom_last() {
+        let order = super::normalize_app_order(vec![
+            "Netflix".into(),
+            "Netflix".into(),
+            "Unknown".into(),
+            "Custom".into(),
+            "YouTube".into(),
+        ]);
+        assert_eq!(order.first().map(String::as_str), Some("Netflix"));
+        assert_eq!(order.get(1).map(String::as_str), Some("YouTube"));
+        assert_eq!(order.last().map(String::as_str), Some("Custom"));
+        assert_eq!(order.iter().filter(|name| name.as_str() == "Custom").count(), 1);
+        assert!(order.iter().any(|name| name == "Steam"));
+    }
+
+    #[test]
     fn external_session_prevents_waking_the_launcher() {
         assert!(!should_wake(false, true));
         assert!(should_wake(false, false));
@@ -475,6 +549,7 @@ mod tests {
             window: Some("YouTube".into()),
             window_fullscreen: Some(true),
             appearance: None,
+            app_order: Vec::new(),
         };
         let value = serde_json::to_value(state).unwrap();
         assert_eq!(value["window"], "YouTube");

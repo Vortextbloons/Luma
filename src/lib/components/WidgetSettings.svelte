@@ -12,7 +12,7 @@
 
 <section class="settings-group">
   <h3>Widgets</h3>
-  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar is the current layout; corner widgets keep the same controls in a compact card below the header or above the bottom edge.</p>
+  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar shows the full player; corner placements keep a small now-playing card tucked into empty space and expand when you focus or point at it.</p>
   <div class="widget-list">
     {#each widgetDefinitions as widget (widget.id)}
       {@const config = settings.widgets[widget.id]}
@@ -53,8 +53,8 @@
   .placement-screen { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
   .placement-screen i { position: absolute; display: block; border-radius: 3px; background: var(--accent); }
   .placement-screen.is-bar i { left: 8%; right: 8%; bottom: 8%; height: 22%; border-radius: 4px; }
-  .placement-screen.is-top-right i { top: 8%; right: 8%; width: 30%; height: 38%; }
-  .placement-screen.is-bottom-right i { right: 8%; bottom: 8%; width: 30%; height: 38%; }
-  .placement-screen.is-bottom-left i { left: 8%; bottom: 8%; width: 30%; height: 38%; }
+  .placement-screen.is-top-right i { top: 10%; right: 9%; width: 30%; height: 16%; border-radius: 4px; }
+  .placement-screen.is-bottom-right i { right: 9%; bottom: 10%; width: 30%; height: 16%; border-radius: 4px; }
+  .placement-screen.is-bottom-left i { left: 9%; bottom: 10%; width: 30%; height: 16%; border-radius: 4px; }
   @media (max-width: 720px) { .widget-placement { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

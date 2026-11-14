@@ -733,6 +733,7 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
         .map_err(|error| format!("Invalid Stremio URL: {error}"))?;
     let window = WebviewWindowBuilder::new(app, "stremio", WebviewUrl::External(url))
         .title("Stremio")
+        .additional_browser_args(crate::BROWSER_ARGS)
         .inner_size(size.width as f64 / scale, size.height as f64 / scale)
         .position(position.x as f64 / scale, position.y as f64 / scale)
         .min_inner_size(720.0, 405.0)

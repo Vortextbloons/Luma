@@ -50,7 +50,7 @@ Arrow keys move visible focus, Enter activates, Escape or Backspace returns, and
 
 Settings provide fullscreen, themes, home layout, widget placement, density, tile ordering, executable paths, TV screen and audio output, and startup options. Appearance preferences are stored in the WebView's local storage. App paths are saved separately in `apps.json` under Tauri's application configuration directory. Choose **Save app settings** after editing paths. Luma validates local absolute `.exe` paths and launches them directly without shell commands. Services are described by one registry in `apps.rs` — id, executable locations, and streaming URL — so adding a service is a data change rather than a new launch path.
 
-Appearance is built on one token contract in `src/lib/services/theme.ts`. Each theme is a complete palette of semantic variables (`--bg`, `--surface`, `--text`, `--accent`, and so on), not just an accent color. The app applies the selected palette to the document root, and the same palette and theme list are sent to the Rust remote through `update_appearance`; the web remote follows the TV by default and can keep a local theme override in its settings. The Home layout is an ordered `home` array in settings, including the featured hero and every row that can appear on Home; hidden rows keep their position. Widgets are registered in `src/lib/services/widgets.ts`, with one Spotify widget for now, and their placement is stored per widget. The layout editor's preview uses the live catalog, activity, app, and widget data.
+Appearance is built on one token contract in `src/lib/services/theme.ts`. Each theme is a complete palette of semantic variables (`--bg`, `--surface`, `--text`, `--accent`, and so on), not just an accent color. The app applies the selected palette to the document root, and the same palette and theme list are sent to the Rust remote through `update_appearance`; the web remote follows the TV by default and can keep a local theme override in its settings. The Home layout is an ordered `home` array in settings, including the featured hero and every row that can appear on Home; hidden rows keep their position. App order is a separate `order` array. It is sent to the Rust remote with `update_app_order`, returned by `/apps` in that order, included as `appOrder` in state, and can be edited from the web remote's App layout editor. The TV applies the `app-order` event and persists it. Widgets are registered in `src/lib/services/widgets.ts`, with one Spotify widget for now, and their placement is stored per widget. The layout editor's preview uses the live catalog, activity, app, and widget data.
 
 Spotify, Netflix, Disney+, and Prime Video are automatically detected at startup and whenever launched with an empty configured path. Detection checks standard per-user/system installation locations and Windows App Paths registrations. **Find installed apps** fills empty path fields without replacing manual overrides. Stremio opens inside Luma and has no executable path. The custom tile always requires a path.
 
@@ -114,8 +114,9 @@ One local server starts with Luma at `0.0.0.0:9877` when local remote access is 
 The frame keeps its existing protocol on port 9877 and authenticates with `Authorization: Bearer <frame-token>`:
 
 - `POST /pair` accepts `{ "code": "123456" }` and returns `{ "token": "...", "pcName": "..." }`.
-- `GET /state` returns the PC name and connection state.
+- `GET /state` returns the PC name, connection state, appearance, app order, and sound state.
 - `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; volume commands are `volumeup`, `volumedown`, and `mute`.
+- `GET /apps` returns the app catalog in the current dock order; the order is shared with the web remote and the TV.
 
 Frame credentials are persistent and are not replaced by web remote pairing. This protocol rejects requests that include an Origin header. Commands cannot carry executable paths or shell arguments. **Forget paired remotes** clears the frame and web remote credentials.
 
@@ -125,8 +126,9 @@ Open `http://<PC-Wi-Fi-address>:9877/` in a browser on any device connected to t
 
 - `GET /` serves the web remote page.
 - `POST /phone/pair` accepts `{ "code": "123456" }` and sets the web remote cookie.
-- `GET /phone/state` returns the PC name and the current Luma view.
+- `GET /phone/state` returns the PC name, current Luma view, appearance, app order, and sound state.
 - `POST /phone/command` accepts the same command objects as Display Box.
+- `POST /phone/layout` accepts `{ "order": ["Netflix", "YouTube", "...", "Custom"] }` and applies the dock order to the TV and both remotes.
 
 Web remote commands require the server's own origin; cross-origin and missing-origin POSTs are rejected. The separate port 9876 HTTP/WebSocket remote, its manually configured allowed origin, and its per-session credential are replaced by this consolidated server. Browsers can now control navigation, app launches, playback, and PC volume from the page Luma serves.
 

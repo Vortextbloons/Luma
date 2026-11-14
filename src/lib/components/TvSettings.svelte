@@ -47,7 +47,7 @@
 </script>
 
 <section class="settings-group" aria-busy={busy}>
-  <h3>TV setup</h3>
+  <h3>Devices</h3>
   <p class="panel-description">Choose the screen and sound output for watching from the sofa. Keep Windows in Extend mode to leave your desktop on its own screen.</p>
   {#if !native}
     <p class="panel-description">Open the desktop app to choose your TV and sound output.</p>

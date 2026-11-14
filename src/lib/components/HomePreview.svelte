@@ -88,7 +88,8 @@
           <div class="widget-card" class:is-top-right={widget.placement === 'top-right'} class:is-bottom-right={widget.placement === 'bottom-right'} class:is-bottom-left={widget.placement === 'bottom-left'}>
             <span class="widget-art"><ProviderIcon provider="spotify" /></span>
             <span class="widget-copy"><i class="widget-line"></i><i class="widget-line is-short"></i></span>
-            <span class="widget-controls"><i></i><i></i><i></i></span>
+            <span class="widget-controls"><i></i></span>
+            <span class="widget-timeline"></span>
           </div>
         {/if}
       </div>
@@ -327,11 +328,11 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 1cqw;
-    height: 6.2cqw;
-    padding: .8cqw 1.1cqw;
+    gap: .8cqw;
+    height: 5cqw;
+    padding: .6cqw 1cqw;
     border: 1px solid var(--line);
-    border-radius: 1.2cqw;
+    border-radius: 1.1cqw;
     background: color-mix(in srgb, var(--surface-3) 92%, transparent);
     box-shadow: 0 4px 14px #0006;
   }
@@ -339,10 +340,10 @@
     flex: none;
     display: grid;
     place-items: center;
-    width: 4.4cqw;
-    height: 4.4cqw;
+    width: 3.6cqw;
+    height: 3.6cqw;
     overflow: hidden;
-    border-radius: 1cqw;
+    border-radius: .9cqw;
     background: linear-gradient(135deg, #1ed760, #0a5f2e);
   }
   .widget-art :global(.provider-icon) {
@@ -391,26 +392,47 @@
     z-index: 2;
     display: flex;
     align-items: center;
-    gap: .7cqw;
-    width: 21cqw;
-    padding: .8cqw;
+    gap: .6cqw;
+    width: 15cqw;
+    padding: .6cqw .7cqw .95cqw;
     border: 1px solid var(--line-strong);
-    border-radius: 1.2cqw;
+    border-radius: 1.1cqw;
     background: color-mix(in srgb, var(--surface-3) 94%, transparent);
     box-shadow: 0 8px 24px #0008;
     backdrop-filter: blur(4px);
   }
   .widget-card .widget-art {
-    width: 3.2cqw;
-    height: 3.2cqw;
+    width: 2.6cqw;
+    height: 2.6cqw;
+    border-radius: .7cqw;
+  }
+  .widget-card .widget-copy {
+    gap: .35cqw;
+  }
+  .widget-card .widget-line {
+    height: .7cqw;
   }
   .widget-card .widget-controls i {
-    width: 1cqw;
-    height: 1cqw;
+    width: 1.4cqw;
+    height: 1.4cqw;
+    background: #f2f4fb;
   }
-  .widget-card .widget-controls i:nth-child(2) {
-    width: 1.6cqw;
-    height: 1.6cqw;
+  .widget-timeline {
+    position: absolute;
+    left: .7cqw;
+    right: .7cqw;
+    bottom: .35cqw;
+    height: .25cqw;
+    border-radius: 99px;
+    background: #ffffff26;
+  }
+  .widget-timeline:before {
+    content: '';
+    display: block;
+    width: 34%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
   }
   .widget-card.is-top-right {
     top: 7.4cqw;

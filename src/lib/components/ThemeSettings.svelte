@@ -24,6 +24,7 @@
           style:--preview-text={theme.tokens['--text']}
           style:--preview-muted={theme.tokens['--muted']}
           style:--preview-accent={theme.tokens['--accent']}
+          style:--preview-accent-soft={theme.tokens['--accent-soft']}
         >
           <span class="theme-screen-top"></span>
           <span class="theme-screen-hero"></span>
@@ -50,7 +51,7 @@
   .theme-screen-row.is-small { right: 48%; top: 79%; opacity: .7; }
   .theme-screen-row i { display: block; width: 22%; aspect-ratio: 2 / 3; border-radius: 3px; background: var(--preview-surface); border: 1px solid var(--line); }
   .theme-screen-row.is-small i { aspect-ratio: 16 / 9; }
-  .theme-screen-accent { position: absolute; right: 8%; top: 62%; width: 14%; aspect-ratio: 1; border-radius: 50%; background: var(--preview-accent); box-shadow: 0 0 18px var(--preview-accent); }
+  .theme-screen-accent { position: absolute; right: 8%; top: 62%; width: 14%; aspect-ratio: 1; border-radius: 50%; background: var(--preview-accent); box-shadow: 0 0 18px var(--preview-accent-soft); }
   .theme-copy { display: grid; gap: 3px; min-width: 0; }
   .theme-copy strong { font-size: 15px; letter-spacing: -.01em; }
   .theme-copy small { color: var(--muted); font-size: 12px; line-height: 1.35; }
