@@ -2,6 +2,8 @@ import { native } from '../services/tauri';
 import {
   onSpotifyConnection,
   onSpotifyPlayback,
+  spotifyBrowse,
+  spotifyDevices,
   spotifyClientId,
   spotifyConnect,
   spotifyControl,
@@ -18,6 +20,7 @@ import {
 } from '../services/spotify';
 import type {
   SpotifyConnection,
+  SpotifyDevice,
   SpotifyHomeData,
   SpotifyPlaybackState,
   SpotifyQueue,
@@ -47,8 +50,12 @@ function emptyHome(): SpotifyHomeData {
 export function createSpotify() {
   let playback = $state<SpotifyPlaybackState>(emptyPlayback());
   let connection = $state<SpotifyConnection>(emptyConnection());
-  let home = $state<SpotifyHomeData>(emptyHome());
-  let queue = $state<SpotifyQueue | null>(null);
+  let home = $state.raw<SpotifyHomeData>(emptyHome());
+  let queueError = $state('');
+  let devices = $state.raw<SpotifyDevice[]>([]);
+  let devicesLoading = $state(false);
+  let devicesError = $state('');
+  let queue = $state.raw<SpotifyQueue | null>(null);
   let clientId = $state('');
   let loading = $state(false);
   let homeLoading = $state(false);
@@ -110,6 +117,7 @@ export function createSpotify() {
   }
 
   async function action(name: string, value?: string) {
+    if (busy) return false;
     busy = true;
     try {
       await spotifyControl(name, value);
@@ -124,21 +132,23 @@ export function createSpotify() {
     }
   }
 
-  async function playUri(uri?: string) {
-    if (!uri) return false;
+  async function playUri(uri?: string, contextUri?: string) {
+    if (!uri || busy) return false;
+    busy = true;
     try {
-      await spotifyPlay(uri);
+      await spotifyPlay(uri, undefined, contextUri);
       await refresh();
       error = '';
       return true;
     } catch (cause) {
       error = String(cause);
       return false;
-    }
+    } finally { busy = false; }
   }
 
   async function transfer(deviceId?: string) {
-    if (!deviceId) return false;
+    if (!deviceId || busy) return false;
+    busy = true;
     try {
       await spotifyTransfer(deviceId);
       await refresh();
@@ -147,7 +157,7 @@ export function createSpotify() {
     } catch (cause) {
       error = String(cause);
       return false;
-    }
+    } finally { busy = false; }
   }
 
   async function start() {
@@ -187,6 +197,9 @@ export function createSpotify() {
       connection = await spotifyDisconnect();
       home = emptyHome();
       queue = null;
+      queueError = '';
+      devices = [];
+      devicesError = '';
       homeLoadedAt = 0;
       await refresh();
       error = '';
@@ -219,13 +232,29 @@ export function createSpotify() {
   async function loadQueue() {
     if (!native || !connection.authenticated) return;
     try {
+      queueError = '';
       queue = await spotifyQueue();
     } catch (cause) {
-      error = String(cause);
+      queueError = String(cause);
     }
   }
 
+  async function loadDevices() {
+    if (!native || !connection.authenticated || devicesLoading) return;
+    devicesLoading = true;
+    devicesError = '';
+    try { devices = await spotifyDevices(); }
+    catch (cause) { devicesError = String(cause); }
+    finally { devicesLoading = false; }
+  }
+
   return {
+    browse: spotifyBrowse,
+    loadDevices,
+    get devices() { return devices; },
+    get devicesLoading() { return devicesLoading; },
+    get devicesError() { return devicesError; },
+    get queueError() { return queueError; },
     get playback() { return playback; },
     get connection() { return connection; },
     get home() { return home; },

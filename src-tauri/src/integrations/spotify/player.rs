@@ -332,6 +332,7 @@ pub async fn play_uri(
     auth: &Auth,
     uri: &str,
     device_id: Option<&str>,
+    context_uri: Option<&str>,
 ) -> Result<(), String> {
     if !auth.authenticated() {
         return Err("Connect a Spotify account to start playlists and albums from Luma.".into());
@@ -368,7 +369,7 @@ pub async fn play_uri(
         api::transfer(auth, &target).await?;
         tokio::time::sleep(Duration::from_millis(350)).await;
     }
-    api::play(auth, uri, Some(target.as_str())).await?;
+    api::play(auth, uri, Some(target.as_str()), context_uri).await?;
     refresh_later(app.clone());
     Ok(())
 }

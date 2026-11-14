@@ -5,6 +5,7 @@ export interface Settings {
   accent: 'violet' | 'blue' | 'mint' | 'peach';
   density: 'comfortable' | 'compact';
   appTileShape: 'wide' | 'square';
+  homeShortcut: string;
   fullscreen: boolean;
   wallpaper: string;
   sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean; recent: boolean; recentApps: boolean };

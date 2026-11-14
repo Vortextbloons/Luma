@@ -40,10 +40,10 @@ impl Pairing {
         if self.expires <= now || self.attempts >= 10 {
             return Err(StatusCode::FORBIDDEN);
         }
-        self.attempts += 1;
         if same(code, &self.code) {
             Ok(())
         } else {
+            self.attempts += 1;
             Err(StatusCode::UNAUTHORIZED)
         }
     }
@@ -178,7 +178,11 @@ fn rotate_phone(saved: &Saved) -> Result<Saved, String> {
     Ok(Saved {
         enabled: saved.enabled,
         token: saved.token.clone(),
-        phone_token: random_token()?,
+        phone_token: if saved.phone_token.is_empty() {
+            random_token()?
+        } else {
+            saved.phone_token.clone()
+        },
     })
 }
 fn new_pairing() -> Result<Pairing, String> {
@@ -319,10 +323,6 @@ async fn phone_pair(
     let replacement = rotate_phone(&saved).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     save(&app, &replacement).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     *saved = replacement;
-    *frame
-        .phone_pairing
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? = None;
     let cookie = format!(
         "{PHONE_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000",
         saved.phone_token
@@ -609,7 +609,11 @@ mod tests {
         assert_eq!(display.token.len(), 64);
         let phone = rotate_phone(&saved).unwrap();
         assert_eq!(phone.token, "display");
-        assert_eq!(phone.phone_token.len(), 64);
+        assert_eq!(phone.phone_token, "phone");
+        let first = rotate_phone(&Saved::default()).unwrap();
+        assert_eq!(first.phone_token.len(), 64);
+        let second = rotate_phone(&first).unwrap();
+        assert_eq!(first.phone_token, second.phone_token);
     }
     #[test]
     fn phone_requests_must_come_from_the_served_origin() {

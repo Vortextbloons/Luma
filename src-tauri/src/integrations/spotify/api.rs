@@ -72,6 +72,9 @@ async fn request(
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err("Spotify sign-in expired. Reconnect your account in Settings.".into());
         }
+        if status == reqwest::StatusCode::FORBIDDEN && path.starts_with("/playlists/") && path.ends_with("/items") {
+            return Err("Spotify only allows browsing playlists you own or collaborate on. You can still play this playlist using Play playlist.".into());
+        }
         if status == reqwest::StatusCode::FORBIDDEN {
             return Err(format!(
                 "Spotify rejected this request. Development Mode apps have limited endpoint access. {}",
@@ -364,8 +367,13 @@ pub async fn devices(auth: &Auth) -> Result<Vec<Device>, String> {
         .unwrap_or_default())
 }
 
-pub async fn play(auth: &Auth, uri: &str, device_id: Option<&str>) -> Result<(), String> {
-    let body = if uri.starts_with("spotify:track:") {
+pub async fn play(auth: &Auth, uri: &str, device_id: Option<&str>, context_uri: Option<&str>) -> Result<(), String> {
+    let body = if let Some(context) = context_uri {
+        if !uri.starts_with("spotify:track:") || !(context.starts_with("spotify:album:") || context.starts_with("spotify:playlist:")) {
+            return Err("Unsupported Spotify playback context.".into());
+        }
+        json!({ "context_uri": context, "offset": { "uri": uri } })
+    } else if uri.starts_with("spotify:track:") {
         json!({ "uris": [uri] })
     } else if uri.starts_with("spotify:album:")
         || uri.starts_with("spotify:playlist:")
@@ -512,7 +520,8 @@ fn track(value: &Value) -> Track {
             .map(str::to_string),
         uri: value
             .get("uri")
-            .and_then(|value| value.as_str())
+            .and_then(|uri| uri.as_str())
+            .filter(|_| value.get("is_playable").and_then(Value::as_bool) != Some(false))
             .map(str::to_string),
         title: value
             .get("name")
@@ -641,4 +650,51 @@ fn images(value: &Value) -> Option<String> {
         .iter()
         .find_map(|image| image.get("url").and_then(|value| value.as_str()))
         .map(str::to_string)
+}
+
+pub async fn browse(auth: &Auth, kind: &str, id: &str, offset: u32) -> Result<super::models::BrowsePage, String> {
+    let path = match kind {
+        "tracks" => "/me/tracks".to_string(),
+        "playlists" => "/me/playlists".to_string(),
+        "albums" => "/me/albums".to_string(),
+        "playlist" | "album" => {
+            if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+                return Err("Choose a valid Spotify collection.".into());
+            }
+            if kind == "playlist" { format!("/playlists/{id}/items") } else { format!("/albums/{id}/tracks") }
+        }
+        _ => return Err("Unsupported Spotify collection.".into()),
+    };
+    let value = request(auth, Method::GET, &path, &[("limit", "50".into()), ("offset", offset.to_string())], None).await?
+        .ok_or_else(|| "Spotify returned no collection data.".to_string())?;
+    let items = value.get("items").and_then(Value::as_array).ok_or_else(|| "Spotify returned an invalid collection.".to_string())?;
+    let mut page = super::models::BrowsePage {
+        total: value.get("total").and_then(Value::as_u64).unwrap_or_default(),
+        next_offset: value.get("next").and_then(Value::as_str).map(|_| u64::from(offset) + items.len() as u64),
+        ..Default::default()
+    };
+    match kind {
+        "playlists" => page.playlists = items.iter().filter(|item| !item.is_null()).map(playlist).collect(),
+        "albums" => page.albums = items.iter().filter_map(|item| item.get("album")).map(album).collect(),
+        _ => page.tracks = items.iter().map(track).filter(has_track).collect(),
+    }
+    Ok(page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playlist_items_parse_current_payload_and_keep_unavailable_tracks_visible() {
+        let current = json!({ "item": { "id": "abc", "uri": "spotify:track:abc", "name": "Song", "artists": [{ "name": "Artist" }], "duration_ms": 180000 } });
+        let parsed = track(&current);
+        assert_eq!(parsed.title, "Song");
+        assert_eq!(parsed.artist, "Artist");
+        assert_eq!(parsed.uri.as_deref(), Some("spotify:track:abc"));
+        assert!(!has_track(&track(&json!({ "item": null }))));
+        let unavailable = track(&json!({ "item": { "name": "Unavailable song", "uri": "spotify:track:abc", "is_playable": false } }));
+        assert!(has_track(&unavailable));
+        assert!(unavailable.uri.is_none());
+    }
 }

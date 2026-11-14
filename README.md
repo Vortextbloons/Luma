@@ -12,10 +12,13 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib
+cargo run --manifest-path src-tauri/Cargo.toml --example window_handoff
 npm run tauri build
 ```
 
 `npm run dev` runs a frontend browser preview. Native features require `npm run tauri dev`. Stop a separately running Vite process on port 1420 before starting the Tauri dev command. `npm run tauri build -- --no-bundle` produces the standalone executable without an installer.
+
+The `window_handoff` regression check opens isolated Windows test windows. It checks stationary-pointer hover targets and 40 fullscreen window handoffs, including WebView input focus, without starting the remote server.
 
 Arrow keys move visible focus, Enter activates, Escape or Backspace returns, and Home opens the home screen. Tab and Shift+Tab wrap within the current modal. Text fields keep their normal editing keys. Keyboard and authenticated remote inputs share the same navigation dispatcher.
 

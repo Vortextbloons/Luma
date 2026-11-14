@@ -23,3 +23,7 @@
     <p class="music-empty-line">{empty}</p>
   {/if}
 </section>
+
+<style>
+  .music-card-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(180px,16vw,280px); grid-template-columns: none; gap: 26px; overflow-x: auto; padding: 10px; margin: -10px; scrollbar-width: none; }
+</style>

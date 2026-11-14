@@ -422,6 +422,11 @@ pub fn save_app_paths(
 #[tauri::command]
 pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHandle) -> Result<(), String> {
     let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
+    if name == "Spotify" {
+        crate::remote::server::open_music(&app)?;
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
     if name == "Stremio" {
         crate::commands::stremio::show(app.clone(), None).await?;
         crate::activity::record_launch(&app, &name);
@@ -434,21 +439,6 @@ pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHand
         .get(&name)
         .cloned()
         .unwrap_or_default();
-    if name == "Spotify" {
-        if !crate::integrations::spotify::process::running() {
-            let detected = if configured.is_empty() {
-                detect(&name)
-            } else {
-                Some(validate(&configured)?)
-            };
-            let executable = detected.ok_or(
-                "Spotify was not found. Install it or choose its program under App locations in Settings.",
-            )?;
-            crate::integrations::spotify::process::launch_path_minimized(&executable)?;
-        }
-        crate::activity::record_launch(&app, &name);
-        return Ok(());
-    }
     if crate::commands::session::reuse(&app, &name) {
         if let Some(window) = app.get_webview_window("main") {
             window.minimize().map_err(|e| e.to_string())?;

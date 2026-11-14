@@ -664,19 +664,15 @@ pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), Str
             create(&app, target, session)?
         },
     };
-    window.show().map_err(|error| error.to_string())?;
-    window.unminimize().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
-    if let Some(main) = app.get_webview_window("main") {
-        main.hide().map_err(|error| error.to_string())?;
-    }
+    let fullscreen = app.get_webview_window("main")
+        .and_then(|main| main.is_fullscreen().ok());
+    crate::background::present(window, fullscreen).await?;
     Ok(())
 }
 
 pub(crate) fn close(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("stremio") {
         pause(&window);
-        let _ = window.hide();
     }
     restore_main(app);
 }
@@ -718,6 +714,7 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
         .min_inner_size(720.0, 405.0)
         .fullscreen(fullscreen)
         .visible(false)
+        .focused(false)
         .initialization_script(SCRIPT.replace("__LUMA_STREMIO_SESSION__", &json!({
             "account": session,
             "target": target,
@@ -756,7 +753,6 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
             let restore = restore.clone();
             tauri::async_runtime::spawn(async move {
                 pause(&close);
-                let _ = close.hide();
                 restore_main(&restore);
             });
         }

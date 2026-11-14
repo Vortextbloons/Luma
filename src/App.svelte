@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
@@ -21,7 +21,7 @@
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { appProviders } from './lib/services/activity';
-  import { native, launchApp, saveAppPaths, onNavigation, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
+  import { native, launchApp, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioStatus, YouTubeFeedItem } from './lib/types';
 
@@ -31,19 +31,22 @@
   const activityItems = $derived(activity.items);
   let tab = $state('Home');
   let panel = $state(false);
+  let connectRemote = $state(false);
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
   let popular = $state<MediaItem[]>([]);
   let featured = $state<MediaItem[]>([]);
   let playerOpen = $state(false);
+  let musicHome = $state<MusicHome>();
+  let player = $state<NowPlaying>();
   let launching = $state<AppId | null>(null);
   let stremio = $state<StremioStatus | null>(null);
   let previewApp = $state<AppId | null>(null);
   let youTubeFeed = $state<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
-  const navigation = createNavigation(back, home);
+  const navigation = createNavigation(back, home, () => settings.homeShortcut);
   const showHome = $derived(tab === 'Home');
   const youtubePicks = $derived(showHome && previewApp === 'YouTube' && youTubeFeed.length > 0);
 
@@ -65,7 +68,7 @@
     document.documentElement.dataset.accent = settings.accent;
     document.documentElement.dataset.density = settings.density;
     document.documentElement.dataset.appTileShape = settings.appTileShape;
-    try { localStorage.setItem('luma-v1', JSON.stringify({ accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Try a smaller wallpaper or free local storage.'; }
   });
   $effect(() => {
@@ -84,7 +87,12 @@
     async function start() {
       if (!native) { message = 'Browser preview. Native app launching, fullscreen, phone remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
-        cleanup.push(await onNavigation(navigation.dispatch));
+        const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
+        if (disposed) { stopMusic(); return; }
+        cleanup.push(stopMusic);
+        const stopNavigation = await onNavigation(navigation.dispatch);
+        if (disposed) { stopNavigation(); return; }
+        cleanup.push(stopNavigation);
         await onYouTubeFeed(items => youTubeFeed = items).then(stop => cleanup.push(stop)).catch(() => {});
         youtubeFeed().then(items => youTubeFeed = items).catch(() => {});
         cleanup.push(await activity.start());
@@ -106,7 +114,8 @@
   function back() {
     if (panel) { panel = false; void refreshStremio(); }
     else if (details) details = null;
-    else if (playerOpen) { closePlayer(); return; }
+    else if (playerOpen) { if (!player?.closeOverlay()) closePlayer(); return; }
+    else if (tab === 'Music' && musicHome?.closeDetail()) return;
     else { home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
@@ -142,15 +151,28 @@
     navigation.keydown(event);
   }
   function navigate(value: string) { previewApp = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  async function openMusic() {
+    while (musicHome?.closeDetail()) {}
+    previewApp = null;
+    panel = false;
+    details = null;
+    playerOpen = false;
+    message = '';
+    tab = 'Music';
+    await tick();
+    if (tab === 'Music' && !panel && !details && !playerOpen) {
+      window.scrollTo(0, 0);
+      navigation.focusMusic();
+    }
+  }
   function openSettings() { showSettings('Display'); }
   function openApps() { showSettings('Apps'); }
   function openIntegrations() { showSettings('Integrations'); }
-  function showSettings(category: string) { previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
+  function showSettings(category: string) { connectRemote = category === 'Remote & Startup'; previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
   async function launch(id: AppId) {
     if (id === 'Spotify') {
-      navigate('Music');
-      requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('.music-home .music-now-actions button:not(:disabled), .music-home .music-starting button:not(:disabled), .music-home button:not(:disabled)') ?? undefined));
+      await openMusic();
       return;
     }
     if (launching) return;
@@ -221,7 +243,7 @@
 
 <svelte:window onkeydown={keydown} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
+  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} {connectRemote} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={() => showSettings('Remote & Startup')} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
@@ -237,7 +259,7 @@
     {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
     {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />{/if}
   {/if}
-  {#if tab === 'Music'}<MusicHome onopen={openPlayer} onsettings={openIntegrations} />{/if}
+  {#if tab === 'Music'}<MusicHome bind:this={musicHome} onopen={openPlayer} onsettings={openIntegrations} />{/if}
   {#if tab === 'Watch'}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
   {/if}
@@ -250,7 +272,7 @@
 {#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
   <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back · Space toggles playback</span></footer>
   {#if !playerOpen}<MiniPlayer onopen={openPlayer} />{/if}
-  {#if playerOpen}<NowPlaying onclose={closePlayer} />{/if}
+  {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}

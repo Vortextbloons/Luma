@@ -2,7 +2,7 @@ import type { AppId, Settings } from '../types';
 
 const executable = ['Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
 const defaults: Settings = {
-  accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false, wallpaper: '',
+  homeShortcut: 'Ctrl+H', accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false, wallpaper: '',
   sections: { popular: true, apps: true, featured: true, continue: true, recent: true, recentApps: true },
   paths: { Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
   order: ['YouTube', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
@@ -18,6 +18,7 @@ export function createSettings() {
       if (['violet', 'blue', 'mint', 'peach'].includes(data.accent ?? '')) value.accent = data.accent!;
       if (data.density === 'compact') value.density = data.density;
       if (data.appTileShape === 'square') value.appTileShape = 'square';
+      if (typeof data.homeShortcut === 'string' && /^(?:Ctrl\+(?:Alt\+)?|Alt\+)(?:Shift\+)?(?:[A-Z0-9]|Home|F(?:[1-9]|1[0-2]))$/.test(data.homeShortcut) && !data.homeShortcut.endsWith('+F11')) value.homeShortcut = data.homeShortcut;
       value.fullscreen = data.fullscreen === true;
       if (typeof data.wallpaper === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(data.wallpaper)) value.wallpaper = data.wallpaper;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];

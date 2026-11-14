@@ -60,8 +60,9 @@ pub async fn spotify_play(
     auth: State<'_, Auth>,
     uri: String,
     device_id: Option<String>,
+    context_uri: Option<String>,
 ) -> Result<(), String> {
-    player::play_uri(&app, &auth, &uri, device_id.as_deref()).await
+    player::play_uri(&app, &auth, &uri, device_id.as_deref(), context_uri.as_deref()).await
 }
 
 #[tauri::command]
@@ -150,3 +151,8 @@ pub async fn spotify_start(app: tauri::AppHandle) -> Result<(), String> {
     player::start(app).await
 }
 
+
+#[tauri::command]
+pub async fn spotify_browse(auth: State<'_, Auth>, kind: String, id: String, offset: u32) -> Result<models::BrowsePage, String> {
+    api::browse(&auth, &kind, &id, offset).await
+}

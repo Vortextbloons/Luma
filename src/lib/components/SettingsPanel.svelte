@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { homeShortcut } from '../services/navigation';
   import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
   import FramePairing from './FramePairing.svelte';
@@ -10,11 +11,11 @@
   import type { ActivityState } from '../state/activity.svelte';
   import type { AppId, ExecutableAppId, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display' }: {
+  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display', connectRemote = false }: {
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
     report: (message: string) => void; activity: ActivityState;
-    startCategory?: string;
+    startCategory?: string; connectRemote?: boolean;
   } = $props();
   const categoryGroups = [
     { name: 'Picture', categories: [
@@ -47,6 +48,19 @@
   ] as const;
   let category = $derived(startCategory);
   const activeCategory = $derived(categories.find(item => item.name === category) ?? categories[0]);
+  let recordingShortcut = $state(false);
+  let shortcutFeedback = $state('');
+  function recordShortcut(event: KeyboardEvent) {
+    if (!recordingShortcut) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') { recordingShortcut = false; shortcutFeedback = ''; return; }
+    const shortcut = homeShortcut(event);
+    if (!shortcut) { shortcutFeedback = 'Hold Ctrl or Alt and press a letter, number, Home, or function key other than F11.'; return; }
+    settings.homeShortcut = shortcut;
+    recordingShortcut = false;
+    shortcutFeedback = `Home shortcut saved: ${shortcut}.`;
+  }
   let busy = $state(false);
   let content = $state<HTMLDivElement>();
   function selectCategory(name: string) {
@@ -217,8 +231,17 @@
         <SpotifyIntegration {native} />
         <StremioIntegration {native} />
       {:else}
+        <section class="settings-group">
+          <h3>Keyboard</h3>
+          <div class="settings-row">
+            <div class="settings-row-copy"><strong>Return home</strong><span>Current shortcut: {settings.homeShortcut}. Works while Luma has focus.</span></div>
+            <button class="panel-secondary" onkeydown={recordShortcut} onblur={() => recordingShortcut = false} onclick={() => { recordingShortcut = true; shortcutFeedback = ''; }}>{recordingShortcut ? 'Press a shortcut? Escape cancels' : 'Change shortcut'}</button>
+            <button class="panel-secondary" disabled={settings.homeShortcut === 'Ctrl+H'} onclick={() => { settings.homeShortcut = 'Ctrl+H'; shortcutFeedback = 'Home shortcut reset to Ctrl+H.'; }}>Reset to Ctrl+H</button>
+          </div>
+          {#if shortcutFeedback}<p role="status" class="panel-description">{shortcutFeedback}</p>{/if}
+        </section>
         <BackgroundSettings {native} />
-        <FramePairing {native} />
+        <FramePairing {native} autoConnect={connectRemote} />
       {/if}
     </div>
   </div>

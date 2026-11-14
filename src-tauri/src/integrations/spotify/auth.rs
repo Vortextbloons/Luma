@@ -190,6 +190,9 @@ impl Auth {
             let mut tokens = self.tokens.lock().map_err(|error| error.to_string())?;
             let tokens = tokens.get_or_insert_with(Tokens::default);
             tokens.access_token = access_token.clone();
+            if let Some(refresh_token) = value.get("refresh_token").and_then(|value| value.as_str()) {
+                tokens.refresh_token = refresh_token.to_string();
+            }
             tokens.expires_at = now_ms() / 1000 + expires_in;
             tokens.clone()
         };

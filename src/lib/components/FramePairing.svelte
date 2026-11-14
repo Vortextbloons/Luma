@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  let { native }: { native: boolean } = $props();
+  let { native, autoConnect = false }: { native: boolean; autoConnect?: boolean } = $props();
   type Status = { enabled: boolean; paired: boolean; addresses: string[]; pcName: string; code: string | null; phonePaired: boolean; phoneUrl: string; phoneCode: string | null };
   type Device = 'phone' | 'frame';
   let status = $state<Status | null>(null);
@@ -53,7 +53,7 @@
     finally { busy = false; }
   }
   onMount(() => {
-    if (native) void run('frame_status');
+    if (native) void (autoConnect ? connect() : run('frame_status'));
     let checking = false;
     const timer = setInterval(async () => {
       if (!native || busy || checking) return;
@@ -101,13 +101,13 @@
             <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
           {/if}
           <div class="remote-launch"><button class="panel-secondary" disabled={busy} onclick={openRemote}>Open remote in browser</button></div>
-          <p class="remote-note">The browser opens http://localhost:9877 on this PC. Keep Luma running; closing its window leaves it in the tray.</p>
+          <p class="remote-note">On your phone, use the address above, not localhost. Keep Luma running and both devices on the same Wi-Fi.</p>
           <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New phone code' : status.phonePaired ? 'Pair another phone' : 'Pair a phone'}</button>
           {#if status.phoneCode}
             <div class="frame-code">
               <span class="frame-code-label">Phone pairing code</span>
               <p class="pair-code" aria-label="Phone pairing code">{status.phoneCode}</p>
-              <p class="panel-description">Enter this code on the phone or this PC's browser. It is valid for five minutes.</p>
+              <p class="panel-description">Enter this code on the phone or this PC's browser. It is valid for five minutes and can connect multiple phones.</p>
             </div>
           {/if}
           {#if status.phonePaired}<p class="remote-paired">A phone or browser has been paired. Luma remembers it for next time.</p>{/if}
@@ -137,7 +137,7 @@
       {/if}
       <details class="remote-help">
         <summary tabindex="0">Can't connect?</summary>
-        <p>Make sure the phone or Display Box is on the same private Wi-Fi network as this PC. If Windows asks, allow Luma through the firewall on private networks. Remote control uses HTTP on port 9877.</p>
+        <p>Make sure the phone or Display Box is on the same private Wi-Fi network as this PC. On a trusted home Wi-Fi network, set the Windows network profile to Private and allow Luma through Windows Firewall. Guest Wi-Fi may block connections between devices. Remote control uses HTTP on port 9877.</p>
       </details>
     {:else}
       <p class="remote-note">Choose Connect a remote to set up your phone or Display Box.</p>

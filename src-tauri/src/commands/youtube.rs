@@ -372,13 +372,7 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
         Some(window) => window,
         None => create(&app, &bridge(&app).await?, fullscreen, true, None)?,
     };
-    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
-    window.show().map_err(|e| e.to_string())?;
-    window.unminimize().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())?;
-    if let Some(main) = app.get_webview_window("main") {
-        main.hide().map_err(|e| e.to_string())?;
-    }
+    crate::background::present(window, Some(fullscreen)).await?;
     crate::activity::record_launch(&app, "YouTube");
     Ok(())
 }
@@ -400,13 +394,7 @@ pub async fn open_video(
         }
         None => (create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?, true),
     };
-    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
-    window.show().map_err(|e| e.to_string())?;
-    window.unminimize().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())?;
-    if let Some(main) = app.get_webview_window("main") {
-        main.hide().map_err(|e| e.to_string())?;
-    }
+    crate::background::present(window, Some(fullscreen)).await?;
     if created {
         crate::activity::record_launch(&app, "YouTube");
     }
@@ -425,7 +413,6 @@ pub async fn youtube_open_video(
 pub fn close(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("youtube") {
         let _ = window.eval("document.querySelector('video')?.pause();");
-        let _ = window.hide();
     }
     crate::background::show(app);
 }

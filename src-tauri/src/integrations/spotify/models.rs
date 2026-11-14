@@ -176,3 +176,13 @@ mod tests {
         assert!(parse_command("repeat", Some("forever")).is_err());
     }
 }
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowsePage {
+    pub tracks: Vec<Track>,
+    pub playlists: Vec<Playlist>,
+    pub albums: Vec<Album>,
+    pub total: u64,
+    pub next_offset: Option<u64>,
+}

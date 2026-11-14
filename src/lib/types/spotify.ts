@@ -102,3 +102,15 @@ export interface MusicCardItem {
   artworkUrl?: string;
   uri?: string;
 }
+
+export type SpotifyBrowseKind = 'playlist' | 'album' | 'tracks' | 'playlists' | 'albums';
+export interface SpotifyBrowsePage {
+  tracks: SpotifyTrack[];
+  playlists: SpotifyPlaylist[];
+  albums: SpotifyAlbum[];
+  total: number;
+  nextOffset?: number;
+}
+export interface MusicCollection extends MusicCardItem {
+  kind: SpotifyBrowseKind;
+}

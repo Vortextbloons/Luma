@@ -15,19 +15,41 @@ pub fn open_setup_link(service: String) -> Result<(), String> {
 
 pub fn show(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        tauri::async_runtime::spawn(async move {
+            let _ = present(window, None).await;
+        });
     }
-    restore_input(app);
 }
 
-pub(crate) fn restore_input(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let webview = window.as_ref();
-        let _ = webview.show();
-        let _ = webview.set_focus();
-    }
+pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<bool>) -> Result<(), String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let dispatcher = window.clone();
+    dispatcher.run_on_main_thread(move || {
+        let result = (|| -> tauri::Result<()> {
+            if let Some(fullscreen) = fullscreen {
+                window.set_fullscreen(fullscreen)?;
+            }
+            window.show()?;
+            if window.is_minimized()? {
+                window.unminimize()?;
+            }
+            for label in ["main", "youtube", "stremio"] {
+                if label != window.label() {
+                    if let Some(other) = window.app_handle().get_webview_window(label) {
+                        if other.is_visible()? {
+                            other.hide()?;
+                        }
+                    }
+                }
+            }
+            window.set_focus()?;
+            window.as_ref().show()?;
+            window.as_ref().set_focus()?;
+            Ok(())
+        })();
+        let _ = sender.send(result.map_err(|error| error.to_string()));
+    }).map_err(|error| error.to_string())?;
+    receiver.await.map_err(|error| error.to_string())?
 }
 
 pub fn setup(app: &tauri::App) -> tauri::Result<()> {

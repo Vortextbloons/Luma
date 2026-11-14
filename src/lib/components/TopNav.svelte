@@ -1,15 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import logo from '../../assets/luma.png';
-  import { invoke } from '@tauri-apps/api/core';
-  import { native } from '../services/tauri';
   let { active, navigate, settings, connect, fullscreen, toggle }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void } = $props();
   let clock = $state('');
-  let needsRemote = $state(false);
   onMount(() => {
-    if (native) void invoke<{ enabled: boolean; paired: boolean; phonePaired: boolean }>('frame_status')
-      .then(status => needsRemote = !status.enabled || (!status.paired && !status.phonePaired))
-      .catch(() => needsRemote = true);
     const update = () => clock = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     update();
     const timer = setInterval(update, 60000);
@@ -26,7 +20,7 @@
   </nav>
   <div class="header-right">
     <time class="clock">{clock}</time>
-    {#if needsRemote}<button class="header-btn" onclick={connect}>Connect</button>{/if}
+    <button class="header-btn" onclick={connect}>Connect</button>
     {#if fullscreen}
       <span class="fullscreen-hint">Press <kbd>F11</kbd> to exit fullscreen</span>
     {:else}

@@ -73,6 +73,31 @@ fn show_main(handled: bool, embedded: bool, command: NavigationCommand) -> bool 
     matches!(command, NavigationCommand::Home) && !handled && !embedded
 }
 
+pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::commands::session::release(app)?;
+    for label in ["stremio", "youtube"] {
+        if app
+            .get_webview_window(label)
+            .is_some_and(|window| window.is_visible().unwrap_or(false))
+        {
+            if label == "stremio" {
+                crate::commands::stremio::close(app);
+            } else {
+                youtube::close(app);
+            }
+        }
+    }
+    crate::background::show(app);
+    app.emit_to("main", "open-music", ())
+        .map_err(|error| error.to_string())?;
+    app.state::<Remote>()
+        .state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .view = "Music".into();
+    Ok(())
+}
+
 pub struct Remote {
     state: Mutex<AppState>,
 }

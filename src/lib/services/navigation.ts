@@ -1,6 +1,11 @@
 import type { NavigationCommand } from '../types';
 
-export function createNavigation(back: () => void, home: () => void) {
+export function homeShortcut(event: KeyboardEvent) {
+  if (event.metaKey || event.isComposing || (!event.ctrlKey && !event.altKey) || !/^(?:[a-z0-9]|Home|F(?:[1-9]|1[0-2]))$/i.test(event.key) || event.key === 'F11') return '';
+  return `${event.ctrlKey ? 'Ctrl+' : ''}${event.altKey ? 'Alt+' : ''}${event.shiftKey ? 'Shift+' : ''}${event.key.length === 1 ? event.key.toUpperCase() : event.key}`;
+}
+
+export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+H') {
   const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
   function focus(el?: HTMLElement) {
     const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
@@ -44,6 +49,8 @@ export function createNavigation(back: () => void, home: () => void) {
     if (best) focus(best);
   }
   function keydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.isComposing) return;
+    if (homeShortcut(event) === shortcut()) { event.preventDefault(); if (!event.repeat) dispatch('home'); return; }
     if (event.key === 'Tab') {
       const candidates = elements();
       const index = candidates.indexOf(document.activeElement as HTMLElement);
@@ -51,11 +58,20 @@ export function createNavigation(back: () => void, home: () => void) {
       else if (!event.shiftKey && index === candidates.length - 1) { event.preventDefault(); focus(candidates[0]); }
       return;
     }
-    const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+    const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || (event.target as HTMLElement)?.tagName === 'TEXTAREA' || (event.target as HTMLElement)?.isContentEditable;
     if (editing && event.key !== 'Escape') return;
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
     const mapping: Record<string, NavigationCommand> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'activate', Escape: 'back', Backspace: 'back', Home: 'home' };
     const command = mapping[event.key];
     if (command) { event.preventDefault(); dispatch(command); }
   }
-  return { dispatch, keydown, focus };
+  function focusMusic() {
+    const candidates = elements();
+    for (const selector of ['.music-home .music-now-actions button', '.music-home .music-starting button', '.music-home button', '.music-home input']) {
+      const target = candidates.find(el => el.matches(selector));
+      if (target) { focus(target); return; }
+    }
+    focus();
+  }
+  return { dispatch, keydown, focus, focusMusic };
 }

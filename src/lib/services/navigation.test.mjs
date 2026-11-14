@@ -83,6 +83,31 @@ test('text editing retains arrow and Backspace behavior while Escape still goes 
   assert.equal(f.counts().homed, 1);
 });
 
+test('home shortcut defaults to Ctrl+H and works while editing without repeats', () => {
+  const f = fixture();
+  let prevented = 0;
+  const event = { target: new Input(), key: 'h', ctrlKey: true, preventDefault() { prevented++; } };
+  f.navigation.keydown(event);
+  f.navigation.keydown({ ...event, repeat: true });
+  f.navigation.keydown({ ...event, altKey: true });
+  assert.equal(f.counts().homed, 1);
+  assert.equal(prevented, 2);
+});
+
+test('changing the home shortcut replaces the previous binding immediately', () => {
+  fixture();
+  let shortcut = 'Alt+Home';
+  let homed = 0;
+  const navigation = createNavigation(() => {}, () => homed++, () => shortcut);
+  const event = { key: 'Home', altKey: true, preventDefault() {} };
+  navigation.keydown(event);
+  shortcut = 'Ctrl+J';
+  navigation.keydown(event);
+  navigation.keydown({ ...event, key: 'j', altKey: false, ctrlKey: true });
+  navigation.keydown({ ...event, key: 'j', altKey: false, ctrlKey: true, defaultPrevented: true });
+  assert.equal(homed, 2);
+});
+
 test('remote arrows adjust playback sliders and vertical navigation leaves them', () => {
   const f = fixture();
   const slider = f.button(0, 0), next = f.button(0, 100);
@@ -120,6 +145,30 @@ test('closing settings restores visible focus when its original section was hidd
   assert.equal(f.document.activeElement, visible);
   f.navigation.dispatch('right');
   assert.equal(f.document.activeElement, visible);
+});
+
+test('Music entry prioritizes usable playback controls over the header and skips hidden controls', () => {
+  const f = fixture();
+  const header = f.button(0, 0), hidden = f.button(0, 100, true), play = f.button(100, 100);
+  header.matches = selector => selector === '.music-home button';
+  hidden.matches = play.matches = selector => selector === '.music-home .music-now-actions button';
+  header.focus();
+  f.navigation.focusMusic();
+  assert.equal(f.document.activeElement, play);
+  f.navigation.dispatch('activate');
+  assert.equal(play.clicks, 1);
+});
+
+test('Music entry focuses setup when playback is unavailable and can be repeated', () => {
+  const f = fixture();
+  const header = f.button(0, 0), start = f.button(0, 100);
+  header.matches = selector => selector === '.music-home button';
+  start.matches = selector => selector === '.music-home .music-starting button';
+  f.navigation.focusMusic();
+  assert.equal(f.document.activeElement, start);
+  start.isConnected = false;
+  f.navigation.focusMusic();
+  assert.equal(f.document.activeElement, header);
 });
 
 after(() => {

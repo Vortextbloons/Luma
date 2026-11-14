@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MusicIcon from './MusicIcon.svelte';
   import { onMount } from 'svelte';
   import { spotify } from '../../state/spotify.svelte';
   import ProviderIcon from '../activity/ProviderIcon.svelte';
@@ -26,11 +27,11 @@
 
   async function connect() {
     message = '';
-    if (await spotify.connect()) message = 'Spotify account connected.';
+    if (await spotify.connect()) message = 'Spotify account connected. Luma will keep you signed in until you sign out.';
   }
 
   async function disconnect() {
-    if (await spotify.disconnect()) message = 'Spotify account disconnected.';
+    if (await spotify.disconnect()) message = 'Spotify account signed out. Choose Connect Spotify to use another account.';
   }
 
   async function start() {
@@ -65,7 +66,7 @@
   <details class="spotify-advanced">
     <summary class="settings-advanced-summary" tabindex="0">
       <span class="settings-advanced-copy"><strong>Connect a Spotify account</strong><small>Optional. Adds playlists, search, saved music, and devices.</small></span>
-      <span class="settings-advanced-mark" aria-hidden="true">›</span>
+      <span class="settings-advanced-mark" aria-hidden="true"><MusicIcon name="chevron-right" /></span>
     </summary>
     <div class="settings-advanced-body">
       <p class="panel-description">Play, pause, skip, and volume work with the installed app. A connected account adds playlists, saved music, search, recent listening, queue, and device controls. Luma uses your own Spotify developer app for this optional connection.</p>
@@ -81,8 +82,8 @@
       <label class="field">Spotify Client ID<input bind:value={clientId} placeholder="Paste the Client ID" spellcheck="false" autocomplete="off" /></label>
       <div class="settings-actions">
         <button class="panel-secondary" disabled={!native || saving || !clientId.trim()} onclick={save}>{saving ? 'Saving…' : 'Save Client ID'}</button>
-        <button class="panel-secondary is-primary" disabled={!native || spotify.connecting || !connection.clientIdConfigured} onclick={connect}>{spotify.connecting ? 'Waiting for browser…' : connection.authenticated ? 'Reconnect Spotify' : 'Connect Spotify'}</button>
-        {#if connection.authenticated}<button class="text-link" disabled={!native} onclick={disconnect}>Disconnect account</button>{/if}
+        {#if !connection.authenticated}<button class="panel-secondary is-primary" disabled={!native || spotify.connecting || !connection.clientIdConfigured} onclick={connect}>{spotify.connecting ? 'Waiting for browser…' : 'Connect Spotify'}</button>{/if}
+        {#if connection.authenticated}<button class="text-link" disabled={!native} onclick={disconnect}>Sign out</button>{/if}
       </div>
       {#if message}<p class="panel-description" role="status">{message}</p>{/if}
       {#if spotify.error}<p class="error" role="status">{spotify.error}</p>{/if}

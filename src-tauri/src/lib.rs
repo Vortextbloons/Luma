@@ -46,21 +46,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                match event {
-                    tauri::WindowEvent::CloseRequested { api, .. } => {
-                        api.prevent_close();
-                        let window = window.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = window.hide();
-                        });
-                    }
-                    tauri::WindowEvent::Focused(true) => {
-                        let app = window.app_handle().clone();
-                        tauri::async_runtime::spawn(async move {
-                            background::restore_input(&app);
-                        });
-                    }
-                    _ => {}
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = window.hide();
+                    });
                 }
             }
         })
@@ -80,6 +71,7 @@ pub fn run() {
             spotify::spotify_play,
             spotify::spotify_transfer,
             spotify::spotify_home,
+            spotify::spotify_browse,
             spotify::spotify_search,
             spotify::spotify_queue,
             spotify::spotify_devices,

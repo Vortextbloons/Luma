@@ -127,6 +127,19 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
     }
 }
 
+pub(crate) fn release(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<Session>();
+    let launched = state.0.lock().map_err(|error| error.to_string())?.take();
+    if !platform::foreground_is_luma() {
+        if let Some(launched) = launched {
+            if let Some(window) = platform::find(launched.pid, &launched.name) {
+                platform::minimize(window);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn restore(app: &AppHandle) {
     crate::background::show(app);
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MusicIcon from './MusicIcon.svelte';
   import type { SpotifyPlaybackState } from '../../types/spotify';
   let { playback, busy = false, onaction, compact = false }: {
     playback: SpotifyPlaybackState;
@@ -12,8 +13,14 @@
   }
 </script>
 
-<div class:compact class="playback-controls" aria-label="Playback controls">
-  <button class="playback-button" disabled={busy || !playback.canSkipPrevious} aria-label="Previous track" onclick={(event) => { stop(event); onaction('previous'); }}>⏮</button>
-  <button class="playback-button primary" disabled={busy || !playback.canToggle} aria-label={playback.playing ? 'Pause' : 'Play'} onclick={(event) => { stop(event); onaction('toggle'); }}>{playback.playing ? 'Ⅱ' : '▶'}</button>
-  <button class="playback-button" disabled={busy || !playback.canSkipNext} aria-label="Next track" onclick={(event) => { stop(event); onaction('next'); }}>⏭</button>
+<div class={["playback-controls", { compact }]} aria-label="Playback controls">
+  <button class="playback-button" disabled={busy || !playback.canSkipPrevious} aria-label="Previous track" onclick={(event) => { stop(event); onaction('previous'); }}><MusicIcon name="skip-back" /></button>
+  <button class="playback-button primary" disabled={busy || !playback.canToggle} aria-label={playback.playing ? 'Pause' : 'Play'} onclick={(event) => { stop(event); onaction('toggle'); }}><MusicIcon name={playback.playing ? 'pause' : 'play'} size={28} /></button>
+  <button class="playback-button" disabled={busy || !playback.canSkipNext} aria-label="Next track" onclick={(event) => { stop(event); onaction('next'); }}><MusicIcon name="skip-forward" /></button>
 </div>
+
+<style>
+  .playback-button { width: 64px; height: 64px; } .playback-button.primary { width: 82px; height: 82px; }
+  .playback-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+  .playback-controls.compact .playback-button { width: 48px; height: 48px; } .playback-controls.compact .playback-button.primary { width: 56px; height: 56px; }
+</style>
