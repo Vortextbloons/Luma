@@ -5,6 +5,36 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('./inject.js', import.meta.url), 'utf8');
 
+test('remote cursor stays hidden on stationary page events and returns on mouse movement', () => {
+  const rust = readFileSync(new URL('../../src/remote/pointer.rs', import.meta.url), 'utf8');
+  const hide = JSON.parse(rust.match(/const HIDE: &str = (".*");/)[1]);
+  const show = JSON.parse(rust.match(/const SHOW: &str = (".*");/)[1]);
+  const listeners = new Map();
+  let style = null;
+  const window = {
+    addEventListener: (type, callback) => listeners.set(type, callback),
+    removeEventListener: type => listeners.delete(type),
+  };
+  const document = {
+    getElementById: () => style,
+    createElement: () => ({ remove() { style = null; } }),
+    documentElement: { appendChild(element) { style = element; } },
+  };
+  const context = vm.createContext({ window, document });
+  vm.runInContext(hide, context);
+  assert.ok(style);
+  assert.equal(listeners.has('mousedown'), false);
+  listeners.get('pointermove')({ type: 'pointermove', movementX: 0, movementY: 0 });
+  assert.ok(style);
+  listeners.get('pointermove')({ type: 'pointermove', movementX: 1, movementY: 0 });
+  assert.equal(style, null);
+  assert.equal(listeners.size, 0);
+  vm.runInContext(hide, context);
+  vm.runInContext(show, context);
+  assert.equal(style, null);
+  assert.equal(listeners.size, 0);
+});
+
 function boot({ index = 0, length = 1 } = {}) {
   const history = { length, back() { this.calls += 1; }, calls: 0 };
   const window = {
@@ -58,4 +88,15 @@ test('back returns to Luma only at the start of the service history', () => {
 test('a missing navigation entry falls back to history length', () => {
   assert.equal(boot({ index: null, length: 2 }).window.__lumaSpatial.backTarget(null, 2), 'back');
   assert.equal(boot({ index: null, length: 1 }).window.__lumaSpatial.backTarget(null, 1), 'home');
+});
+
+test('remote navigation preserves native editing and submission in form controls', () => {
+  for (const tagName of ['INPUT', 'TEXTAREA', 'SELECT']) {
+    const { window, document } = boot();
+    document.activeElement = { tagName };
+    document.querySelectorAll = () => { throw new Error('Editing must not collect navigation targets'); };
+    for (const command of ['left', 'right', 'up', 'down', 'activate']) {
+      assert.equal(window.__lumaNavigate(command), false, `${tagName}: ${command}`);
+    }
+  }
 });

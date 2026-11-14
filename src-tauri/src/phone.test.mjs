@@ -86,16 +86,16 @@ test('joystick updates coalesce and a physical takeover stops the stick', async 
 test('pc fullscreen label only promises exit when the PC reports its window state', () => {
   const view = { textContent: '', hidden: false };
   const pcFullscreenButton = { textContent: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; } };
-  const context = vm.createContext({ view, pcFullscreenButton });
+  const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {} });
   const applyState = source.slice(source.indexOf('  function applyState('), source.indexOf('  let appsOpen = true;'));
   vm.runInContext(applyState, context);
   vm.runInContext('applyState({ view: "Home", window: "YouTube", windowFullscreen: true })', context);
-  assert.equal(pcFullscreenButton.textContent, 'Exit PC fullscreen');
+  assert.equal(pcFullscreenButton.textContent, 'Exit');
   assert.equal(pcFullscreenButton.attrs['aria-pressed'], 'true');
   vm.runInContext('applyState({ view: "Home", window: "YouTube", windowFullscreen: false })', context);
-  assert.equal(pcFullscreenButton.textContent, 'Fullscreen PC');
+  assert.equal(pcFullscreenButton.textContent, 'Fullscreen');
   vm.runInContext('applyState({ view: "Home", window: "Netflix" })', context);
-  assert.equal(pcFullscreenButton.textContent, 'Toggle PC fullscreen');
+  assert.equal(pcFullscreenButton.textContent, 'Toggle');
   assert.equal(pcFullscreenButton.attrs['aria-pressed'], undefined);
 });
 

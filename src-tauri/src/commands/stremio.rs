@@ -8,7 +8,7 @@ use std::{
 };
 use tauri::{
     webview::{NewWindowResponse, PageLoadEvent},
-    AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 const API_URL: &str = "https://api.strem.io/api";
@@ -266,6 +266,8 @@ struct ApiLibraryItem {
     poster: Option<String>,
     #[serde(default)]
     removed: bool,
+    #[serde(default)]
+    temp: bool,
     #[serde(default, rename = "_mtime")]
     mtime: Option<String>,
     #[serde(default)]
@@ -296,7 +298,7 @@ fn map_library(items: Vec<Value>) -> Vec<StremioItem> {
     items
         .into_iter()
         .filter_map(|value| serde_json::from_value::<ApiLibraryItem>(value).ok())
-        .filter(|item| !item.removed)
+        .filter(|item| !item.removed || item.temp)
         .map(map_item)
         .collect()
 }
@@ -793,6 +795,7 @@ fn pause(window: &WebviewWindow) {
 
 fn restore_main(app: &AppHandle) {
     crate::background::show(app);
+    let _ = app.emit_to("main", "stremio-closed", ());
 }
 
 fn web_path(kind: &str, id: &str, video_id: Option<&str>) -> String {
@@ -998,6 +1001,14 @@ mod tests {
             }),
             json!({ "name": "Incomplete" }),
             json!({
+                "_id": "tt789",
+                "name": "Watched without adding to library",
+                "type": "movie",
+                "removed": true,
+                "temp": true,
+                "state": { "timeOffset": 2500, "duration": 10000 }
+            }),
+            json!({
                 "_id": "tt456",
                 "name": "Removed",
                 "type": "movie",
@@ -1006,8 +1017,10 @@ mod tests {
             }),
         ];
         let mapped = map_library(items);
-        assert_eq!(mapped.len(), 1);
+        assert_eq!(mapped.len(), 2);
         assert_eq!(mapped[0].id, "tt123");
+        assert_eq!(mapped[1].id, "tt789");
+        assert_eq!(continue_watching(&mapped)[0].id, "tt789");
     }
 
     #[test]

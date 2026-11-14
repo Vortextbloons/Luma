@@ -92,11 +92,11 @@ enum Action {
 }
 
 fn action(luma_foreground: bool, found: bool, running: bool, command: &str, web: bool) -> Action {
-    if luma_foreground {
-        return Action::Pass;
-    }
     if command == "home" {
         return Action::Home;
+    }
+    if luma_foreground {
+        return Action::Pass;
     }
     if found {
         return Action::Forward;
@@ -106,6 +106,10 @@ fn action(luma_foreground: bool, found: bool, running: bool, command: &str, web:
     } else {
         Action::Release
     }
+}
+
+fn close_on_home(name: &str, web: bool) -> bool {
+    web || matches!(name, "Netflix" | "Disney+" | "Prime Video" | "Apple TV+" | "Hulu" | "Max" | "Peacock")
 }
 
 pub(crate) fn fullscreen(app: &AppHandle) -> Option<Result<(), String>> {
@@ -163,7 +167,7 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
     };
     let (name, pid, web) = (launched.name.clone(), launched.pid, launched.web);
     let luma_foreground = platform::foreground_is_luma();
-    let window = if luma_foreground {
+    let window = if luma_foreground && command != "home" {
         None
     } else {
         platform::find(pid, &name)
@@ -202,7 +206,11 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
         }
         Action::Home => {
             if let Some(window) = window {
-                platform::minimize(window);
+                if close_on_home(&name, web) {
+                    platform::close(window);
+                } else {
+                    platform::minimize(window);
+                }
             }
             if web {
                 crate::commands::services::forget(app, &name);
@@ -227,6 +235,9 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
 pub(crate) fn release(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Session>();
     let launched = state.0.lock().map_err(|error| error.to_string())?.take();
+    if let Some(launched) = launched.as_ref().filter(|launched| launched.web) {
+        crate::commands::services::forget(app, &launched.name);
+    }
     if !platform::foreground_is_luma() {
         if let Some(launched) = launched {
             if let Some(window) = platform::find(launched.pid, &launched.name) {
@@ -241,14 +252,23 @@ fn restore(app: &AppHandle) {
     crate::background::show(app);
 }
 
-pub(crate) fn finish(app: &AppHandle) {
-    let launched = app
-        .state::<Session>()
-        .0
-        .lock()
-        .ok()
-        .and_then(|mut current| current.take());
+pub(crate) fn web_current(app: &AppHandle, name: &str) -> bool {
+    app.state::<Session>().0.lock().ok().is_some_and(|current| {
+        current.as_ref().is_some_and(|launched| launched.web && launched.name == name)
+    }) && !platform::foreground_is_luma()
+}
+
+pub(crate) fn finish(app: &AppHandle, name: &str) {
+    let state = app.state::<Session>();
+    let Ok(mut current) = state.0.lock() else { return; };
+    if !current.as_ref().is_some_and(|launched| launched.web && launched.name == name)
+        || platform::foreground_is_luma() {
+        return;
+    }
+    let launched = current.take();
+    drop(current);
     if let Some(launched) = launched {
+        crate::commands::services::forget(app, &launched.name);
         if let Some(window) = platform::find(launched.pid, &launched.name) {
             platform::minimize(window);
         }
@@ -256,7 +276,8 @@ pub(crate) fn finish(app: &AppHandle) {
     restore(app);
 }
 
-pub(crate) fn press(name: &str, command: &str) {
+pub(crate) fn press(app: &AppHandle, name: &str, command: &str) {
+    if !web_current(app, name) { return; }
     let Some(window) = platform::titled(name) else {
         return;
     };
@@ -326,8 +347,8 @@ mod platform {
                 WindowsAndMessaging::{
                     EnumWindows, GetCursorPos, GetForegroundWindow, GetWindowRect,
                     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-                    IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow, SW_MINIMIZE,
-                    SW_RESTORE,
+                    IsWindowVisible, PostMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, SW_MINIMIZE,
+                    SW_RESTORE, WM_CLOSE,
                 },
             },
         },
@@ -361,6 +382,9 @@ mod platform {
     }
 
     pub fn find(pid: u32, name: &str) -> Option<Window> {
+        if pid == 0 {
+            return titled(name);
+        }
         let owned = tree(pid);
         visible()
             .iter()
@@ -370,6 +394,9 @@ mod platform {
     }
 
     pub fn owned(pid: u32) -> Option<Window> {
+        if pid == 0 {
+            return None;
+        }
         let tree = tree(pid);
         let foreground = unsafe { GetForegroundWindow() };
         let windows: Vec<_> = visible()
@@ -428,6 +455,13 @@ mod platform {
     pub fn minimize(window: Window) {
         unsafe {
             let _ = ShowWindow(window, SW_MINIMIZE);
+        }
+    }
+
+    pub fn close(window: Window) {
+        unsafe {
+            let _ = ShowWindow(window, SW_MINIMIZE);
+            let _ = PostMessageW(Some(window), WM_CLOSE, Default::default(), Default::default());
         }
     }
 
@@ -702,6 +736,7 @@ mod platform {
         None
     }
     pub fn minimize(_: Window) {}
+    pub fn close(_: Window) {}
     pub fn titled(_: &str) -> Option<Window> {
         None
     }
@@ -721,7 +756,7 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{action, browser_executable, stepped, Action};
+    use super::{action, browser_executable, close_on_home, stepped, Action};
 
     #[test]
     fn remote_input_stays_in_luma_once_it_is_foreground() {
@@ -733,10 +768,20 @@ mod tests {
     }
 
     #[test]
-    fn home_releases_the_app_only_while_it_owns_the_screen() {
+    fn home_releases_the_app_even_after_luma_has_regained_focus() {
         assert_eq!(action(false, true, true, "home", false), Action::Home);
         assert_eq!(action(false, true, true, "home", true), Action::Home);
-        assert_eq!(action(true, true, true, "home", false), Action::Pass);
+        assert_eq!(action(true, true, true, "home", false), Action::Home);
+        assert_eq!(action(true, true, true, "home", true), Action::Home);
+    }
+
+    #[test]
+    fn home_closes_streaming_windows_but_preserves_unrelated_apps() {
+        assert!(close_on_home("Netflix", true));
+        assert!(close_on_home("Netflix", false));
+        assert!(close_on_home("Disney+", false));
+        assert!(!close_on_home("Custom", false));
+        assert!(!close_on_home("Spotify", false));
     }
 
     #[test]

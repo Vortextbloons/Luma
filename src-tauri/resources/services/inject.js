@@ -94,7 +94,7 @@
       clearOutline(element);
       return false;
     }
-    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     return true;
   }
 
@@ -113,6 +113,7 @@
   }
 
   function move(command) {
+    if (editable(document.activeElement)) return false;
     if (playing()) return false;
     const items = collect();
     if (!items.length) return false;
@@ -133,7 +134,7 @@
   function activate() {
     const active = document.activeElement;
     if (!active || active === document.body) return false;
-    if (editable(active)) return true;
+    if (editable(active)) return false;
     if (!measure(active)) return false;
     active.click?.();
     return true;

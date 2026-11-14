@@ -6,7 +6,7 @@ export function homeShortcut(event: KeyboardEvent) {
 }
 
 export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+H') {
-  const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
+  const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
   function focus(el?: HTMLElement) {
     const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
     target?.focus({ preventScroll: true });
@@ -46,6 +46,21 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       if (!(current instanceof HTMLInputElement && current.type === 'range')) current.click();
       return;
     }
+    const categories = current.closest?.('.settings-categories');
+    const content = current.closest?.('.settings-content');
+    const page = current.closest?.('.settings-page');
+    if (categories && command === 'right') {
+      const target = candidates.find(el => el.closest?.('.settings-content'));
+      if (target) focus(target);
+      return;
+    }
+    if ((categories || content) && (command === 'up' || command === 'down')) {
+      const group = candidates.filter(el => (categories ?? content)!.contains(el));
+      const index = group.indexOf(current) + (command === 'down' ? 1 : -1);
+      if (group[index]) focus(group[index]);
+      else if (command === 'up') focus(page?.querySelector<HTMLElement>(content ? '.settings-category.selected' : '.settings-page-header button') ?? current);
+      return;
+    }
     const a = current.getBoundingClientRect();
     const vertical = command === 'up' || command === 'down';
     const sign = command === 'down' || command === 'right' ? 1 : -1;
@@ -53,7 +68,9 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     let score = Infinity;
     for (const el of candidates) {
       if (el === current) continue;
+      if (content && !content.contains(el)) continue;
       const b = el.getBoundingClientRect();
+      if (content && !vertical && (b.y + b.height <= a.y || b.y >= a.y + a.height)) continue;
       const dx = b.x + b.width / 2 - a.x - a.width / 2;
       const dy = b.y + b.height / 2 - a.y - a.height / 2;
       const primary = vertical ? dy : dx;
@@ -62,6 +79,7 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       if (primary * sign > 4 && distance < score) { best = el; score = distance; }
     }
     if (best) focus(best);
+    else if (content && command === 'left') focus(page?.querySelector<HTMLElement>('.settings-category.selected') ?? current);
   }
   function keydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.isComposing) return;

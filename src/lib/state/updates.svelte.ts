@@ -7,7 +7,7 @@ type Phase = 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 're
 let update: Update | null = null;
 let initialized = false;
 export const updates = $state({
-  phase: 'idle' as Phase, version: '', nextVersion: '', notes: '', error: '', downloaded: 0, total: 0,
+  phase: 'idle' as Phase, version: '', nextVersion: '', notes: '', error: '', downloaded: 0, total: 0, dismissedVersion: '',
 });
 
 export async function checkUpdates() {
@@ -38,6 +38,8 @@ export async function initializeUpdates() {
     updates.error = 'Could not initialize updates. Reopen Settings to try again.';
   }
 }
+
+export function dismissUpdate() { updates.dismissedVersion = updates.nextVersion; }
 
 export async function downloadUpdate() {
   if (!update || updates.phase !== 'available') return;

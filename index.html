@@ -5,9 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/src/assets/luma.png" />
     <title>Luma</title>
+    <style>
+      body { margin: 0; background: #0b0d12; }
+      #startup { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: #0b0d12; color: #f8f8fa; font-family: 'Segoe UI', sans-serif; }
+      .startup-content { display: flex; flex-direction: column; align-items: center; }
+      .startup-logo { width: clamp(96px, 9vw, 172px); height: clamp(96px, 9vw, 172px); object-fit: contain; }
+      .startup-name { margin: 24px 0 40px; font-size: clamp(32px, 3vw, 52px); font-weight: 500; letter-spacing: .04em; }
+      .startup-track { width: 144px; height: 2px; overflow: hidden; background: #ffffff18; border-radius: 2px; }
+      .startup-track::after { content: ''; display: block; width: 50%; height: 100%; background: #a59bff; animation: startup-progress 1.6s ease-in-out infinite alternate; }
+      .startup-label { margin: 20px 0 0; color: #a9aab5; font-size: clamp(16px, 1.2vw, 22px); }
+      @keyframes startup-progress { from { transform: translateX(-100%); } to { transform: translateX(200%); } }
+      @media (prefers-reduced-motion: reduce) { .startup-track::after { animation: none; width: 100%; } }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="startup" role="status" aria-label="Loading Luma">
+      <div class="startup-content">
+        <img class="startup-logo" src="/src/assets/luma.png" alt="" />
+        <div class="startup-name" aria-hidden="true">luma</div>
+        <div class="startup-track" aria-hidden="true"></div>
+        <p class="startup-label" aria-hidden="true">Getting things ready</p>
+      </div>
+    </div>
+    <div id="app" inert></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

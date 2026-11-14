@@ -84,7 +84,7 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
     match command {
         NavigationCommand::Home => {
             crate::remote::pointer::stop_all(app);
-            crate::remote::pointer::show_cursor(app);
+            crate::remote::pointer::hide_cursor(app);
         }
         NavigationCommand::Up
         | NavigationCommand::Down

@@ -102,6 +102,31 @@
     location.href = 'https://web.stremio.com/__luma_close__';
   }
 
+  function autoHideReturnButton(host, root) {
+    let timer;
+    function update() {
+      root.activeElement?.blur();
+      host.style.display = 'none';
+      host.inert = true;
+    }
+    function reveal() {
+      clearTimeout(timer);
+      host.style.display = '';
+      host.inert = false;
+      timer = setTimeout(update, 2000);
+    }
+    window.__lumaRevealReturn = reveal;
+    document.addEventListener('pointermove', event => {
+      if (event.movementX || event.movementY) reveal();
+    }, true);
+    document.addEventListener('keydown', reveal, true);
+    document.addEventListener('pointerdown', reveal, true);
+    document.addEventListener('wheel', reveal, { capture: true, passive: true });
+    root.addEventListener('focusin', reveal);
+    window.addEventListener('pagehide', () => clearTimeout(timer), { once: true });
+    reveal();
+  }
+
   function addReturnButton() {
     if (document.getElementById('luma-return-button')) return;
     const host = document.createElement('div');
@@ -116,6 +141,7 @@
     button.addEventListener('click', close);
     root.append(style, button);
     (document.documentElement ?? document.body).append(host);
+    autoHideReturnButton(host, root);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addReturnButton, { once: true });
@@ -152,6 +178,7 @@
   }
 
   window.__lumaNavigate = command => {
+    window.__lumaRevealReturn?.();
     if (command === 'back') {
       back();
       return;

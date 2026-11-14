@@ -9,8 +9,8 @@ const LEASE: Duration = Duration::from_millis(1500);
 const SPEED: f32 = 1100.0;
 const DEAD_ZONE: f32 = 0.16;
 
-const HIDE: &str = "(() => { if (document.getElementById('luma-remote-cursor')) return; const style = document.createElement('style'); style.id = 'luma-remote-cursor'; style.textContent = '*{cursor:none !important}'; document.documentElement.appendChild(style); const show = () => { style.remove(); window.removeEventListener('pointermove', show, true); window.removeEventListener('mousedown', show, true); if (window.__lumaRemoteCursor === show) delete window.__lumaRemoteCursor; }; window.__lumaRemoteCursor = show; window.addEventListener('pointermove', show, true); window.addEventListener('mousedown', show, true); })();";
-const SHOW: &str = "(() => { const show = window.__lumaRemoteCursor; if (typeof show === 'function') show(); document.getElementById('luma-remote-cursor')?.remove(); })();";
+pub(crate) const HIDE: &str = "(() => { if (document.getElementById('luma-remote-cursor')) return; const style = document.createElement('style'); style.id = 'luma-remote-cursor'; style.textContent = '*{cursor:none !important}'; document.documentElement.appendChild(style); const show = event => { if (event && event.type === 'pointermove' && !event.movementX && !event.movementY) return; style.remove(); window.removeEventListener('pointermove', show, true); if (window.__lumaRemoteCursor === show) delete window.__lumaRemoteCursor; }; window.__lumaRemoteCursor = show; window.addEventListener('pointermove', show, true); })();";
+pub(crate) const SHOW: &str = "(() => { const show = window.__lumaRemoteCursor; if (typeof show === 'function') show(); document.getElementById('luma-remote-cursor')?.remove(); })();";
 
 struct Motion {
     owner: String,
@@ -67,6 +67,11 @@ fn cursor(app: &tauri::AppHandle, script: &str) {
             let _ = window.eval(script);
         }
     }
+    crate::commands::services::sync_cursor(app);
+}
+
+pub(crate) fn cursor_hidden(app: &tauri::AppHandle) -> bool {
+    with_state(app, |state| state.hidden)
 }
 
 fn watch(app: &tauri::AppHandle) {
@@ -175,8 +180,9 @@ pub fn show_cursor(app: &tauri::AppHandle) {
 }
 
 pub fn click(app: &tauri::AppHandle) -> Result<(), String> {
-    show_cursor(app);
-    platform::click()
+    let result = platform::click();
+    hide_cursor(app);
+    result
 }
 
 async fn run(app: tauri::AppHandle) {

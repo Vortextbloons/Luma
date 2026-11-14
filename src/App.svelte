@@ -5,6 +5,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
+  import UpdateNotice from './lib/components/UpdateNotice.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import VideoRow from './lib/components/VideoRow.svelte';
@@ -73,11 +74,14 @@
   const navigation = createNavigation(back, home, () => settings.homeShortcut);
   const showHome = $derived(tab === 'Home');
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
+  const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
   const previewActivity = $derived(previewProvider ? activityItems.filter(item => item.provider === previewProvider && item.type !== 'application').slice(0, 8) : []);
   const previewMusic = $derived(spotify.home.recentlyPlayed.map((item, index) => ({ id: `${item.id ?? item.title}-${index}`, title: item.title, uri: item.uri, artworkUrl: item.artworkUrl, subtitle: item.artist })));
   function preview(id: AppId) {
+    const changed = previewApp !== id;
     previewApp = id;
     if (id === 'Spotify') void spotify.loadHome();
+    if (id === 'Stremio' && changed) void refreshStremio(true);
   }
 
   function horizontalWheel(node: HTMLElement) {
@@ -109,7 +113,6 @@
   });
   onMount(() => {
     void initializeUpdates();
-    navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
     loadCatalog()
       .then(data => { popular = data.popular; featured = data.featured; })
       .catch(() => message = 'Movie catalog could not be loaded. Check your internet connection.');
@@ -122,6 +125,7 @@
         if (disposed) { stopMusic(); return; }
         cleanup.push(stopMusic);
         cleanup.push(await listen<string>('tv-setup-error', event => message = event.payload));
+        cleanup.push(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
         const tvWarning = await invoke<string | null>('tv_setup_warning');
         if (tvWarning) message = tvWarning;
         const stopNavigation = await onNavigation(navigation.dispatch);
@@ -142,7 +146,16 @@
       } catch (error) { message = String(error); }
       finally { if (disposed) cleanup.splice(0).forEach(stop => stop()); }
     }
-    void start();
+    async function reveal() {
+      try { await start(); }
+      finally {
+        await tick();
+        document.getElementById('startup')?.remove();
+        document.getElementById('app')?.removeAttribute('inert');
+        if (!disposed) navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+      }
+    }
+    void reveal();
     return () => { disposed = true; cleanup.splice(0).forEach(stop => stop()); };
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
@@ -281,9 +294,15 @@
     try { await saveAppPaths(settings.paths); message = 'App settings saved.'; }
     catch (error) { message = String(error); }
   }
-  async function refreshStremio() {
-    if (!native) return;
-    try { stremio = await stremioStatus(); } catch (error) { message = String(error); }
+  let refreshingStremio = false;
+  async function refreshStremio(sync = false) {
+    if (!native || refreshingStremio) return;
+    refreshingStremio = true;
+    try {
+      stremio = await stremioStatus();
+      if (sync && stremio.connected) stremio = await stremioSync();
+    } catch (error) { message = String(error); }
+    finally { refreshingStremio = false; }
   }
   async function syncStremio() {
     stremio = await stremioSync();
@@ -316,12 +335,11 @@
   <div {@attach smoothHeight}><div class="resizing-content">
   {#if showHome && settings.sections.continue}
     {#if previewApp === 'Stremio'}
-      <StremioRow title="Continue watching on Stremio" items={stremio?.continueWatching.slice(0, 4) ?? []} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} />
+      <StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} />
     {:else}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} />
     {/if}
   {/if}
-  {#if showHome && settings.sections.continue && previewApp !== 'Stremio' && stremio?.continueWatching.length}<StremioRow title="Continue watching on Stremio" items={stremio.continueWatching.slice(0, 10)} open={openStremio} />{/if}
   </div></div>
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} />{/if}
@@ -374,7 +392,10 @@
     <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
   {/if}
   </div>
-{#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
+  <div class="notice-stack">
+    {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
+    <UpdateNotice {native} />
+  </div>
   <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back · Space toggles playback</span></footer>
   {#if !playerOpen}<MiniPlayer onopen={openPlayer} />{/if}
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}

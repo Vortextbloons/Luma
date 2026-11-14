@@ -16,6 +16,22 @@ const WINDOW_TIMEOUT: Duration = Duration::from_secs(8);
 const CDP_TIMEOUT: Duration = Duration::from_secs(2);
 const LOOP_WAIT: Duration = Duration::from_millis(140);
 
+pub(crate) fn sync_cursor(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<Services>();
+        let mut connections = state.connections.lock().await;
+        let script = if crate::remote::pointer::cursor_hidden(&app) {
+            crate::remote::pointer::HIDE
+        } else {
+            crate::remote::pointer::SHOW
+        };
+        for cdp in connections.values_mut() {
+            let _ = cdp.eval(script).await;
+        }
+    });
+}
+
 #[derive(Default)]
 pub struct Services {
     inner: Mutex<Inner>,
@@ -57,12 +73,13 @@ fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(1))
+            .no_proxy()
             .build()
             .unwrap_or_default()
     })
 }
 
-pub(crate) fn edge() -> Option<PathBuf> {
+fn edge() -> Option<PathBuf> {
     ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
         .iter()
         .filter_map(|variable| {
@@ -72,13 +89,17 @@ pub(crate) fn edge() -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+fn profile_slug(name: &str) -> String {
+    name.to_lowercase().replace('+', "plus").replace(' ', "-")
+}
+
 fn profile_dir(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_config_dir()
         .map_err(|error| error.to_string())?
         .join("services")
-        .join(name.to_lowercase().replace('+', "plus").replace(' ', "-")))
+        .join(profile_slug(name)))
 }
 
 fn edge_arguments(profile: &Path, url: &str, fullscreen: bool) -> Vec<String> {
@@ -223,6 +244,7 @@ pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String
     })?;
     let profile = profile_dir(app, name)?;
     std::fs::create_dir_all(&profile).map_err(|error| format!("Could not prepare {name}: {error}"))?;
+    let _ = std::fs::remove_file(profile.join("DevToolsActivePort"));
     let fullscreen = app
         .get_webview_window("main")
         .and_then(|window| window.is_fullscreen().ok())
@@ -293,9 +315,9 @@ pub(crate) fn forward(app: &AppHandle, name: &str, command: &str) -> bool {
     let command = command.to_string();
     tauri::async_runtime::spawn(async move {
         match dispatch(&app, &name, &command).await {
-            Ok(Outcome::Return) => crate::commands::session::finish(&app),
+            Ok(Outcome::Return) => crate::commands::session::finish(&app, &name),
             Ok(Outcome::Handled) => {}
-            Err(_) => crate::commands::session::press(&name, &command),
+            Err(_) => crate::commands::session::press(&app, &name, &command),
         }
     });
     true
@@ -305,12 +327,25 @@ async fn dispatch(app: &AppHandle, name: &str, command: &str) -> Result<Outcome,
     let url = tracked(app, name).map(|window| window.url).unwrap_or_default();
     let state = app.state::<Services>();
     let mut connections = state.connections.lock().await;
+    if !crate::commands::session::web_current(app, name) {
+        return Ok(Outcome::Handled);
+    }
     if !connections.contains_key(name) {
         connections.insert(name.into(), connect(app, name, &url).await?);
+    }
+    if !crate::commands::session::web_current(app, name) {
+        connections.remove(name);
+        return Ok(Outcome::Handled);
     }
     let cdp = connections
         .get_mut(name)
         .ok_or("The service window is unavailable.")?;
+    let script = if crate::remote::pointer::cursor_hidden(app) {
+        crate::remote::pointer::HIDE
+    } else {
+        crate::remote::pointer::SHOW
+    };
+    cdp.eval(script).await?;
     let result = handle(cdp, name, command).await;
     if result.is_err() {
         connections.remove(name);
@@ -352,11 +387,19 @@ pub(crate) fn forget(app: &AppHandle, name: &str) {
     if let Ok(mut inner) = app.state::<Services>().inner.lock() {
         inner.windows.remove(name);
     }
-    let app = app.clone();
-    let name = name.to_string();
-    tauri::async_runtime::spawn(async move {
-        app.state::<Services>().connections.lock().await.remove(&name);
-    });
+    if let Ok(mut connections) = app.state::<Services>().connections.try_lock() {
+        connections.remove(name);
+    } else {
+        let app = app.clone();
+        let name = name.to_string();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<Services>();
+            let mut connections = state.connections.lock().await;
+            if !crate::commands::session::web_current(&app, &name) {
+                connections.remove(&name);
+            }
+        });
+    }
 }
 
 async fn connect(app: &AppHandle, name: &str, url: &str) -> Result<Cdp, String> {
@@ -422,8 +465,9 @@ impl Cdp {
             .await
             .map_err(|_| "The service window stopped responding.".to_string())?
             .map_err(|error| error.to_string())?;
+        let deadline = tokio::time::Instant::now() + CDP_TIMEOUT;
         loop {
-            let message = tokio::time::timeout(CDP_TIMEOUT, self.socket.next())
+            let message = tokio::time::timeout_at(deadline, self.socket.next())
                 .await
                 .map_err(|_| "The service window stopped responding.".to_string())?;
             let Some(message) = message else {
@@ -562,6 +606,14 @@ mod tests {
         );
         assert_eq!(pick_target(&targets[..1], Some("www.netflix.com")), None);
         assert_eq!(pick_target(&[], None), None);
+    }
+
+    #[test]
+    fn service_profiles_keep_existing_sign_ins() {
+        assert_eq!(profile_slug("Netflix"), "netflix");
+        assert_eq!(profile_slug("Disney+"), "disneyplus");
+        assert_eq!(profile_slug("Prime Video"), "prime-video");
+        assert_eq!(profile_slug("Apple TV+"), "apple-tvplus");
     }
 
     #[test]

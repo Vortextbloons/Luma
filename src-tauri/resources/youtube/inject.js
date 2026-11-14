@@ -583,10 +583,11 @@
   const keyCodes = { up: [38, 'ArrowUp'], down: [40, 'ArrowDown'], left: [37, 'ArrowLeft'], right: [39, 'ArrowRight'], activate: [13, 'Enter'], back: [27, 'Escape'] };
 
   window.__lumaTypeSearch = text => {
-    location.hash = `#/search?query=${encodeURIComponent(text)}`;
+    location.hash = `#/search?q=${encodeURIComponent(text)}`;
   };
 
   window.__lumaNavigate = command => {
+    window.__lumaRevealReturn?.();
     const mapping = keyCodes[command];
     if (!mapping) return;
     keyEvent('keydown', mapping[0], mapping[1]);
@@ -596,6 +597,31 @@
   function exit() {
     if (!BRIDGE) return;
     fetch(`${BRIDGE}/exit`, { cache: 'no-store' }).catch(() => {});
+  }
+
+  function autoHideReturnButton(host, root) {
+    let timer;
+    function update() {
+      root.activeElement?.blur();
+      host.style.display = 'none';
+      host.inert = true;
+    }
+    function reveal() {
+      clearTimeout(timer);
+      host.style.display = '';
+      host.inert = false;
+      timer = setTimeout(update, 2000);
+    }
+    window.__lumaRevealReturn = reveal;
+    document.addEventListener('pointermove', event => {
+      if (event.movementX || event.movementY) reveal();
+    }, true);
+    document.addEventListener('keydown', reveal, true);
+    document.addEventListener('pointerdown', reveal, true);
+    document.addEventListener('wheel', reveal, { capture: true, passive: true });
+    root.addEventListener('focusin', reveal);
+    window.addEventListener('pagehide', () => clearTimeout(timer), { once: true });
+    reveal();
   }
 
   function addReturnButton() {
@@ -612,6 +638,7 @@
     button.addEventListener('click', exit);
     root.append(style, button);
     (document.documentElement ?? document.body).append(host);
+    autoHideReturnButton(host, root);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addReturnButton, { once: true });
