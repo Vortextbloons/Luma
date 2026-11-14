@@ -582,6 +582,10 @@
 
   const keyCodes = { up: [38, 'ArrowUp'], down: [40, 'ArrowDown'], left: [37, 'ArrowLeft'], right: [39, 'ArrowRight'], activate: [13, 'Enter'], back: [27, 'Escape'] };
 
+  window.__lumaTypeSearch = text => {
+    location.hash = `#/search?query=${encodeURIComponent(text)}`;
+  };
+
   window.__lumaNavigate = command => {
     const mapping = keyCodes[command];
     if (!mapping) return;

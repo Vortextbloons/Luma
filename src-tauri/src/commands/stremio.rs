@@ -719,6 +719,7 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
             "account": session,
             "target": target,
         }).to_string()))
+        .initialization_script(crate::background::MOTION_INIT)
         .on_navigation(move |url| permitted(&handle, url))
         .on_new_window(move |url, _| {
             if web_host(url.host_str()) {

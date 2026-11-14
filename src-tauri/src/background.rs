@@ -1,4 +1,5 @@
-﻿use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager};
+﻿use std::time::Duration;
+use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 #[tauri::command]
@@ -21,8 +22,59 @@ pub fn show(app: &tauri::AppHandle) {
     }
 }
 
+pub(crate) const MOTION_INIT: &str = r#"(() => {
+  if (window.top !== window || window.__lumaEnter) return;
+  const EASE = 'cubic-bezier(.22,.8,.24,1)';
+  const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const current = () => document.getElementById('luma-enter');
+
+  const fade = () => {
+    const element = current();
+    if (!element) return;
+    if (reduced()) { element.remove(); return; }
+    const animation = element.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: EASE });
+    animation.onfinish = () => element.remove();
+    animation.oncancel = () => element.remove();
+  };
+
+  const cover = () => {
+    current()?.remove();
+    if (reduced()) return;
+    const element = document.createElement('div');
+    element.id = 'luma-enter';
+    element.setAttribute('aria-hidden', 'true');
+    element.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;background:#0b0d12';
+    document.documentElement.append(element);
+    setTimeout(() => { if (element.isConnected) element.remove(); }, 20000);
+  };
+
+  const reveal = () => {
+    if (!current()) return;
+    if (document.readyState === 'complete') { fade(); return; }
+    window.addEventListener('load', fade, { once: true });
+    setTimeout(fade, 6000);
+  };
+
+  window.__lumaEnter = { cover, reveal };
+
+  let fresh = true;
+  try {
+    fresh = !sessionStorage.getItem('luma-entered');
+    sessionStorage.setItem('luma-entered', '1');
+  } catch {}
+  if (fresh) cover();
+})();"#;
+
+pub(crate) const COVER: &str = "window.__lumaEnter && window.__lumaEnter.cover();";
+pub(crate) const REVEAL: &str = "window.__lumaEnter && window.__lumaEnter.reveal();";
+
 pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<bool>) -> Result<(), String> {
+    crate::tv::place(&window)?;
+    let audio_error = crate::tv::apply_audio(window.app_handle()).await.err();
     let (sender, receiver) = tokio::sync::oneshot::channel();
+    let _ = window.eval(MOTION_INIT);
+    let _ = window.eval(COVER);
+    let surface = window.clone();
     let dispatcher = window.clone();
     dispatcher.run_on_main_thread(move || {
         let result = (|| -> tauri::Result<()> {
@@ -49,7 +101,12 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
         })();
         let _ = sender.send(result.map_err(|error| error.to_string()));
     }).map_err(|error| error.to_string())?;
-    receiver.await.map_err(|error| error.to_string())?
+    let presented = receiver.await.map_err(|error| error.to_string())?;
+    tokio::time::sleep(Duration::from_millis(70)).await;
+    let _ = surface.eval(REVEAL);
+    presented?;
+    crate::tv::report_audio(surface.app_handle(), audio_error);
+    Ok(())
 }
 
 pub fn setup(app: &tauri::App) -> tauri::Result<()> {

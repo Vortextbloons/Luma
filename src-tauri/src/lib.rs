@@ -1,12 +1,13 @@
 mod activity;
 mod background;
+mod tv;
 mod frame;
 mod network;
 mod commands;
 mod integrations;
 mod remote;
 
-use commands::{apps, media, session, stremio, youtube};
+use commands::{apps, media, services, session, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
@@ -28,7 +29,9 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_autostart::Builder::new().args(["--background"]).build())
         .plugin(tauri_plugin_opener::init())
+        .manage(tv::Tv::default())
         .manage(apps::Apps::default())
+        .manage(services::Services::default())
         .manage(session::Session::default())
         .manage(media::Media::default())
         .manage(server::Remote::default())
@@ -41,6 +44,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             app.manage(network::watch(app.handle())?);
+            tv::load(app.handle()).map_err(std::io::Error::other)?;
             background::setup(app)?;
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?);
@@ -50,10 +54,6 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
                 tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
-                if !std::env::args().any(|arg| arg == "--background") {
-                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-                    youtube::prepare(handle).await;
-                }
             });
             Ok(())
         })
@@ -64,12 +64,17 @@ pub fn run() {
                     let window = window.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = window.hide();
+                        let _ = tv::restore_audio().await;
                     });
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
             updates_enabled,
+            tv::tv_setup,
+            tv::tv_setup_warning,
+            tv::save_tv_setup,
+            tv::restore_tv_audio,
             network::network_status,
             background::startup_enabled,
             background::open_setup_link,
@@ -128,6 +133,7 @@ pub fn run() {
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             media::stop(app);
+            let _ = tv::restore_audio_sync();
         }
     });
 }

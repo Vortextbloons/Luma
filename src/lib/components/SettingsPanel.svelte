@@ -3,6 +3,7 @@
   import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
   import UpdateSettings from './UpdateSettings.svelte';
+  import TvSettings from './TvSettings.svelte';
   import FramePairing from './FramePairing.svelte';
   import StremioIntegration from './StremioIntegration.svelte';
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
@@ -123,6 +124,7 @@
       </header>
       {#if message}<p role="status" class="panel-feedback">{message}</p>{/if}
       {#if category === 'Display'}
+        <TvSettings {native} />
         <section class="settings-group">
           <h3>Screen</h3>
           <p class="panel-description">Choose how Luma fills this display and how much room its cards get.</p>

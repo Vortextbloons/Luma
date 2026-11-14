@@ -21,8 +21,7 @@
     --good: #7fe0ae;
     --danger: #ffb0b0;
     --radius: 18px;
-    --pad: 220px;
-    --pad: clamp(176px, min(62vw, 36dvh), 296px);
+    --pad: clamp(190px, min(80vw, 39dvh), 360px);
     --ease: cubic-bezier(.22, .8, .24, 1);
   }
   * { box-sizing: border-box; }
@@ -58,8 +57,13 @@
   @media (hover: hover) { button:hover { filter: brightness(1.12); } }
   [hidden] { display: none !important; }
 
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes remote-in { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+  @keyframes tile-in { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
+  @keyframes sheet-in { from { opacity: 0; translate: 0 14px; scale: .98; } to { opacity: 1; translate: 0 0; scale: 1; } }
+
   .shell {
-    width: min(100%, 430px);
+    width: min(100%, 460px);
     min-height: 100vh;
     min-height: 100dvh;
     margin: 0 auto;
@@ -81,27 +85,35 @@
   .brand-word { font-size: 17px; font-weight: 600; letter-spacing: -.02em; line-height: 1; color: #e9ecf5; }
   .brand-tag { font-size: 9px; font-weight: 700; letter-spacing: .14em; color: #8d94a6; align-self: flex-end; padding-bottom: 1px; margin-left: -2px; }
 
-  #remote { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 10px; }
+  #remote { display: flex; flex-direction: column; gap: 12px; flex: 0 0 auto; animation: remote-in .3s var(--ease); }
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; padding: 0 2px; }
-  .topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .view-chip {
     flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 11px;
     border-radius: 99px; background: #f1f3fa; color: #151925;
     font-size: 11.5px; font-weight: 700; letter-spacing: -.01em;
     box-shadow: 0 3px 10px rgba(0, 0, 0, .35); white-space: nowrap;
   }
-  .link { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 34vw; }
-  .link b { font-size: 11.5px; font-weight: 600; color: #cdd2de; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .live-dot {
-    width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 0 4px rgba(127, 224, 174, .12), 0 0 12px rgba(127, 224, 174, .5);
-    transition: background .2s, box-shadow .2s;
+  .connection {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; border: 1px solid rgba(127, 224, 174, .3);
+    background: rgba(127, 224, 174, .1); color: var(--good);
+    box-shadow: 0 0 0 4px rgba(127, 224, 174, .05);
+    transition: color .2s, border-color .2s, background .2s, box-shadow .2s;
   }
-  .link.is-away .live-dot { background: var(--dim); box-shadow: none; }
-  .link.is-away b { color: var(--dim); }
+  .connection svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .connection.is-away { color: var(--dim); border-color: var(--line); background: rgba(255, 255, 255, .04); box-shadow: none; }
+  .icon-button {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 255, 255, .04);
+    color: #b7bdcc; transition: color .12s ease, border-color .12s ease, background .12s ease;
+  }
+  .icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-button:active { color: #fff; border-color: var(--line-strong); background: rgba(255, 255, 255, .09); }
 
-  .stage { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; }
-  .nav-stack { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: center; gap: 10px; }
+  .stage { display: flex; flex-direction: column; gap: clamp(12px, 2.2dvh, 20px); }
+  .nav-stack { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .pad-column { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
 
   .pad-wrap { position: relative; display: grid; place-items: center; padding: 4px 0; }
   .pad-wrap::before {
@@ -128,6 +140,19 @@
   .pad-key.ok { grid-area: 2 / 2; }
   .pad-key.right { grid-area: 2 / 3; }
   .pad-key.down { grid-area: 3 / 2; }
+  .stick {
+    position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px;
+    border-radius: 50%; background: var(--accent); opacity: 0;
+    box-shadow: 0 0 18px rgba(165, 155, 255, .7); pointer-events: none;
+    transform: translate(0, 0); transition: opacity .15s ease;
+  }
+  .pad.joystick { touch-action: none; }
+  .pad.joystick .stick { opacity: .4; }
+  .pad.joystick.is-stick .stick { opacity: 1; transform: translate(var(--stick-x, 0px), var(--stick-y, 0px)); }
+  .pad.joystick .pad-key[data-command]:not(.ok) { opacity: .26; pointer-events: none; }
+  .pad.joystick .pad-key.ok { font-size: 11px; pointer-events: none; transform: translate(var(--stick-x, 0px), var(--stick-y, 0px)); }
+  .pad.joystick .stick { display: none; }
+  .pad-hint { margin: 0; color: var(--dim); font-size: 11.5px; text-align: center; }
   .pad-key.ok {
     background: linear-gradient(160deg, #bdb4ff, #948af6); color: #171326;
     font-size: 13px; font-weight: 800; letter-spacing: .08em;
@@ -145,51 +170,75 @@
   }
   .navrow button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .navrow button:active { background: rgba(255, 255, 255, .12); border-color: var(--line-strong); color: #fff; transform: scale(.98); }
+  .navrow.utility { width: var(--pad); }
 
   .side { display: grid; gap: 10px; min-width: 0; }
-  .apps-block { display: grid; gap: 7px; min-width: 0; }
-  .apps-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px; }
-  .apps-head h2 { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: -.01em; color: #d9dde8; }
-  .app-track {
-    display: grid; grid-auto-flow: column; grid-auto-columns: 64px; gap: 8px; min-height: 62px;
-    overflow-x: auto; overflow-y: hidden; padding: 2px 2px 4px; margin: -2px -2px -4px;
-    scrollbar-width: none; -ms-overflow-style: none;
-    overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  .apps-block { display: grid; gap: 7px; min-width: 0; transition: gap .22s var(--ease); }
+  .apps-block.is-collapsed { gap: 0; }
+  .apps-toggle {
+    width: 100%; min-height: 36px; padding: 0 8px 0 2px; border-radius: 10px;
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 650; letter-spacing: -.01em; color: #d9dde8;
+    transition: background .12s ease, color .12s ease;
   }
-  .app-track::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  .apps-toggle svg {
+    width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform .18s var(--ease);
+  }
+  .apps-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  .apps-toggle[aria-expanded="false"] { color: #9aa2b2; }
+  .apps-toggle:active { background: rgba(255, 255, 255, .07); }
+  .apps-body {
+    display: grid; grid-template-rows: 1fr;
+    transition: grid-template-rows .24s var(--ease), opacity .18s ease;
+  }
+  .apps-block.is-collapsed .apps-body { grid-template-rows: 0fr; opacity: 0; }
+  .apps-body > .app-track { min-height: 0; overflow: hidden; }
+  .app-track {
+    display: flex; flex-wrap: wrap; gap: 8px; min-width: 0;
+  }
   .app-key {
-    scroll-snap-align: start; min-height: 62px; padding: 8px 4px 7px; border-radius: 14px;
+    flex: 1 1 64px; max-width: 92px; min-height: 62px; padding: 8px 4px 7px; border-radius: 14px;
     border: 1px solid var(--line);
     background: radial-gradient(85% 80% at 50% 30%, rgba(255, 255, 255, .055), transparent 72%), linear-gradient(160deg, #1a1f2b, #12161e);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
     font-size: 10px; font-weight: 600; color: #a9b0c0;
+    animation: tile-in .28s var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 22ms);
     transition: transform .12s ease, border-color .12s ease, color .12s ease;
   }
   .app-key img { width: 26px; height: 26px; object-fit: contain; display: block; }
   .app-key span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-key:active { transform: scale(.95); border-color: var(--line-strong); color: #fff; }
 
-  .deck {
-    padding: 6px 10px; display: grid; gap: 2px;
+  .deck { display: grid; gap: 10px; }
+  .deck-group {
     border: 1px solid var(--line); border-radius: var(--radius);
     background: linear-gradient(180deg, rgba(29, 33, 42, .92), rgba(17, 20, 27, .92));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 14px 34px rgba(0, 0, 0, .28);
   }
-  .deck-row { display: grid; grid-template-columns: 62px repeat(3, 1fr); align-items: center; gap: 2px; min-height: 46px; }
-  .deck-row + .deck-row { border-top: 1px solid rgba(255, 255, 255, .06); }
-  .deck-label { padding-left: 4px; font-size: 10.5px; font-weight: 600; line-height: 1.25; color: var(--dim); }
-  .deck-row button {
-    min-height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
-    color: #b9bfce; transition: background .12s ease, color .12s ease, transform .08s ease;
+  .deck-group.transport { padding: 9px 10px 10px; display: grid; gap: 7px; }
+  .deck-group.volume { padding: 6px 10px; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; }
+  .deck-label { font-size: 10.5px; font-weight: 600; line-height: 1.25; color: var(--dim); }
+  .deck-group.transport .deck-label { padding: 0 4px; }
+  .deck-group.volume .deck-label { padding-left: 4px; }
+  .deck-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; min-width: 0; }
+  .deck-keys button {
+    min-height: 50px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, .045); color: #b9bfce;
+    transition: background .12s ease, color .12s ease, transform .08s ease;
   }
-  .deck-row button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .deck-row button svg .fill { fill: currentColor; stroke: none; }
-  .deck-row button:active { background: rgba(255, 255, 255, .08); color: #fff; transform: scale(.95); }
-  .deck-row.transport button.play {
+  .deck-keys button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .deck-keys button svg .fill { fill: currentColor; stroke: none; }
+  .deck-keys button:active { background: rgba(255, 255, 255, .11); color: #fff; transform: scale(.96); }
+  .deck-group.transport .deck-keys button { min-height: 56px; }
+  .deck-group.volume .deck-keys button { min-height: 44px; background: rgba(255, 255, 255, .03); color: #a4abbb; }
+  .deck-group.transport button.play {
     background: var(--accent); color: var(--accent-ink);
     box-shadow: 0 6px 16px rgba(108, 90, 200, .24);
   }
-  .deck-row.transport button.play:active { background: #b9afff; }
+  .deck-group.transport button.play:active { background: #b9afff; }
 
   .toast {
     position: fixed; left: 50%; top: calc(58px + env(safe-area-inset-top)); z-index: 30;
@@ -249,34 +298,124 @@
     .brand-tag { display: none; }
     .brand-mark { width: 25px; height: 25px; border-radius: 7px; }
     .brand-word { font-size: 16px; }
-    .link { max-width: 30vw; }
+    .topbar-right { gap: 6px; }
   }
   @media (max-height: 620px) {
-    .shell { padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-    #remote { gap: 8px; }
-    .stage { gap: 8px; }
+    .shell { padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: calc(10px + env(safe-area-inset-bottom)); justify-content: flex-start; }
+    #remote { gap: 9px; }
+    .topbar { min-height: 34px; }
+    .stage { gap: 9px; }
     .nav-stack { gap: 8px; }
     .apps-block { gap: 5px; }
+    .deck-group { padding: 7px 8px; }
   }
-  @media (min-width: 520px) and (orientation: landscape) {
-    :root { --pad: min(300px, 60dvh, 40vw); }
-    .shell { width: 100%; max-width: 840px; padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-    .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 18px; }
-    .nav-stack { display: grid; gap: 10px; align-content: center; }
-    .navrow { width: var(--pad); }
-    .side { align-content: center; }
-    .deck { margin-top: 0; }
+  @media (min-width: 760px) and (min-height: 520px), (min-width: 560px) and (orientation: landscape) {
+    :root { --pad: min(470px, 52dvh, 32vw); }
+    .shell {
+      width: 100%; max-width: 1320px;
+      padding: calc(18px + env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
+    }
+    #remote { gap: 18px; margin-block: auto; }
+    .stage {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .94fr);
+      align-items: center; gap: clamp(28px, 4vw, 64px);
+    }
+    .nav-stack { align-self: center; gap: 14px; }
+    .side { align-content: center; gap: 14px; }
+    .apps-block { gap: 9px; }
+    .apps-toggle { font-size: 13px; min-height: 40px; }
+    .app-track { justify-content: flex-start; gap: 10px; }
+    .app-key { flex: 1 1 90px; max-width: 128px; min-height: 86px; font-size: 12px; }
+    .app-key img { width: 34px; height: 34px; }
+    .deck { gap: 12px; }
+    .deck-group.transport { padding: 12px 14px 14px; }
+    .deck-group.volume { padding: 8px 14px; grid-template-columns: 82px minmax(0, 1fr); }
+    .deck-label { font-size: 11.5px; }
+    .deck-keys { gap: 10px; }
+    .deck-keys button svg { width: 24px; height: 24px; }
+    .deck-group.transport .deck-keys button { min-height: 64px; }
+    .deck-group.volume .deck-keys button { min-height: 52px; }
+  }
+  @media (min-width: 1100px) and (min-height: 520px) {
+    .nav-stack { flex-direction: row; justify-content: center; gap: clamp(16px, 2vw, 26px); }
+    .navrow.utility { width: 132px; display: flex; flex-direction: column; flex: none; gap: 10px; }
+    .navrow.utility button { justify-content: flex-start; min-height: 56px; padding: 0 16px; font-size: 13.5px; }
+    .navrow.utility button svg { width: 20px; height: 20px; }
+  }
+  @media (min-width: 760px) and (min-height: 520px) {
+    .stage { align-content: center; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
     .toast { transition: none !important; }
+    .settings-dialog::backdrop { animation: none !important; }
   }
   .text-dialog { width: min(420px, calc(100% - 32px)); padding: 24px; border: 1px solid var(--line-strong); border-radius: 22px; background: #151820; color: var(--text); }
-  .text-dialog::backdrop { background: #000a; }
+  .text-dialog::backdrop, .settings-dialog::backdrop { background: #000a; }
   .text-dialog h2 { margin: 0 0 10px; font-size: 22px; }
   .text-dialog p { color: var(--muted); font-size: 14px; line-height: 1.5; }
   .text-dialog input { width: 100%; padding: 14px; margin: 8px 0 18px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg); font-size: 18px; }
   .text-dialog .send-text { background: var(--accent); color: var(--accent-ink); }
+
+  .settings-dialog {
+    width: min(440px, calc(100% - 32px)); max-height: min(86dvh, 720px);
+    margin: auto; padding: 0; overflow: hidden;
+    border: 1px solid var(--line-strong); border-radius: 24px;
+    background: linear-gradient(180deg, #1b1f29, #11141b); color: var(--text);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  }
+  .settings-dialog[open] { display: flex; flex-direction: column; animation: sheet-in .26s var(--ease); }
+  .settings-dialog::backdrop { background: rgba(4, 5, 8, .68); animation: fade-in .2s ease; }
+  .settings-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 20px 22px 14px; border-bottom: 1px solid rgba(255, 255, 255, .06);
+  }
+  .settings-head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  .settings-sub { margin: 4px 0 0; color: var(--dim); font-size: 12px; }
+  .settings-close {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 255, 255, .05); color: #b7bdcc;
+    transition: background .12s ease, color .12s ease;
+  }
+  .settings-close svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .settings-close:active { background: rgba(255, 255, 255, .12); color: #fff; }
+  .settings-body { padding: 4px 22px 18px; overflow-y: auto; overscroll-behavior: contain; }
+  .settings-group { padding: 12px 0 4px; border-top: 1px solid rgba(255, 255, 255, .06); }
+  .settings-group:first-child { border-top: 0; padding-top: 6px; }
+  .settings-heading {
+    margin: 0 0 2px; padding: 0 2px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+  }
+  .settings-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center; gap: 16px; padding: 12px 2px;
+  }
+  .settings-row b { display: block; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+  .settings-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .switch {
+    appearance: none; -webkit-appearance: none;
+    position: relative; flex: none; width: 48px; height: 28px; margin: 0;
+    border-radius: 99px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .12);
+    transition: background .18s ease, border-color .18s ease;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+    border-radius: 50%; background: #eaedf6; box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+    transition: translate .2s var(--ease), background .18s ease;
+  }
+  .switch:checked { background: var(--accent); border-color: transparent; }
+  .switch:checked::after { translate: 20px 0; background: #191326; }
+  .settings-pill {
+    min-height: 38px; padding: 0 16px; border-radius: 99px; white-space: nowrap;
+    border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .07);
+    font-size: 13px; font-weight: 650; color: #e6e9f2;
+    transition: background .14s ease, border-color .14s ease, transform .08s ease;
+  }
+  .settings-pill:active { background: rgba(255, 255, 255, .13); transform: scale(.96); }
+  .settings-pill[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+  .settings-pill.is-danger { color: #ffc4c4; border-color: rgba(255, 176, 176, .28); background: rgba(255, 176, 176, .08); }
+  .settings-pill.is-danger:active { background: rgba(255, 176, 176, .16); }
+  .settings-pill:disabled { opacity: .5; }
 </style>
 </head>
 <body>
@@ -308,35 +447,22 @@
         <span class="brand-tag">TV</span>
       </div>
       <div class="topbar-right">
-        <span id="view" class="view-chip">Home</span>
-        <div id="link" class="link">
-          <span class="live-dot" aria-hidden="true"></span>
-          <b id="pc-name">Luma PC</b>
-        </div>
+        <span id="view" class="view-chip" hidden>Home</span>
+        <button type="button" id="type-text" class="icon-button" aria-label="Type or search on your PC" title="Type or search on your PC">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 13.6h9"/></svg>
+        </button>
+        <span id="link" class="connection" role="status" aria-live="polite" aria-label="Connecting to Luma PC" title="Connecting to Luma PC">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+        </span>
+        <button type="button" id="settings-toggle" class="icon-button" aria-label="Remote settings" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.2M12 19v2.2M21.2 12H19M5 12H2.8M18.5 5.5l-1.6 1.6M7.1 16.9l-1.6 1.6M18.5 18.5l-1.6-1.6M7.1 7.1 5.5 5.5"/></svg>
+        </button>
       </div>
     </header>
 
     <div class="stage">
       <div class="nav-stack">
-        <div class="pad-wrap">
-          <div class="pad" role="group" aria-label="Navigation">
-            <button type="button" class="pad-key up" data-command="up" aria-label="Up">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg>
-            </button>
-            <button type="button" class="pad-key left" data-command="left" aria-label="Left">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
-            </button>
-            <button type="button" class="pad-key ok" data-command="activate" aria-label="OK">OK</button>
-            <button type="button" class="pad-key right" data-command="right" aria-label="Right">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
-            </button>
-            <button type="button" class="pad-key down" data-command="down" aria-label="Down">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <div class="navrow" role="group" aria-label="Navigation actions">
+        <div class="navrow utility" role="group" aria-label="Navigation actions">
           <button type="button" data-command="back">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
             Back
@@ -346,42 +472,70 @@
             Home
           </button>
         </div>
+
+        <div class="pad-column">
+          <div class="pad-wrap">
+            <div class="pad" role="group" aria-label="Navigation">
+              <span class="stick" aria-hidden="true"></span>
+              <button type="button" class="pad-key up" data-command="up" aria-label="Up">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg>
+              </button>
+              <button type="button" class="pad-key left" data-command="left" aria-label="Left">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+              </button>
+              <button type="button" class="pad-key ok" data-command="activate" aria-label="OK">OK</button>
+              <button type="button" class="pad-key right" data-command="right" aria-label="Right">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="pad-key down" data-command="down" aria-label="Down">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <p id="pad-hint" class="pad-hint" hidden>Drag to move · Click selects</p>
+        </div>
       </div>
 
       <div class="side">
-        <div class="navrow" aria-label="PC actions">
-          <button type="button" id="type-text">Type text</button>
-          <button type="button" data-command="stop" title="Hide Luma and keep the remote connected">Stop</button>
-        </div>
-        <section class="apps-block" aria-labelledby="apps-heading">
-          <div class="apps-head"><h2 id="apps-heading">Your apps</h2></div>
-          <div class="app-track" id="apps" role="group" aria-label="Launch apps"></div>
-        </section>
-
-        <section class="deck" aria-label="Playback and volume">
-          <div class="deck-row transport" role="group" aria-labelledby="deck-playback">
+        <div class="deck">
+          <section class="deck-group transport" aria-labelledby="deck-playback">
             <span id="deck-playback" class="deck-label">Playback</span>
-            <button type="button" data-command="previous" aria-label="Previous">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14"/><path class="fill" d="M19 5 9 12l10 7z"/></svg>
-            </button>
-            <button type="button" class="play" data-command="toggle" aria-label="Play or pause">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M8 5.5v13l10.5-6.5z"/></svg>
-            </button>
-            <button type="button" data-command="next" aria-label="Next">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14"/><path class="fill" d="M5 5l10 7L5 19z"/></svg>
-            </button>
-          </div>
-          <div class="deck-row volume" role="group" aria-labelledby="deck-volume">
+            <div class="deck-keys">
+              <button type="button" data-command="previous" aria-label="Previous track or rewind video 10 seconds">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14"/><path class="fill" d="M19 5 9 12l10 7z"/></svg>
+              </button>
+              <button type="button" class="play" data-command="toggle" aria-label="Play or pause">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M8 5.5v13l10.5-6.5z"/></svg>
+              </button>
+              <button type="button" data-command="next" aria-label="Next track or advance video 10 seconds">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14"/><path class="fill" d="M5 5l10 7L5 19z"/></svg>
+              </button>
+            </div>
+          </section>
+          <section class="deck-group volume" aria-labelledby="deck-volume">
             <span id="deck-volume" class="deck-label">PC volume</span>
-            <button type="button" data-command="volumedown" aria-label="Volume down">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
-            </button>
-            <button type="button" data-command="mute" aria-label="Mute">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
-            </button>
-            <button type="button" data-command="volumeup" aria-label="Volume up">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 6a9 9 0 0 1 0 12"/></svg>
-            </button>
+            <div class="deck-keys">
+              <button type="button" data-command="volumedown" aria-label="Volume down">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+              </button>
+              <button type="button" data-command="volumeup" aria-label="Volume up">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 6a9 9 0 0 1 0 12"/></svg>
+              </button>
+              <button type="button" data-command="mute" aria-label="Mute">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <section class="apps-block" aria-labelledby="apps-heading">
+          <button type="button" id="apps-toggle" class="apps-toggle" aria-expanded="true" aria-controls="apps">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <span id="apps-heading">Your apps</span>
+          </button>
+          <div id="apps-body" class="apps-body">
+            <div class="app-track" id="apps" role="group" aria-label="Launch apps"></div>
           </div>
         </section>
       </div>
@@ -392,12 +546,28 @@
 <dialog id="text-dialog" class="text-dialog" aria-labelledby="text-title">
   <form id="text-form">
     <h2 id="text-title">Type on your PC</h2>
-    <p>First select a text field on the TV. Your text will be inserted at its cursor.</p>
+    <p>In YouTube, send a search directly. In other apps, select a text field on the TV first.</p>
     <label for="remote-text">Text to send</label>
     <input id="remote-text" maxlength="200" autocomplete="off" required>
     <p id="text-feedback" role="status"></p>
     <div class="navrow"><button type="button" id="cancel-text">Cancel</button><button class="send-text" id="send-text" type="submit">Send text</button></div>
   </form>
+</dialog>
+<dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+  <div class="settings-head">
+    <h2 id="settings-title">Remote settings</h2>
+    <button type="button" id="settings-close" class="settings-close">Done</button>
+  </div>
+  <label class="settings-row" for="joystick-toggle">
+    <span><b>Joystick controls</b><small>Drag inside the ring to move the PC pointer. Click selects.</small></span>
+    <input id="joystick-toggle" type="checkbox">
+  </label>
+  <button type="button" id="fullscreen-toggle" class="settings-action" aria-pressed="false">Enter remote fullscreen</button>
+  <p id="fullscreen-note" class="settings-note" role="status"></p>
+  <h3 class="settings-heading">PC actions</h3>
+  <button type="button" id="pc-fullscreen" class="settings-action" data-command="fullscreen" aria-label="Toggle fullscreen for the PC window">Toggle PC fullscreen</button>
+  <button type="button" class="settings-action" data-command="stop">Stop Luma on PC</button>
+  <p class="settings-note">Stop hides Luma in the tray and keeps this remote connected. Press Home to bring Luma back.</p>
 </dialog>
 <p id="toast" class="toast" role="status" aria-live="polite"></p>
 
@@ -409,14 +579,25 @@
   const pairNotice = document.getElementById('pair-notice');
   const toast = document.getElementById('toast');
   const view = document.getElementById('view');
-  const pcName = document.getElementById('pc-name');
   const link = document.getElementById('link');
   const appGrid = document.getElementById('apps');
+  const appsToggle = document.getElementById('apps-toggle');
+  const settingsButton = document.getElementById('settings-toggle');
+  const settingsDialog = document.getElementById('settings-dialog');
+  const settingsClose = document.getElementById('settings-close');
+  const joystickToggle = document.getElementById('joystick-toggle');
+  const fullscreenButton = document.getElementById('fullscreen-toggle');
+  const fullscreenNote = document.getElementById('fullscreen-note');
+  const pcFullscreenButton = document.getElementById('pc-fullscreen');
+  const pad = document.querySelector('.pad');
+  const okKey = document.querySelector('.pad-key.ok');
+  const padHint = document.getElementById('pad-hint');
   let paired = false;
   let refreshing = false;
   let appsLoaded = false;
   let pairingBusy = false;
   let toastTimer = 0;
+  let pcLabel = 'Luma PC';
 
   async function request(path, options = {}) {
     const init = { credentials: 'same-origin', cache: 'no-store', ...options };
@@ -441,13 +622,40 @@
 
   function setLink(online) {
     link.classList.toggle('is-away', !online);
+    const status = online ? `Connected to ${pcLabel}` : 'Luma PC disconnected';
+    link.setAttribute('aria-label', status);
+    link.title = status;
   }
 
   function applyState(state) {
     if (!state) return;
     const next = state.view || 'Home';
     if (view.textContent !== next) view.textContent = next;
+    view.hidden = next === 'Home';
+    const fullscreen = typeof state.windowFullscreen === 'boolean' ? state.windowFullscreen : null;
+    const label = fullscreen === true ? 'Exit PC fullscreen' : fullscreen === false ? 'Fullscreen PC' : 'Toggle PC fullscreen';
+    if (pcFullscreenButton.textContent !== label) pcFullscreenButton.textContent = label;
+    if (fullscreen === null) pcFullscreenButton.removeAttribute('aria-pressed');
+    else pcFullscreenButton.setAttribute('aria-pressed', String(fullscreen));
+    pcFullscreenButton.setAttribute('aria-label', fullscreen === true
+      ? `Exit fullscreen for ${state.window || 'the PC window'}`
+      : fullscreen === false
+        ? `Fullscreen ${state.window || 'the PC window'}`
+        : 'Toggle fullscreen for the PC window being controlled');
   }
+
+  let appsOpen = true;
+  try { appsOpen = localStorage.getItem('luma-apps') !== 'closed'; } catch (_) {}
+  function applyApps(open) {
+    appsOpen = open;
+    appsToggle.setAttribute('aria-expanded', String(open));
+    appGrid.hidden = !open;
+  }
+  appsToggle.addEventListener('click', () => {
+    applyApps(!appsOpen);
+    try { localStorage.setItem('luma-apps', appsOpen ? 'open' : 'closed'); } catch (_) {}
+  });
+  applyApps(appsOpen);
 
   async function loadApps() {
     if (appsLoaded) return;
@@ -483,7 +691,7 @@
     pairing.hidden = true;
     remote.hidden = false;
     const name = data.pcName || 'Luma PC';
-    if (pcName.textContent !== name) pcName.textContent = name;
+    if (pcLabel !== name) { pcLabel = name; setLink(true); }
     applyState(data.state);
     connectSocket();
     void loadApps();
@@ -492,12 +700,212 @@
 
   function showPairing(message = '') {
     paired = false;
+    releaseStick();
     setLink(false);
     say('');
     remote.hidden = true;
     pairing.hidden = false;
     pairNotice.textContent = message;
   }
+
+  let joystickMode = false;
+  try { joystickMode = localStorage.getItem('luma-joystick') === 'true'; } catch (_) {}
+  const pointerOwner = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const stick = { id: null, active: false, released: false, needStart: true, x: 0, y: 0, originX: 0, originY: 0, heartbeat: 0 };
+  let pointerPending = null;
+  let pointerInFlight = false;
+
+  function releaseStick() {
+    stick.active = false;
+    stick.released = true;
+    stick.needStart = true;
+    stick.id = null;
+    stick.x = 0;
+    stick.y = 0;
+    pointerPending = null;
+    clearInterval(stick.heartbeat);
+    stick.heartbeat = 0;
+    pad.classList.remove('is-stick');
+    pad.style.removeProperty('--stick-x');
+    pad.style.removeProperty('--stick-y');
+  }
+
+  function stopStick() {
+    const wasActive = stick.active;
+    stick.active = false;
+    stick.id = null;
+    stick.x = 0;
+    stick.y = 0;
+    clearInterval(stick.heartbeat);
+    stick.heartbeat = 0;
+    pad.classList.remove('is-stick');
+    pad.style.removeProperty('--stick-x');
+    pad.style.removeProperty('--stick-y');
+    if (wasActive) queuePointer('stop', 0, 0);
+  }
+
+  function queuePointer(action, x, y) {
+    if (stick.released && action !== 'stop') return;
+    pointerPending = { action, x, y };
+    if (!pointerInFlight) void flushPointer();
+  }
+
+  async function flushPointer() {
+    if (pointerInFlight) return;
+    pointerInFlight = true;
+    try {
+      while (pointerPending) {
+        const next = pointerPending;
+        pointerPending = null;
+        const action = stick.needStart && next.action !== 'stop' ? 'start' : next.action;
+        const x = action === 'stop' ? 0 : next.x;
+        const y = action === 'stop' ? 0 : next.y;
+        let result;
+        try {
+          result = await request('/pointer', { method: 'POST', body: JSON.stringify({ action, owner: pointerOwner, x, y }) });
+        } catch (_) {
+          releaseStick();
+          say('Joystick could not reach Luma.', true);
+          break;
+        }
+        if (result.response.status === 401) {
+          releaseStick();
+          showPairing('This web remote is no longer paired. Choose Connect in Luma for a new code.');
+          break;
+        }
+        if (!result.response.ok) {
+          releaseStick();
+          say('Joystick is unavailable right now.', true);
+          break;
+        }
+        if (action === 'start') stick.needStart = false;
+        if (result.data?.released) {
+          releaseStick();
+          say('Mouse control is back on your PC. Lift, then drag again to use the joystick.');
+          break;
+        }
+      }
+    } finally {
+      pointerInFlight = false;
+      if (pointerPending && !stick.released) void flushPointer();
+    }
+  }
+
+  function startStick(event) {
+    if (!joystickMode || stick.id !== null) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    stick.id = event.pointerId;
+    stick.active = true;
+    stick.released = false;
+    stick.needStart = true;
+    stick.x = 0;
+    stick.y = 0;
+    stick.travel = 0;
+    stick.startedAt = performance.now();
+    stick.originX = event.clientX;
+    stick.originY = event.clientY;
+    try { pad.setPointerCapture(event.pointerId); } catch (_) {}
+    pad.classList.add('is-stick');
+    pad.style.setProperty('--stick-x', '0px');
+    pad.style.setProperty('--stick-y', '0px');
+    queuePointer('start', 0, 0);
+    clearInterval(stick.heartbeat);
+    stick.heartbeat = setInterval(() => {
+      if (stick.active && !stick.released) queuePointer('move', stick.x, stick.y);
+    }, 300);
+  }
+
+  function moveStick(event) {
+    if (event.pointerId !== stick.id || !stick.active) return;
+    event.preventDefault();
+    const range = Math.max(32, pad.clientWidth * 0.22);
+    let x = (event.clientX - stick.originX) / range;
+    let y = (event.clientY - stick.originY) / range;
+    stick.travel = Math.max(stick.travel, Math.hypot(event.clientX - stick.originX, event.clientY - stick.originY));
+    const length = Math.hypot(x, y);
+    if (length > 1) { x /= length; y /= length; }
+    if (Math.abs(x - stick.x) < 0.02 && Math.abs(y - stick.y) < 0.02) return;
+    stick.x = x;
+    stick.y = y;
+    pad.style.setProperty('--stick-x', `${x * range}px`);
+    pad.style.setProperty('--stick-y', `${y * range}px`);
+    queuePointer('move', x, y);
+  }
+
+  function endStick(event) {
+    if (event.pointerId !== stick.id) return;
+    event.preventDefault();
+    const click = event.type === 'pointerup' && stick.travel < 6 && performance.now() - stick.startedAt < 350;
+    stopStick();
+    if (click) void send('click');
+  }
+
+  function saveJoystick() {
+    try { localStorage.setItem('luma-joystick', String(joystickMode)); } catch (_) {}
+  }
+
+  function applyJoystick(enabled) {
+    joystickMode = enabled;
+    joystickToggle.checked = enabled;
+    pad.classList.toggle('joystick', enabled);
+    pad.setAttribute('aria-label', enabled ? 'Joystick. Drag to move the PC pointer; Click selects.' : 'Navigation');
+    padHint.hidden = !enabled;
+    okKey.textContent = enabled ? 'Click' : 'OK';
+    okKey.dataset.command = enabled ? 'click' : 'activate';
+    okKey.setAttribute('aria-label', enabled ? 'Click on the PC' : 'OK');
+    for (const key of pad.querySelectorAll('.pad-key[data-command]:not(.ok)')) {
+      if (enabled) {
+        key.tabIndex = -1;
+        key.setAttribute('aria-hidden', 'true');
+      } else {
+        key.removeAttribute('tabindex');
+        key.removeAttribute('aria-hidden');
+      }
+    }
+    if (!enabled) stopStick();
+  }
+
+  pad.addEventListener('pointerdown', startStick);
+  pad.addEventListener('pointermove', moveStick);
+  pad.addEventListener('pointerup', endStick);
+  pad.addEventListener('pointercancel', endStick);
+  pad.addEventListener('lostpointercapture', endStick);
+  window.addEventListener('blur', stopStick);
+  window.addEventListener('pagehide', stopStick);
+  joystickToggle.addEventListener('change', () => {
+    applyJoystick(joystickToggle.checked);
+    saveJoystick();
+  });
+  applyJoystick(joystickMode);
+
+  const fullscreenSupported = typeof document.documentElement.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
+  function syncFullscreen() {
+    const active = Boolean(document.fullscreenElement);
+    fullscreenButton.textContent = active ? 'Exit remote fullscreen' : 'Enter remote fullscreen';
+    fullscreenButton.setAttribute('aria-pressed', String(active));
+    fullscreenNote.textContent = active ? 'The remote is fullscreen. Choose Exit remote fullscreen to return. This does not change the PC window.' : 'Full screen enlarges this remote in the browser, not the PC window.';
+  }
+  if (fullscreenSupported) {
+    fullscreenButton.addEventListener('click', async () => {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        else await document.documentElement.requestFullscreen();
+      } catch (_) {
+        say('Remote fullscreen is unavailable in this browser.', true);
+      }
+    });
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    syncFullscreen();
+  } else {
+    fullscreenButton.disabled = true;
+    fullscreenButton.textContent = 'Remote fullscreen unavailable';
+    fullscreenNote.textContent = 'This browser cannot enlarge the remote. Use the PC fullscreen button in the remote instead.';
+  }
+
+  settingsButton.addEventListener('click', () => { if (!settingsDialog.open) settingsDialog.showModal(); });
+  settingsClose.addEventListener('click', () => settingsDialog.close());
+  document.querySelector('[data-command="stop"]').addEventListener('click', () => settingsDialog.close());
 
   async function refresh() {
     if (refreshing) return;
@@ -536,6 +944,7 @@
     };
     connection.onclose = () => {
       if (socket === connection) socket = undefined;
+      stopStick();
       for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new Error('Connection interrupted. Press again to retry.')); }
       pending.clear();
       setLink(false);
@@ -551,7 +960,7 @@
     });
   }
 
-  async function send(command, button) {
+  async function send(command, button = pad.querySelector('.ok')) {
     button.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = socket?.readyState === WebSocket.OPEN
@@ -567,8 +976,14 @@
         return;
       }
       setLink(true);
-      applyState(data && data.state);
-      say(data && data.error ? data.error : command === 'stop' ? 'Luma is in the tray. Press Home to return.' : '', Boolean(data && data.error));
+      const state = data && data.state;
+      applyState(state);
+      if (data && data.error) say(data.error, true);
+      else if (command === 'stop') say('Luma is in the tray. Press Home to return.');
+      else if (command === 'fullscreen') {
+        const value = state && typeof state.windowFullscreen === 'boolean' ? state.windowFullscreen : null;
+        say(value === true ? `${state.window || 'The PC window'} is fullscreen.` : value === false ? `${state.window || 'The PC window'} is windowed.` : 'Fullscreen command sent to the PC app.');
+      } else say('');
     } catch (_) {
       setLink(false);
       say('Luma is not reachable. Check Wi-Fi and that Luma is open.', true);
@@ -604,9 +1019,18 @@
 
   document.addEventListener('touchstart', () => {}, { passive: true });
 
+  const immediateCommands = new Set(['up', 'down', 'left', 'right', 'activate', 'back', 'home', 'volumeup', 'volumedown', 'mute', 'toggle', 'previous', 'next']);
+  document.addEventListener('pointerdown', event => {
+    const button = event.target.closest('button[data-command]');
+    if (!button || button.disabled || !event.isPrimary || event.button !== 0 || !immediateCommands.has(button.dataset.command)) return;
+    if (joystickMode && pad.contains(button)) return;
+    event.preventDefault();
+    void send(button.dataset.command, button);
+  });
   document.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-command]');
     if (!button) return;
+    if (event.detail !== 0 && immediateCommands.has(button.dataset.command)) return;
     void send(button.dataset.command, button);
   });
 
@@ -661,7 +1085,7 @@
   }, 3000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && paired) { connectSocket(); void refresh(); }
-    else socket?.close();
+    else { stopStick(); socket?.close(); }
   });
 </script>
 </body>

@@ -9,8 +9,8 @@ const LEASE: Duration = Duration::from_millis(1500);
 const SPEED: f32 = 1100.0;
 const DEAD_ZONE: f32 = 0.16;
 
-const HIDE: &str = "(() => { if (document.getElementById('luma-remote-cursor')) return; const style = document.createElement('style'); style.id = 'luma-remote-cursor'; style.textContent = '*{cursor:none !important}'; document.documentElement.appendChild(style); })();";
-const SHOW: &str = "document.getElementById('luma-remote-cursor')?.remove();";
+const HIDE: &str = "(() => { if (document.getElementById('luma-remote-cursor')) return; const style = document.createElement('style'); style.id = 'luma-remote-cursor'; style.textContent = '*{cursor:none !important}'; document.documentElement.appendChild(style); const show = () => { style.remove(); window.removeEventListener('pointermove', show, true); window.removeEventListener('mousedown', show, true); if (window.__lumaRemoteCursor === show) delete window.__lumaRemoteCursor; }; window.__lumaRemoteCursor = show; window.addEventListener('pointermove', show, true); window.addEventListener('mousedown', show, true); })();";
+const SHOW: &str = "(() => { const show = window.__lumaRemoteCursor; if (typeof show === 'function') show(); document.getElementById('luma-remote-cursor')?.remove(); })();";
 
 struct Motion {
     owner: String,
@@ -70,10 +70,7 @@ fn cursor(app: &tauri::AppHandle, script: &str) {
 }
 
 fn watch(app: &tauri::AppHandle) {
-    let active = {
-        let state = lock(app);
-        state.hidden || state.motion.is_some()
-    };
+    let active = with_state(app, |state| state.hidden || state.motion.is_some());
     if active {
         physical::watch(app);
     } else {
@@ -82,8 +79,7 @@ fn watch(app: &tauri::AppHandle) {
 }
 
 pub fn start(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) {
-    let spawn = {
-        let mut state = lock(app);
+    let spawn = with_state(app, |state| {
         state.released = false;
         state.motion = Some(Motion {
             owner: owner.into(),
@@ -99,7 +95,7 @@ pub fn start(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) {
             state.running = true;
             true
         }
-    };
+    });
     show_cursor(app);
     if spawn {
         let app = app.clone();
@@ -108,8 +104,7 @@ pub fn start(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) {
 }
 
 pub fn update(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) -> bool {
-    let (released, spawn) = {
-        let mut state = lock(app);
+    let (released, spawn) = with_state(app, |state| {
         let now = Instant::now();
         let accepted = state
             .motion
@@ -128,7 +123,7 @@ pub fn update(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) -> bool {
             false
         };
         (state.released, spawn)
-    };
+    });
     if spawn {
         let app = app.clone();
         tauri::async_runtime::spawn(run(app));
@@ -137,8 +132,7 @@ pub fn update(app: &tauri::AppHandle, owner: &str, x: f32, y: f32) -> bool {
 }
 
 pub fn stop(app: &tauri::AppHandle, owner: &str) {
-    {
-        let mut state = lock(app);
+    with_state(app, |state| {
         if state
             .motion
             .as_ref()
@@ -146,53 +140,37 @@ pub fn stop(app: &tauri::AppHandle, owner: &str) {
         {
             state.motion = None;
         }
-    }
+    });
     watch(app);
 }
 
 pub fn stop_all(app: &tauri::AppHandle) {
-    {
-        let mut state = lock(app);
+    with_state(app, |state| {
         state.motion = None;
         state.released = false;
-    }
+    });
     watch(app);
 }
 
 pub fn takeover(app: &tauri::AppHandle) {
-    {
-        let mut state = lock(app);
+    with_state(app, |state| {
         state.motion = None;
         state.released = true;
         state.hidden = false;
-    }
+    });
     cursor(app, SHOW);
     watch(app);
 }
 
 pub fn hide_cursor(app: &tauri::AppHandle) {
-    let show = {
-        let mut state = lock(app);
-        let show = !state.hidden;
-        state.hidden = true;
-        show
-    };
-    if show {
-        cursor(app, HIDE);
-    }
+    with_state(app, |state| state.hidden = true);
+    cursor(app, HIDE);
     watch(app);
 }
 
 pub fn show_cursor(app: &tauri::AppHandle) {
-    let show = {
-        let mut state = lock(app);
-        let show = state.hidden;
-        state.hidden = false;
-        show
-    };
-    if show {
-        cursor(app, SHOW);
-    }
+    with_state(app, |state| state.hidden = false);
+    cursor(app, SHOW);
     watch(app);
 }
 
@@ -204,13 +182,16 @@ pub fn click(app: &tauri::AppHandle) -> Result<(), String> {
 async fn run(app: tauri::AppHandle) {
     loop {
         tokio::time::sleep(TICK).await;
-        let (dx, dy, done) = {
-            let mut state = lock(&app);
+        let (dx, dy, done) = with_state(&app, |state| {
             if !state.running {
-                return;
+                return (0, 0, true);
             }
             let now = Instant::now();
-            if state.motion.as_ref().map_or(true, |motion| motion.lease <= now) {
+            if state
+                .motion
+                .as_ref()
+                .map_or(true, |motion| motion.lease <= now)
+            {
                 state.motion = None;
                 state.released = true;
                 state.running = false;
@@ -226,7 +207,7 @@ async fn run(app: tauri::AppHandle) {
                 motion.rest_y -= dy as f32;
                 (dx, dy, false)
             }
-        };
+        });
         if done {
             watch(&app);
             return;
@@ -241,11 +222,15 @@ async fn run(app: tauri::AppHandle) {
 mod platform {
     use std::mem::size_of;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEINPUT, MOUSEEVENTF_LEFTDOWN,
-        MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+        MOUSEEVENTF_MOVE, MOUSEINPUT,
     };
 
-    fn mouse(dx: i32, dy: i32, flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS) -> INPUT {
+    fn mouse(
+        dx: i32,
+        dy: i32,
+        flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS,
+    ) -> INPUT {
         INPUT {
             r#type: INPUT_MOUSE,
             Anonymous: INPUT_0 {
@@ -274,7 +259,10 @@ mod platform {
     }
 
     pub fn click() -> Result<(), String> {
-        send(&[mouse(0, 0, MOUSEEVENTF_LEFTDOWN), mouse(0, 0, MOUSEEVENTF_LEFTUP)])
+        send(&[
+            mouse(0, 0, MOUSEEVENTF_LEFTDOWN),
+            mouse(0, 0, MOUSEEVENTF_LEFTUP),
+        ])
     }
 }
 
@@ -318,7 +306,7 @@ mod physical {
             };
             let mut message = MSG::default();
             while GetMessageW(&mut message, None, 0, 0).as_bool() {
-                TranslateMessage(&message);
+                let _ = TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
             let _ = UnhookWindowsHookEx(hook);

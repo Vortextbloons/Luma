@@ -139,6 +139,25 @@ test('remote activate submits the form for a focused search field', () => {
   assert.equal(field.clicks, 0);
 });
 
+test('remote changes dropdown choices, skips disabled outputs, and leaves with vertical navigation', () => {
+  const f = fixture();
+  const select = f.button(0, 0), next = f.button(0, 100);
+  Object.setPrototypeOf(select, Select.prototype);
+  Object.assign(select, { selectedIndex: 0, options: [{}, { disabled: true }, {}], disabled: false });
+  const events = [];
+  select.dispatchEvent = event => events.push(event.type);
+  select.focus();
+  f.navigation.dispatch('right');
+  assert.equal(select.selectedIndex, 2);
+  f.navigation.dispatch('right');
+  assert.equal(select.selectedIndex, 2);
+  f.navigation.dispatch('left');
+  assert.equal(select.selectedIndex, 0);
+  assert.deepEqual(events, ['input', 'change', 'input', 'change']);
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, next);
+});
+
 test('details summary controls join the remote focus order', () => {
   const f = fixture();
   const first = f.button(0, 0), disclosure = f.summary(0, 100);

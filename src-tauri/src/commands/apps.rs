@@ -439,6 +439,15 @@ pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHand
         .get(&name)
         .cloned()
         .unwrap_or_default();
+    if let Some(url) = service.url {
+        if crate::commands::services::reuse(&app, service.id, url) {
+            if let Some(window) = app.get_webview_window("main") {
+                window.minimize().map_err(|e| e.to_string())?;
+            }
+            crate::activity::record_launch(&app, &name);
+            return Ok(());
+        }
+    }
     if crate::commands::session::reuse(&app, &name) {
         if let Some(window) = app.get_webview_window("main") {
             window.minimize().map_err(|e| e.to_string())?;
@@ -451,26 +460,20 @@ pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHand
     } else {
         Some(validate(&configured)?)
     };
-    let (executable, arguments) = match detected {
-        Some(executable) => (executable, Vec::new()),
-        None => {
-            let Some(url) = service.url else {
-                return Err(format!(
-                    "{name} was not found. Install it or choose its program under App locations in Settings."
-                ));
-            };
-            let browser = edge().ok_or_else(|| {
-                format!("Microsoft Edge is required to open {name}. Install Edge or choose a program under App locations in Settings.")
-            })?;
-            (browser, edge_arguments(&app, service.id, url)?)
+    if detected.is_none() {
+        if let Some(url) = service.url {
+            return crate::commands::services::launch(&app, service.id, url).await;
         }
-    };
+        return Err(format!(
+            "{name} was not found. Install it or choose its program under App locations in Settings."
+        ));
+    }
+    let executable = detected.expect("a detected executable is present");
     let mut command = std::process::Command::new(&executable);
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
     }
     let child = command
-        .args(&arguments)
         .spawn()
         .map_err(|e| format!("Could not start {name}: {e}"))?;
     crate::commands::session::track(&app, &name, child.id());
@@ -479,33 +482,6 @@ pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHand
         window.minimize().map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-fn edge() -> Option<PathBuf> {
-    ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
-        .iter()
-        .filter_map(|variable| {
-            std::env::var_os(variable)
-                .map(|root| PathBuf::from(root).join(r"Microsoft\Edge\Application\msedge.exe"))
-        })
-        .find(|candidate| candidate.is_file())
-}
-
-fn edge_arguments(app: &tauri::AppHandle, id: &str, url: &str) -> Result<Vec<String>, String> {
-    let profile = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| e.to_string())?
-        .join("services")
-        .join(id.to_lowercase().replace('+', "plus").replace(' ', "-"));
-    Ok([
-        format!("--app={url}"),
-        format!("--user-data-dir={}", profile.display()),
-        "--no-first-run".into(),
-        "--no-default-browser-check".into(),
-        "--start-maximized".into(),
-    ]
-    .to_vec())
 }
 
 #[cfg(test)]

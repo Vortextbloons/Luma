@@ -246,8 +246,9 @@ async fn state(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     authorized(&app, &headers)?;
+    let state = server::snapshot_live(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
-        serde_json::json!({"pcName": pc_name(), "connected": true}),
+        serde_json::json!({"pcName": pc_name(), "connected": true, "state": state}),
     ))
 }
 #[derive(Deserialize)]
@@ -256,8 +257,11 @@ struct Command {
     command: String,
 }
 async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), String>> {
-    if command != "stop" && command != "click" {
+    if !["stop", "click", "fullscreen"].contains(&command) {
         if let Err(error) = server::wake(app).await { return Some(Err(error)); }
+    }
+    if command == "fullscreen" {
+        return Some(server::fullscreen(app));
     }
     if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
         server::navigate(app, nav);
@@ -287,9 +291,15 @@ async fn command(
     let result = perform(&app, &request.command)
         .await
         .ok_or(StatusCode::BAD_REQUEST)?;
+    let state = if request.command == "fullscreen" {
+        server::snapshot_live(&app)
+    } else {
+        server::snapshot(&app)
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(match result {
-        Ok(()) => serde_json::json!({"accepted": true}),
-        Err(error) => serde_json::json!({"error":error}),
+        Ok(()) => serde_json::json!({"accepted": true, "state": state}),
+        Err(error) => serde_json::json!({"error":error, "state": state}),
     }))
 }
 async fn phone_page() -> Response {
@@ -344,7 +354,7 @@ async fn phone_state(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     phone_authorized(&app, &headers)?;
-    let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let state = server::snapshot_live(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         serde_json::json!({"pcName": pc_name(), "state": state}),
     ))
@@ -393,7 +403,12 @@ async fn phone_command(
     let result = perform(&app, &request.command)
         .await
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let state = if request.command == "fullscreen" {
+        server::snapshot_live(&app)
+    } else {
+        server::snapshot(&app)
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(match result {
         Ok(()) => serde_json::json!({"accepted": true, "state": state}),
         Err(error) => serde_json::json!({"error": error, "state": state}),
@@ -446,10 +461,16 @@ async fn phone_socket(
             let Message::Text(text) = message else { continue; };
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { break; };
             let Some(id) = value.get("id").and_then(|id| id.as_u64()) else { break; };
-            let result = if let Some(command) = value.get("command").and_then(|command| command.as_str()) {
+            let command = value.get("command").and_then(|command| command.as_str());
+            let result = if let Some(command) = command {
                 perform(&app, command).await.unwrap_or_else(|| Err("Unknown remote command.".into()))
             } else { Ok(()) };
-            let response = serde_json::json!({ "id": id, "error": result.err(), "state": server::snapshot(&app).ok() });
+            let state = if command.is_none() || command == Some("fullscreen") {
+                server::snapshot_live(&app)
+            } else {
+                server::snapshot(&app)
+            };
+            let response = serde_json::json!({ "id": id, "error": result.err(), "state": state.ok() });
             if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
         }
     }))
@@ -468,7 +489,12 @@ async fn remote_text(
         return Err(StatusCode::BAD_REQUEST);
     }
     let result = match server::wake(&app).await {
-        Ok(()) => server::type_text(&request.text),
+        Ok(()) => {
+            if let Some(window) = app.get_webview_window("youtube").filter(|window| window.is_visible().unwrap_or(false)) {
+                let text = serde_json::to_string(&request.text).map_err(|_| StatusCode::BAD_REQUEST)?;
+                window.eval(format!("window.__lumaTypeSearch?.({text});")).map_err(|error| error.to_string())
+            } else { server::type_text(&request.text) }
+        },
         Err(error) => Err(error),
     };
     Ok(Json(match result {

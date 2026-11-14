@@ -8,6 +8,8 @@ use tauri::{Emitter, Manager};
 pub struct AppState {
     view: String,
     fullscreen: bool,
+    window: Option<String>,
+    window_fullscreen: Option<bool>,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -59,6 +61,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
             window.hide().map_err(|error| error.to_string())?;
         }
     }
+    let _ = crate::tv::restore_audio_sync();
     Ok(())
 }
 
@@ -161,9 +164,29 @@ impl Default for Remote {
             state: Mutex::new(AppState {
                 view: "Home".into(),
                 fullscreen: false,
+                window: None,
+                window_fullscreen: None,
             }),
         }
     }
+}
+
+fn active_window(app: &tauri::AppHandle) -> Option<(&'static str, tauri::WebviewWindow)> {
+    let windows: Vec<_> = [("main", "Luma"), ("youtube", "YouTube"), ("stremio", "Stremio")]
+        .into_iter()
+        .filter_map(|(label, name)| {
+            let window = app.get_webview_window(label)?;
+            if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+                return None;
+            }
+            Some((name, window))
+        })
+        .collect();
+    windows
+        .iter()
+        .find(|(_, window)| window.is_focused().unwrap_or(false))
+        .or_else(|| windows.first())
+        .cloned()
 }
 
 pub(crate) fn snapshot(app: &tauri::AppHandle) -> Result<AppState, String> {
@@ -172,6 +195,31 @@ pub(crate) fn snapshot(app: &tauri::AppHandle) -> Result<AppState, String> {
         .lock()
         .map(|state| state.clone())
         .map_err(|e| e.to_string())
+}
+
+pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> {
+    let window = active_window(app).map(|(name, window)| (name, window.is_fullscreen().ok()));
+    let remote = app.state::<Remote>();
+    let mut state = remote.state.lock().map_err(|e| e.to_string())?;
+    if let Some((name, fullscreen)) = window {
+        state.window = Some(name.into());
+        state.window_fullscreen = fullscreen;
+    } else {
+        state.window = None;
+        state.window_fullscreen = None;
+    }
+    Ok(state.clone())
+}
+
+pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(result) = crate::commands::session::fullscreen(app) {
+        return result;
+    }
+    let (_, window) = active_window(app).ok_or("Open Luma or an app before using PC fullscreen.")?;
+    let value = !window.is_fullscreen().map_err(|error| error.to_string())?;
+    window
+        .set_fullscreen(value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -183,7 +231,9 @@ pub fn update_app_state(
     if !["Home", "Watch", "Music", "Apps", "Settings", "Details"].contains(&view.as_str()) {
         return Err("Invalid view.".into());
     }
-    *remote.state.lock().map_err(|e| e.to_string())? = AppState { view, fullscreen };
+    let mut state = remote.state.lock().map_err(|e| e.to_string())?;
+    state.view = view;
+    state.fullscreen = fullscreen;
     Ok(())
 }
 
@@ -210,6 +260,19 @@ mod tests {
         assert!(!frontend_receives(true, false, NavigationCommand::Left));
         assert!(!frontend_receives(false, true, NavigationCommand::Activate));
         assert!(frontend_receives(false, false, NavigationCommand::Left));
+    }
+
+    #[test]
+    fn pc_window_state_uses_the_field_names_the_remotes_read() {
+        let state = super::AppState {
+            view: "Home".into(),
+            fullscreen: false,
+            window: Some("YouTube".into()),
+            window_fullscreen: Some(true),
+        };
+        let value = serde_json::to_value(state).unwrap();
+        assert_eq!(value["window"], "YouTube");
+        assert_eq!(value["windowFullscreen"], true);
     }
 
     #[test]

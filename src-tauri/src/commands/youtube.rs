@@ -338,6 +338,7 @@ fn create(
         .focused(visible)
         .user_agent(USER_AGENT)
         .initialization_script(script(bridge)?)
+        .initialization_script(crate::background::MOTION_INIT)
         .on_navigation(|url| url.scheme() == "about" || allowed(url.host_str()))
         .build()
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
@@ -350,18 +351,6 @@ fn create(
         }
     });
     Ok(window)
-}
-
-pub async fn prepare(app: AppHandle) {
-    let Ok(bridge) = bridge(&app).await else { return };
-    let state = app.state::<Bridge>();
-    let _guard = state.window.lock().await;
-    if app.get_webview_window("youtube").is_some() {
-        return;
-    }
-    if let Err(error) = create(&app, &bridge, false, false, None) {
-        eprintln!("YouTube preload skipped: {error}");
-    }
 }
 
 #[tauri::command]

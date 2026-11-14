@@ -16,6 +16,17 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     if (command === 'back') { back(); return; }
     if (command === 'home') { home(); return; }
     const current = document.activeElement as HTMLElement;
+    if ((command === 'left' || command === 'right') && current instanceof HTMLSelectElement && !current.disabled) {
+      const direction = command === 'right' ? 1 : -1;
+      for (let index = current.selectedIndex + direction; index >= 0 && index < current.options.length; index += direction) {
+        if (current.options[index].disabled) continue;
+        current.selectedIndex = index;
+        current.dispatchEvent(new Event('input', { bubbles: true }));
+        current.dispatchEvent(new Event('change', { bubbles: true }));
+        break;
+      }
+      return;
+    }
     if ((command === 'left' || command === 'right') && current instanceof HTMLInputElement && current.type === 'range' && !current.disabled) {
       const step = (Number(current.step) || 1) * (Number(current.max) > 10_000 ? 5 : 1);
       const direction = command === 'right' ? 1 : -1;

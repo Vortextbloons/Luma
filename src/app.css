@@ -317,6 +317,10 @@ button:focus,input:focus,select:focus{scroll-margin-block:calc(var(--topbar-h) +
 .details-dialog[open]::backdrop,.remote-dialog[open]::backdrop{animation:luma-backdrop-in var(--motion-base) var(--ease-out) both}
 .mini-player{animation:luma-mini-in var(--motion-screen) var(--ease-out) both}
 .notice{animation:luma-notice-in var(--motion-screen) var(--ease-out) both}
+.view-swap{animation:luma-swap-in 200ms var(--ease-out) both}
+@keyframes luma-swap-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.app-card.is-launching{border-color:var(--accent);animation:app-launching 1s var(--ease-out) infinite}
+@keyframes app-launching{0%,100%{box-shadow:0 8px 22px #0003}50%{box-shadow:0 0 0 3px var(--accent-soft),0 18px 40px #0006}}
 .nav-btn,.header-btn{transition:background-color var(--motion-fast) var(--ease-out),color var(--motion-fast) var(--ease-out),border-color var(--motion-fast) var(--ease-out),box-shadow var(--motion-fast) var(--ease-out),transform var(--motion-fast) var(--ease-out)}
 .nav-btn:focus-visible,.header-btn:focus-visible{transform:translateY(-1px)}
 .media-card,.video-card,.music-card,.activity-main,.app-card{transition:transform var(--motion-base) var(--ease-out),box-shadow var(--motion-base) var(--ease-out),border-color var(--motion-base) var(--ease-out)}

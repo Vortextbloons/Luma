@@ -67,6 +67,17 @@
   }
 
   function action(name: string) { void spotify.action(name); }
+
+  function animateSection(_section: string) {
+    return (element: HTMLElement) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const animation = element.animate(
+        [{ opacity: .4, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 180, easing: 'cubic-bezier(.22,.8,.24,1)' },
+      );
+      return () => animation.cancel();
+    };
+  }
 </script>
 
 <section class="music-home" aria-labelledby="music-title">
@@ -90,6 +101,7 @@
       <button class={{ "active": section === name }} aria-current={section === name ? 'page' : undefined} onclick={() => section = name}><MusicIcon name={name === 'Listen now' ? 'music' : name === 'Library' ? 'library' : name === 'Search' ? 'search' : 'speaker'} />{name}</button>
     {/each}
   </nav>
+  <div class="music-section-body" {@attach animateSection(section)}>
   {#if !native}
     <p class="music-inline-error">Music controls require the Luma desktop app.</p>
   {/if}
@@ -165,6 +177,7 @@
       </div>
     </section>
   {/if}
+  </div>
 </section>
 
 {#if collection}
