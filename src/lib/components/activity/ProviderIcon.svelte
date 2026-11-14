@@ -9,9 +9,10 @@
   import peacock from '../../../assets/peacock.png';
   import stremio from '../../../assets/stremio.svg';
   import youtube from '../../../assets/youtube.svg';
+  import steam from '../../../assets/steam.png';
 
   let { provider }: { provider: string } = $props();
-  const source = $derived(provider === 'spotify' ? spotify : provider === 'stremio' ? stremio : provider === 'youtube' ? youtube : ({ netflix, disneyplus, primevideo, appletv, hulu, max, peacock } as Record<string, string>)[provider] ?? '');
+  const source = $derived(provider === 'spotify' ? spotify : provider === 'stremio' ? stremio : provider === 'youtube' ? youtube : ({ netflix, disneyplus, primevideo, appletv, hulu, max, peacock, steam } as Record<string, string>)[provider] ?? '');
   const monogram = $derived(({
     plex: 'P', jellyfin: 'J', trakt: 'T', local: 'L',
   } as Record<string, string>)[provider] ?? provider.slice(0, 1).toUpperCase());

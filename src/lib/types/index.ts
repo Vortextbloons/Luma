@@ -1,13 +1,20 @@
-export type AppId = 'YouTube' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'Custom';
+export type AppId = 'YouTube' | 'Steam' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'Custom';
 export type ExecutableAppId = Exclude<AppId, 'YouTube'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
+export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite';
+export type HomeRowId = 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
+export type WidgetId = 'spotify';
+export type WidgetPlacement = 'bar' | 'top-right' | 'bottom-right' | 'bottom-left';
+export interface HomeRow { id: HomeRowId; visible: boolean; }
+export interface WidgetConfig { enabled: boolean; placement: WidgetPlacement; }
 export interface Settings {
-  accent: 'violet' | 'blue' | 'mint' | 'peach';
+  theme: ThemeId;
   density: 'comfortable' | 'compact';
   appTileShape: 'wide' | 'square';
   homeShortcut: string;
   fullscreen: boolean;
-  sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean; recent: boolean; recentApps: boolean };
+  home: HomeRow[];
+  widgets: Record<WidgetId, WidgetConfig>;
   paths: Record<ExecutableAppId, string>;
   order: AppId[];
 }

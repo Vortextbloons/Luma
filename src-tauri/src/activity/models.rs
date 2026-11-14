@@ -255,6 +255,12 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         capabilities: &["watchHistory"],
     },
     ProviderInfo {
+        id: "steam",
+        name: "Steam",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
         id: "stremio",
         name: "Stremio",
         kind: ProviderKind::Launcher,
@@ -312,6 +318,7 @@ pub fn app_provider(app: &str) -> &'static str {
     match app {
         "YouTube" => "youtube",
         "Spotify" => "spotify",
+        "Steam" => "steam",
         "Stremio" => "stremio",
         "Netflix" => "netflix",
         "Disney+" => "disneyplus",

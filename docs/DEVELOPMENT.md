@@ -130,13 +130,13 @@ Web remote commands require the server's own origin; cross-origin and missing-or
 
 ## Remote control of launched applications
 
-While an application started from Luma is still running, remote commands go to it instead of the launcher. The four arrow commands move the Windows pointer inside that application's window, `activate` clicks at the pointer, and `back` sends Escape to the focused window. `home` minimizes the application and restores Luma, and Luma also restores itself if the tracked process exits. Only one application is tracked at a time, because launching an app minimizes Luma. The window is matched by the tracked process or its children, falling back to a visible window whose title contains the application name, which is what resolves Store-packaged apps hosted by `ApplicationFrameHost`.
+While an application started from Luma is still running, remote commands go to it instead of the launcher. The four arrow commands move the Windows pointer inside that application's window, `activate` clicks at the pointer, and `back` sends Escape to the focused window. `home`, Ctrl+W, and the Home button close the launched application window and restore Luma, and Luma also restores itself if the tracked process exits. Only one application is tracked at a time, because launching an app minimizes Luma. The window is matched by the tracked process or its children, falling back to a visible window whose title contains the application name, which is what resolves Store-packaged apps hosted by `ApplicationFrameHost`.
 
 There is no directional focus model inside those applications. Their keyboard shortcuts and layout differ per service and change without notice, so directional navigation stays a pointer rather than D-pad focus. Media keys are not sent, so playback is controlled through the service's own interface.
 
 ## System tray and Windows startup
 
-Closing the main window hides Luma in the system tray while its server keeps running. Left-click the tray icon or choose **Open Luma TV** to restore the launcher. Choose **Quit Luma and stop server** to exit completely.
+Closing the main window asks whether to keep Luma running in the system tray or quit completely. Keeping it running hides the window, destroys the embedded YouTube and Stremio webviews, and leaves the Display Box and web remote available; quitting stops the server and tray. The remote's Stop command does the same without asking, freeing the webview memory until the next launch rebuilds them. Left-click the tray icon or choose **Open Luma TV** to restore the launcher, or choose **Exit Luma…** to confirm a full exit.
 
 In Settings → Remote & Startup, enable **Start Luma when I sign in** to launch quietly after Windows sign-in. Startup runs the same application with `--background`, without showing the launcher. Display Box must be enabled separately for the photo frame to connect. A single-instance guard prevents a second copy from occupying the server ports; opening Luma again restores the running instance. Configure startup from the installed application so Windows points to its permanent executable location.
 

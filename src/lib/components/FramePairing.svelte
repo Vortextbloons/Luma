@@ -174,25 +174,25 @@
   .pairing-only .frame-code { margin: 0 0 20px; padding: 0; border: 0; }
   .remote-qr { display: block; width: min(240px, 100%); aspect-ratio: 1; margin: 0 0 18px; border: 12px solid white; border-radius: 12px; background: white; }
   .remote-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
-  .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid #ffffff12; border-radius: 13px; background: #ffffff04; color: #c7ccd8; text-align: left; }
+  .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 13px; background: #ffffff04; color: var(--text-dim); text-align: left; }
   .remote-choice button:hover { background: #ffffff09; border-color: #ffffff22; }
   .remote-choice button.selected { border-color: var(--accent); background: var(--accent-soft); color: #fff; }
   .remote-choice strong { font-size: clamp(14px, .95vw, 17px); }
-  .remote-choice span { color: #8f97a8; font-size: clamp(11px, .75vw, 13px); line-height: 1.45; }
-  .remote-choice button.selected span { color: #c8cbd8; }
-  .frame-connect { padding: clamp(16px, 1.5vw, 24px); border: 1px solid #ffffff10; border-radius: 14px; background: #0b0e15; }
+  .remote-choice span { color: var(--muted); font-size: clamp(11px, .75vw, 13px); line-height: 1.45; }
+  .remote-choice button.selected span { color: var(--text-dim); }
+  .frame-connect { padding: clamp(16px, 1.5vw, 24px); border: 1px solid #ffffff10; border-radius: 14px; background: var(--bg); }
   .remote-launch { margin: 18px 0 14px; }
-  .remote-steps { display: grid; gap: 7px; margin: 0 0 14px; padding-left: 20px; color: #b6bdca; font-size: clamp(13px, .88vw, 16px); line-height: 1.55; }
+  .remote-steps { display: grid; gap: 7px; margin: 0 0 14px; padding-left: 20px; color: var(--text-dim); font-size: clamp(13px, .88vw, 16px); line-height: 1.55; }
   .frame-addresses { display: grid; gap: 8px; margin: 0 0 16px; }
-  .address { display: block; width: fit-content; max-width: 100%; padding: 9px 12px; border: 1px solid #ffffff14; border-radius: 9px; background: #ffffff06; color: #dfe3eb; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: clamp(13px, .95vw, 17px); overflow-wrap: anywhere; }
-  .remote-note { margin: 0 0 16px; color: #a6a7b2; font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
-  .remote-paired { margin: 16px 0 0; color: #9ad9b4; font-size: clamp(12px, .85vw, 15px); line-height: 1.5; }
+  .address { display: block; width: fit-content; max-width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: #ffffff06; color: var(--text); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: clamp(13px, .95vw, 17px); overflow-wrap: anywhere; }
+  .remote-note { margin: 0 0 16px; color: var(--muted); font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
+  .remote-paired { margin: 16px 0 0; color: var(--good); font-size: clamp(12px, .85vw, 15px); line-height: 1.5; }
   .frame-code { margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
-  .frame-code-label { color: #8f97a8; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+  .frame-code-label { color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: .04em; }
   .pair-code { margin: 10px 0 12px; color: var(--accent); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: clamp(38px, 4.2vw, 76px); font-weight: 700; line-height: 1; letter-spacing: .16em; }
   .frame-code .panel-description { margin: 0; }
-  .remote-help { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff0d; color: #a6a7b2; font-size: clamp(12px, .85vw, 15px); line-height: 1.6; }
-  .remote-help summary { width: fit-content; cursor: pointer; color: #c7ccd8; font-weight: 600; }
+  .remote-help { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff0d; color: var(--muted); font-size: clamp(12px, .85vw, 15px); line-height: 1.6; }
+  .remote-help summary { width: fit-content; cursor: pointer; color: var(--text-dim); font-weight: 600; }
   .remote-help summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
   .remote-help p { margin: 10px 0 0; max-width: 70ch; }
   @media (max-width: 640px) { .remote-choice { grid-template-columns: 1fr; } }

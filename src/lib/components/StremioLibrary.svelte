@@ -49,6 +49,6 @@
 </section>
 
 <style>
-  .library-more-titles { display: block; margin: 26px auto 0; padding: 12px 22px; border: 1px solid #ffffff24; border-radius: 99px; background: #ffffff08; color: #d6dbe8; font-size: clamp(13px, .9vw, 16px); font-weight: 600; }
+  .library-more-titles { display: block; margin: 26px auto 0; padding: 12px 22px; border: 1px solid var(--line-strong); border-radius: 99px; background: #ffffff08; color: var(--text-dim); font-size: clamp(13px, .9vw, 16px); font-weight: 600; }
   .library-more-titles:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 </style>

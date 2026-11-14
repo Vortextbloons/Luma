@@ -38,9 +38,9 @@
 
 <style>
   .vpn-status { display: inline-flex; align-items: center; flex-shrink: 0; }
-  .vpn-dot { width: 9px; height: 9px; border-radius: 50%; background: #777a86; box-shadow: 0 0 0 1px #ffffff1a; }
-  .vpn-status.is-clear .vpn-dot { background: #7fe0ae; box-shadow: 0 0 10px #7fe0ae66; }
-  .vpn-status.is-active .vpn-dot { background: #ffd28d; box-shadow: 0 0 10px #ffd28d66; }
-  .vpn-status.is-error .vpn-dot { background: #ff9e9e; }
+  .vpn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); box-shadow: 0 0 0 1px #ffffff1a; }
+  .vpn-status.is-clear .vpn-dot { background: var(--good); box-shadow: 0 0 10px #7fe0ae66; }
+  .vpn-status.is-active .vpn-dot { background: var(--warn); box-shadow: 0 0 10px #ffd28d66; }
+  .vpn-status.is-error .vpn-dot { background: var(--danger); }
   .vpn-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

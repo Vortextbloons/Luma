@@ -50,13 +50,13 @@
   {#if loading && !page}<p class="empty" role="status">Loading your music...</p>{/if}
 </dialog>
 <style>
-  dialog { position: fixed; inset: 4vh 4vw; width: 92vw; height: 92vh; max-width: none; max-height: none; margin: auto; padding: clamp(24px,3vw,56px); color: #f4f6fc; border: 1px solid #ffffff24; border-radius: 24px; background: linear-gradient(145deg,#263149,#111722 60%); overflow-y: auto; z-index: 89; }
+  dialog { position: fixed; inset: 4vh 4vw; width: 92vw; height: 92vh; max-width: none; max-height: none; margin: auto; padding: clamp(24px,3vw,56px); color: var(--text); border: 1px solid #ffffff24; border-radius: 24px; background: linear-gradient(145deg,var(--surface),var(--surface-2) 60%); overflow-y: auto; z-index: 89; }
   dialog::backdrop { background: #060910dd; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 36px; } header span,.kind { color: #b6c1d7; font-size: 16px; letter-spacing: .12em; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 36px; } header span,.kind { color: var(--text-dim); font-size: 16px; letter-spacing: .12em; }
   button { display: inline-flex; gap: 12px; align-items: center; justify-content: center; min-height: 56px; padding: 14px 24px; border-radius: 99px; font-size: 19px; background: #ffffff15; }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; } button:disabled { opacity: .5; }
-  .collection-hero { display: grid; grid-template-columns: minmax(160px,22vw) 1fr; align-items: end; gap: 36px; margin-bottom: 36px; } .cover { aspect-ratio: 1; display: grid; place-items: center; background: #344260; border-radius: 12px; overflow: hidden; } img { width: 100%; height: 100%; object-fit: contain; }
-  h1 { font-size: clamp(36px,4vw,76px); letter-spacing: -.045em; line-height: 1.05; margin: 12px 0 18px; overflow-wrap: anywhere; } p { font-size: 20px; color: #b5bed0; line-height: 1.5; } .play { background: #e5eaf7; color: #111722; margin-top: 12px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 28px; } .more { margin: 28px 0; } .empty { padding: 28px 0; } .error { position: sticky; top: 0; z-index: 1; color: #ffc9c9; background: #261b25; border-radius: 12px; padding: 16px 20px; }
+  .collection-hero { display: grid; grid-template-columns: minmax(160px,22vw) 1fr; align-items: end; gap: 36px; margin-bottom: 36px; } .cover { aspect-ratio: 1; display: grid; place-items: center; background: var(--surface-2); border-radius: 12px; overflow: hidden; } img { width: 100%; height: 100%; object-fit: contain; }
+  h1 { font-size: clamp(36px,4vw,76px); letter-spacing: -.045em; line-height: 1.05; margin: 12px 0 18px; overflow-wrap: anywhere; } p { font-size: 20px; color: var(--text-dim); line-height: 1.5; } .play { background: var(--text); color: var(--surface-2); margin-top: 12px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 28px; } .more { margin: 28px 0; } .empty { padding: 28px 0; } .error { position: sticky; top: 0; z-index: 1; color: var(--danger); background: #261b25; border-radius: 12px; padding: 16px 20px; }
   @media(max-width:650px) { .collection-hero { grid-template-columns: 1fr; } .cover { width: 160px; } header span { display: none; } }
 </style>

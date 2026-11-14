@@ -364,6 +364,9 @@ fn create(
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
+            if crate::background::is_unloading("youtube") {
+                return;
+            }
             let app = restore.app_handle().clone();
             tauri::async_runtime::spawn(async move {
                 crate::background::show(&app);
@@ -377,6 +380,7 @@ fn create(
 pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String> {
     let state = app.state::<Bridge>();
     let _guard = state.window.lock().await;
+    crate::background::clear_unloading("youtube");
     let window = match app.get_webview_window("youtube") {
         Some(window) => window,
         None => create(&app, &bridge(&app).await?, fullscreen, true, None)?,
@@ -394,6 +398,7 @@ pub async fn open_video(
     let id = checked_id(video_id).map_err(|_| "That YouTube video identifier is invalid.".to_string())?;
     let state = app.state::<Bridge>();
     let _guard = state.window.lock().await;
+    crate::background::clear_unloading("youtube");
     let (window, created) = match app.get_webview_window("youtube") {
         Some(window) => {
             let hash = serde_json::to_string(&format!("#/watch?v={id}"))
@@ -424,6 +429,7 @@ pub fn close(app: &AppHandle) {
         let _ = window.eval("document.querySelector('video')?.pause();");
     }
     crate::background::show(app);
+    crate::background::unload_when_idle(app, "youtube");
 }
 
 pub fn navigate(window: &WebviewWindow, command: &str) {

@@ -7,6 +7,8 @@
     onselect: (item: MediaItem) => void;
     onpreview?: (item: MediaItem | null) => void;
   } = $props();
+  const rowArt = (item: MediaItem) => (item.backdrop || item.poster).replace('/background/medium/', '/background/small/');
+  const rowArtSet = (item: MediaItem) => `${rowArt(item)} 1x, ${item.backdrop || item.poster} 2x`;
 </script>
 
 <section {id} class="content-row" aria-label={title}>
@@ -15,7 +17,7 @@
     {#each items as item (item.id)}
       <button class="backdrop-card" aria-label={`${item.title}, ${item.subtitle}`} onclick={() => onselect(item)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
         <span class="backdrop-art">
-          <img src={item.backdrop || item.poster} alt="" loading="lazy" decoding="async" />
+          <img src={rowArt(item)} srcset={rowArtSet(item)} alt="" loading="lazy" decoding="async" />
           <span class="backdrop-fade" aria-hidden="true"></span>
           <span class="backdrop-name">{item.title}</span>
         </span>
@@ -51,9 +53,9 @@
     display: block;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    border: 1px solid #ffffff14;
+    border: 1px solid var(--line);
     border-radius: calc(var(--card-radius) + 2px);
-    background: #1a1d26;
+    background: var(--surface);
     box-shadow: 0 10px 26px #0005;
     transition: border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
   }
@@ -91,7 +93,7 @@
     left: 16px;
     right: 16px;
     bottom: 14px;
-    color: #f6f7fb;
+    color: var(--text);
     font-size: clamp(15px, 1.05vw, 19px);
     font-weight: 650;
     letter-spacing: -.02em;

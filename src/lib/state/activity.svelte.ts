@@ -15,6 +15,8 @@ class ActivityStore {
   error = $state('');
   private started = false;
   private stop: (() => void) | undefined;
+  private resume: (() => void) | undefined;
+  private pending: ActivitySnapshot | undefined;
 
   get items(): ActivityItem[] {
     return this.snapshot.items;
@@ -29,10 +31,15 @@ class ActivityStore {
   }
 
   apply(snapshot: ActivitySnapshot) {
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.pending = snapshot;
+      return;
+    }
     this.snapshot = snapshot;
   }
 
   async load() {
+    if (this.loading) return;
     this.loading = true;
     try {
       this.apply(await activitySnapshot());
@@ -47,16 +54,30 @@ class ActivityStore {
   async start() {
     if (this.started) return () => {};
     this.started = true;
+    if (typeof document !== 'undefined') {
+      const update = () => {
+        if (document.hidden || !this.pending) return;
+        this.snapshot = this.pending;
+        this.pending = undefined;
+      };
+      document.addEventListener('visibilitychange', update);
+      this.resume = () => document.removeEventListener('visibilitychange', update);
+    }
     try {
       this.stop = await onActivity(snapshot => this.apply(snapshot));
     } catch (cause) {
       this.error = String(cause);
+      this.resume?.();
+      this.resume = undefined;
       this.started = false;
     }
     await this.load();
     return () => {
       this.stop?.();
       this.stop = undefined;
+      this.resume?.();
+      this.resume = undefined;
+      this.pending = undefined;
       this.started = false;
     };
   }

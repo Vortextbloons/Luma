@@ -488,22 +488,52 @@ async fn phone_socket(
     same_origin(&headers)?;
     phone_authorized(&app, &headers)?;
     Ok(upgrade.max_message_size(4096).max_frame_size(4096).write_buffer_size(0).on_upgrade(move |mut socket| async move {
-        while let Some(Ok(message)) = socket.recv().await {
-            if phone_authorized(&app, &headers).is_err() { break; }
-            let Message::Text(text) = message else { continue; };
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { break; };
-            let Some(id) = value.get("id").and_then(|id| id.as_u64()) else { break; };
-            let command = value.get("command").and_then(|command| command.as_str());
-            let result = if let Some(command) = command {
-                perform(&app, command).await.unwrap_or_else(|| Err("Unknown remote command.".into()))
-            } else { Ok(()) };
-            let state = if command.is_none() || command == Some("fullscreen") {
-                server::snapshot_live(&app)
-            } else {
-                server::snapshot(&app)
-            };
-            let response = serde_json::json!({ "id": id, "error": result.err(), "state": state.ok() });
-            if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
+        let mut last_state: Option<String> = None;
+        let mut appearance = app.state::<server::Remote>().subscribe_appearance();
+        loop {
+            tokio::select! {
+                message = socket.recv() => {
+                    let Some(Ok(message)) = message else { break; };
+                    if phone_authorized(&app, &headers).is_err() { break; }
+                    let Message::Text(text) = message else { continue; };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { break; };
+                    let Some(id) = value.get("id").and_then(|id| id.as_u64()) else { break; };
+                    let command = value.get("command").and_then(|command| command.as_str());
+                    let response = match command {
+                        Some(command) => {
+                            let result = perform(&app, command).await.unwrap_or_else(|| Err("Unknown remote command.".into()));
+                            let state = if command == "fullscreen" {
+                                server::snapshot_live(&app)
+                            } else {
+                                server::snapshot(&app)
+                            };
+                            last_state = state.as_ref().ok().and_then(|state| serde_json::to_string(state).ok());
+                            serde_json::json!({ "id": id, "error": result.err(), "state": state.ok() })
+                        }
+                        None => match server::snapshot_live(&app) {
+                            Ok(state) => {
+                                let serialized = serde_json::to_string(&state).ok();
+                                if serialized.is_some() && serialized == last_state {
+                                    serde_json::json!({ "id": id })
+                                } else {
+                                    last_state = serialized;
+                                    serde_json::json!({ "id": id, "state": state })
+                                }
+                            }
+                            Err(_) => serde_json::json!({ "id": id }),
+                        },
+                    };
+                    if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
+                }
+                changed = appearance.changed() => {
+                    if changed.is_err() { break; }
+                    let value = appearance.borrow_and_update().clone();
+                    if let Some(appearance) = value {
+                        let response = serde_json::json!({ "appearance": appearance });
+                        if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
+                    }
+                }
+            }
         }
     }))
 }

@@ -9,20 +9,28 @@
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
   import ActivitySettings from './activity/ActivitySettings.svelte';
   import ProviderIcon from './activity/ProviderIcon.svelte';
+  import ThemeSettings from './ThemeSettings.svelte';
+  import HomeLayoutSettings from './HomeLayoutSettings.svelte';
+  import WidgetSettings from './WidgetSettings.svelte';
   import { appProviders } from '../services/activity';
+  import { defaultHomeRows, moveHomeRow, moveHomeRowTo, toggleHomeRow } from '../services/home';
   import type { ActivityState } from '../state/activity.svelte';
-  import type { AppId, ExecutableAppId, Settings } from '../types';
+  import type { AppId, ExecutableAppId, MediaItem, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display' }: {
+  let { settings, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display', popular = [], featured = [] }: {
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
     activity: ActivityState;
     startCategory?: string;
+    popular?: MediaItem[];
+    featured?: MediaItem[];
   } = $props();
   const categoryGroups = [
     { name: 'Picture', categories: [
       { name: 'Display', description: 'Fullscreen, layout density, and screen fit.' },
-      { name: 'Appearance', description: 'Accent, background, and home rows.' },
+      { name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
+      { name: 'Home layout', description: 'Order and hide the rows on Home.' },
+      { name: 'Widgets', description: 'Now playing and future widgets.' },
     ] },
     { name: 'Library', categories: [
       { name: 'Activity', description: 'Watch history and connected services.' },
@@ -35,20 +43,6 @@
     ] },
   ] as const;
   const categories: { name: string; description: string }[] = categoryGroups.flatMap(group => [...group.categories]);
-  const accents = [
-    { id: 'violet', label: 'Violet', color: '#a59bff' },
-    { id: 'blue', label: 'Blue', color: '#72bfff' },
-    { id: 'mint', label: 'Mint', color: '#88e6c5' },
-    { id: 'peach', label: 'Peach', color: '#ffae92' },
-  ] as const;
-  const homeSections = [
-    { id: 'continue', label: 'Continue Watching', detail: 'In-progress movies and shows from this PC and connected services.' },
-    { id: 'recent', label: 'Recently played', detail: 'A quick row of the titles you played most recently.' },
-    { id: 'recentApps', label: 'Recently used apps', detail: 'Apps you opened from Luma on this PC.' },
-    { id: 'popular', label: 'Popular movies', detail: 'The shared movie catalog.' },
-    { id: 'apps', label: 'Your apps', detail: 'The app dock on the home screen.' },
-    { id: 'featured', label: 'Top-rated movies', detail: 'Movies ranked by IMDb rating.' },
-  ] as const;
   let category = $derived(startCategory);
   const activeCategory = $derived(categories.find(item => item.name === category) ?? categories[0]);
   let recordingShortcut = $state(false);
@@ -72,6 +66,7 @@
   }
   function builtInNote(id: AppId) {
     if (id === 'YouTube') return 'YouTube TV opens in its own Luma window.';
+    if (id === 'Steam') return 'Steam opens directly in Big Picture.';
     if (id === 'Stremio') return 'Stremio opens inside Luma.';
     return '';
   }
@@ -134,31 +129,23 @@
             </label>
           </div>
         </section>
-      {:else if category === 'Appearance'}
-        <section class="settings-group">
-          <h3>Accent color</h3>
-          <p class="panel-description">Used for focus rings, progress, and selected states across Luma.</p>
-          <div class="swatches" role="group" aria-label="Accent color">
-            {#each accents as accent (accent.id)}
-              <button class={['swatch-choice', { 'is-active': settings.accent === accent.id }]} aria-pressed={settings.accent === accent.id} onclick={() => settings.accent = accent.id as Settings['accent']}>
-                <span class="swatch" style:--sw={accent.color}></span>
-                <span>{accent.label}</span>
-              </button>
-            {/each}
-          </div>
-        </section>
-        <section class="settings-group">
-          <h3>Home screen rows</h3>
-          <p class="panel-description">Choose which rows appear on Home. Hiding a row does not remove its content.</p>
-          <div class="settings-toggle-list">
-            {#each homeSections as section (section.id)}
-              <label class="setting-toggle">
-                <span class="setting-toggle-copy"><span>{section.label}</span><small>{section.detail}</small></span>
-                <input type="checkbox" bind:checked={settings.sections[section.id]} />
-              </label>
-            {/each}
-          </div>
-        </section>
+      {:else if category === 'Theme'}
+        <ThemeSettings {settings} />
+      {:else if category === 'Home layout'}
+        <HomeLayoutSettings
+          rows={settings.home}
+          {popular}
+          {featured}
+          activityItems={activity.items}
+          apps={settings.order}
+          widget={settings.widgets.spotify}
+          onmove={(id, direction) => settings.home = moveHomeRow(settings.home, id, direction)}
+          onmoveto={(id, index) => settings.home = moveHomeRowTo(settings.home, id, index)}
+          ontoggle={id => settings.home = toggleHomeRow(settings.home, id)}
+          onreset={() => settings.home = defaultHomeRows()}
+        />
+      {:else if category === 'Widgets'}
+        <WidgetSettings {settings} />
       {:else if category === 'Activity'}
         <ActivitySettings {activity} {native} />
       {:else if category === 'Apps'}
@@ -178,6 +165,8 @@
                       <span class="settings-badge is-muted">Own window</span>
                     {:else if id === 'Stremio'}
                       <span class="settings-badge is-muted">Inside Luma</span>
+                    {:else if id === 'Steam'}
+                      <span class="settings-badge is-muted">Big Picture</span>
                     {:else if settings.paths[id as ExecutableAppId]}
                       <span class="settings-badge is-good">Ready</span>
                     {:else if id === 'Apple TV+' || id === 'Hulu' || id === 'Max' || id === 'Peacock'}
@@ -186,7 +175,7 @@
                       <span class="settings-badge is-warn">Choose app</span>
                     {/if}
                   </div>
-                  {#if id === 'YouTube' || id === 'Stremio'}
+                  {#if id === 'YouTube' || id === 'Steam' || id === 'Stremio'}
                     <p class="app-order-note">{builtInNote(id)}</p>
                   {:else if !settings.paths[id as ExecutableAppId]}
                     <p class="app-order-note">{id === 'Apple TV+' || id === 'Hulu' || id === 'Max' || id === 'Peacock' ? 'No program is needed. It opens in its own window.' : 'Choose this app under App locations if you use it.'}</p>
@@ -208,7 +197,7 @@
           <div class="settings-advanced-body">
             <p class="panel-description">A program is the .exe file Luma opens. Leave a location blank if you use the built-in version or do not use that app.</p>
             {#each settings.order as id (id)}
-              {#if id !== 'YouTube' && id !== 'Stremio'}
+              {#if id !== 'YouTube' && id !== 'Steam' && id !== 'Stremio'}
                 <label class="field app-path-field"><span class="app-path-label">{id} program</span><input bind:value={settings.paths[id as ExecutableAppId]} placeholder="C:\Program Files\App\App.exe" spellcheck="false" /></label>
               {/if}
             {/each}

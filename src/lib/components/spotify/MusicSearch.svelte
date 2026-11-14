@@ -98,9 +98,9 @@
 </section>
 
 <style>
-  .music-search { max-width: none; } h2 { font-size: clamp(30px,2.6vw,48px); margin: 0 0 12px; letter-spacing: -.04em; } .search-intro { font-size: 20px; color: #acb8d0; margin: 0 0 28px; }
+  .music-search { max-width: none; } h2 { font-size: clamp(30px,2.6vw,48px); margin: 0 0 12px; letter-spacing: -.04em; } .search-intro { font-size: 20px; color: var(--muted); margin: 0 0 28px; }
   .music-search-field { padding: 10px 22px; } .music-search-field input { font-size: 24px; min-height: 64px; }
-  .music-search-results { max-height: none; padding: 24px; gap: 24px; } .music-search-results h3 { font-size: 20px; letter-spacing: 0; text-transform: none; margin-bottom: 18px; color: #cbd5eb; }
+  .music-search-results { max-height: none; padding: 24px; gap: 24px; } .music-search-results h3 { font-size: 20px; letter-spacing: 0; text-transform: none; margin-bottom: 18px; color: var(--muted); }
   .music-result { gap: 16px; min-height: 88px; padding: 12px; } .music-result img,.music-result-art { width: 60px; height: 60px; object-fit: contain; }
   .music-result b { font-size: 20px; } .music-result small { font-size: 17px; margin-top: 6px; } .music-result:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .music-search-busy,.music-inline-error,.music-empty-line { font-size: 18px; }

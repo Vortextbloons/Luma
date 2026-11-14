@@ -25,12 +25,12 @@
   {/each}</div>
 </section>
 <style>
-  .devices { padding: 28px; border: 1px solid #ffffff1a; border-radius: 20px; background: #141b29; }
+  .devices { padding: 28px; border: 1px solid #ffffff1a; border-radius: 20px; background: var(--surface); }
   header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-  h2 { margin: 0; font-size: 30px; } p { font-size: 18px; color: #afb7c9; line-height: 1.5; }
+  h2 { margin: 0; font-size: 30px; } p { font-size: 18px; color: var(--muted); line-height: 1.5; }
   header p { margin: 8px 0 0; } button { min-height: 56px; padding: 14px 20px; border-radius: 12px; background: #ffffff0e; font-size: 18px; }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
   button:disabled { opacity: .5; } button.active { opacity: 1; border: 1px solid var(--accent); }
   .list { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 14px; }
-  .list button { display: flex; align-items: center; gap: 20px; text-align: left; } span { display: grid; gap: 6px; min-width: 0; } b { overflow-wrap: anywhere; } small { font-size: 16px; color: #b0b8ca; }
+  .list button { display: flex; align-items: center; gap: 20px; text-align: left; } span { display: grid; gap: 6px; min-width: 0; } b { overflow-wrap: anywhere; } small { font-size: 16px; color: var(--muted); }
 </style>

@@ -20,7 +20,7 @@
 
 <style>
   .release-notes { display: grid; gap: 5px; font-size: 13px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
-  .release-notes h4 { margin: 9px 0 1px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #a9aab5; }
+  .release-notes h4 { margin: 9px 0 1px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .release-notes h4:first-child { margin-top: 0; }
   .release-notes p { margin: 0; }
   .release-item { position: relative; padding-left: 17px; }

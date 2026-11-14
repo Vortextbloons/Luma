@@ -5,6 +5,9 @@ import type { ActivitySnapshot, ExecutableAppId, NavigationCommand, OpenOutcome,
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
 export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', { name });
+export const closeLaunchedApp = () => invoke<void>('close_launched_app');
+export const quitLuma = () => invoke<void>('quit_app');
+export const hideToTray = () => invoke<void>('hide_to_tray');
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
 export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');

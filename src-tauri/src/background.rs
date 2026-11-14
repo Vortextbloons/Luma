@@ -1,6 +1,88 @@
-﻿use std::time::Duration;
-use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager};
+﻿use std::{
+    collections::{HashMap, HashSet},
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
+use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
+
+const IDLE_UNLOAD: Duration = Duration::from_secs(180);
+
+fn closed_at() -> &'static Mutex<HashMap<String, Instant>> {
+    static CLOSED: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    CLOSED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn unloading() -> &'static Mutex<HashSet<String>> {
+    static UNLOADING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    UNLOADING.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) fn is_unloading(label: &str) -> bool {
+    unloading()
+        .lock()
+        .ok()
+        .is_some_and(|labels| labels.contains(label))
+}
+
+pub(crate) fn clear_unloading(label: &str) {
+    if let Ok(mut labels) = unloading().lock() {
+        labels.remove(label);
+    }
+}
+
+fn closed_since(label: &str, closed: Instant) -> bool {
+    closed_at()
+        .lock()
+        .ok()
+        .and_then(|windows| windows.get(label).copied())
+        .is_some_and(|last| last == closed)
+}
+
+pub(crate) fn unload(app: &tauri::AppHandle, label: &str) {
+    let handle = app.clone();
+    let name = label.to_string();
+    let _ = app.run_on_main_thread(move || {
+        let Some(window) = handle.get_webview_window(&name) else {
+            return;
+        };
+        if let Ok(mut labels) = unloading().lock() {
+            labels.insert(name.clone());
+        }
+        let _ = window.destroy();
+    });
+}
+
+pub(crate) fn unload_when_idle(app: &tauri::AppHandle, label: &str) {
+    let closed = Instant::now();
+    let label = label.to_string();
+    if let Ok(mut windows) = closed_at().lock() {
+        windows.insert(label.clone(), closed);
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(IDLE_UNLOAD).await;
+        if !closed_since(&label, closed) {
+            return;
+        }
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if !closed_since(&label, closed) {
+                return;
+            }
+            let Some(window) = handle.get_webview_window(&label) else {
+                return;
+            };
+            if window.is_visible().unwrap_or(true) {
+                return;
+            }
+            if let Ok(mut labels) = unloading().lock() {
+                labels.insert(label.clone());
+            }
+            let _ = window.destroy();
+        });
+    });
+}
 
 #[tauri::command]
 pub fn open_setup_link(service: String) -> Result<(), String> {
@@ -20,6 +102,40 @@ pub fn show(app: &tauri::AppHandle) {
             let _ = present(window, None).await;
         });
     }
+}
+
+pub fn request_exit(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match app.get_webview_window("main") {
+            Some(window) if window.is_visible().unwrap_or(false) => {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            Some(window) => {
+                let _ = present(window, None).await;
+            }
+            None => {}
+        }
+        let _ = app.emit("exit-requested", ());
+    });
+}
+
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub fn hide_to_tray(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    unload(&app, "youtube");
+    unload(&app, "stremio");
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::tv::restore_audio().await;
+    });
 }
 
 pub(crate) const MOTION_INIT: &str = r#"(() => {
@@ -69,6 +185,9 @@ pub(crate) const COVER: &str = "window.__lumaEnter && window.__lumaEnter.cover()
 pub(crate) const REVEAL: &str = "window.__lumaEnter && window.__lumaEnter.reveal();";
 
 pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<bool>) -> Result<(), String> {
+    if let Ok(mut windows) = closed_at().lock() {
+        windows.remove(window.label());
+    }
     crate::tv::place(&window)?;
     let audio_error = crate::tv::apply_audio(window.app_handle()).await.err();
     let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -90,6 +209,9 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
                     if let Some(other) = window.app_handle().get_webview_window(label) {
                         if other.is_visible()? {
                             other.hide()?;
+                            if label != "main" {
+                                unload_when_idle(window.app_handle(), label);
+                            }
                         }
                     }
                 }
@@ -111,12 +233,12 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
 
 pub fn setup(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Luma TV", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Luma and stop server", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Exit Luma…", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     let mut tray = TrayIconBuilder::new().tooltip("Luma TV · Remote server").menu(&menu).show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show(app),
-            "quit" => app.exit(0),
+            "quit" => request_exit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

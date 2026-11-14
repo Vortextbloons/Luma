@@ -61,11 +61,7 @@ pub fn run() {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let window = window.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let _ = window.hide();
-                        let _ = tv::restore_audio().await;
-                    });
+                    background::request_exit(window.app_handle());
                 }
             }
         })
@@ -78,8 +74,11 @@ pub fn run() {
             network::network_status,
             background::startup_enabled,
             background::open_setup_link,
+            background::quit_app,
+            background::hide_to_tray,
             background::set_startup,
             apps::launch_app,
+            session::close_launched_app,
             apps::app_paths,
             apps::save_app_paths,
             apps::detect_apps,
@@ -106,6 +105,7 @@ pub fn run() {
             frame::phone_remote_qr,
             frame::open_phone_remote,
             server::update_app_state,
+            server::update_appearance,
             youtube::open_youtube,
             youtube::youtube_feed,
             youtube::youtube_open_video,
@@ -132,6 +132,7 @@ pub fn run() {
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             media::stop(app);
+            stremio::shutdown(app);
             let _ = tv::restore_audio_sync();
         }
     });

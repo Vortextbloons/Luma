@@ -140,7 +140,7 @@
   .music-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 56px; font-size: 18px; padding: 14px 20px; }
   .now-playing-volume { max-width: 560px; font-size: 18px; } .now-playing-volume input,.now-playing-progress input { min-height: 40px; }
   .now-playing-time,.music-device-label,.music-note { font-size: 18px; } .music-note { line-height: 1.6; }
-  .music-inline-error,.music-empty-line,.queue-current { font-size: 19px; } .queue-current { color: #bdc9de; }
+  .music-inline-error,.music-empty-line,.queue-current { font-size: 19px; } .queue-current { color: var(--text-dim); }
   .now-playing-queue,.player-devices { max-width: 1400px; margin: 38px auto 0; }
   .now-playing-queue :global(.row-heading h2) { font-size: 32px; } .now-playing-queue :global(.row-heading p),.now-playing-queue :global(.text-link) { font-size: 18px; }
   button:focus-visible,input:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }

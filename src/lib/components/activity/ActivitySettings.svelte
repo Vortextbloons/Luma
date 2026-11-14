@@ -175,32 +175,32 @@
 {/if}
 
 <style>
-  .provider-steps { margin: 0; padding-left: 24px; color: #b6bdca; font-size: clamp(14px, 1vw, 18px); line-height: 1.65; }
+  .provider-steps { margin: 0; padding-left: 24px; color: var(--text-dim); font-size: clamp(14px, 1vw, 18px); line-height: 1.65; }
   .provider-steps li + li { margin-top: 8px; }
   .activity-danger { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
   .provider-list { display: grid; gap: 14px; }
-  .provider-row { border: 1px solid #ffffff11; background: #0c0f16; border-radius: 16px; padding: clamp(16px, 1.5vw, 24px); display: grid; gap: 14px; }
+  .provider-row { border: 1px solid #ffffff11; background: var(--surface-2); border-radius: 16px; padding: clamp(16px, 1.5vw, 24px); display: grid; gap: 14px; }
   .provider-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
   .provider-title { display: grid; gap: 4px; min-width: 0; }
   .provider-title strong { font-size: clamp(15px, 1vw, 18px); overflow-wrap: anywhere; }
-  .provider-title span { color: #99a1b2; font-size: clamp(12px, .78vw, 14px); line-height: 1.5; }
+  .provider-title span { color: var(--muted); font-size: clamp(12px, .78vw, 14px); line-height: 1.5; }
   .provider-state { border: 1px solid #ffffff25; border-radius: 99px; padding: 5px 10px; font-size: clamp(10px, .66vw, 12px); font-weight: 650; white-space: nowrap; }
-  .state-connected, .state-available { color: #8fe3bd; border-color: #8fe3bd55; background: #8fe3bd0e; }
-  .state-notValidated, .state-needsSetup { color: #ffd28d; border-color: #ffd28d55; background: #ffd28d0c; }
-  .state-error { color: #ff9e9e; border-color: #ff9e9e55; background: #ff9e9e0c; }
-  .state-disabled { color: #9aa2b1; background: #ffffff05; }
+  .state-connected, .state-available { color: var(--good); border-color: #8fe3bd55; background: #8fe3bd0e; }
+  .state-notValidated, .state-needsSetup { color: var(--warn); border-color: #ffd28d55; background: #ffd28d0c; }
+  .state-error { color: var(--danger); border-color: #ff9e9e55; background: #ff9e9e0c; }
+  .state-disabled { color: var(--muted); background: #ffffff05; }
   .provider-flags { display: grid; gap: 12px; }
   .provider-advanced { padding-top: 12px; border-top: 1px solid #ffffff0d; }
-  .provider-advanced summary { width: fit-content; cursor: pointer; color: #c7ccd8; font-size: clamp(12px, .78vw, 14px); font-weight: 600; }
+  .provider-advanced summary { width: fit-content; cursor: pointer; color: var(--text-dim); font-size: clamp(12px, .78vw, 14px); font-weight: 600; }
   .provider-advanced summary:hover { color: #fff; }
   .provider-advanced summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
   .provider-advanced-body { display: grid; gap: 12px; margin-top: 12px; }
-  .provider-advanced-note { margin: 0; color: #8f97a8; font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
-  .provider-caps { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; color: #8f97a8; font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
-  .provider-caps span { color: #6f7889; font-weight: 600; }
+  .provider-advanced-note { margin: 0; color: var(--muted); font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
+  .provider-caps { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; color: var(--muted); font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
+  .provider-caps span { color: var(--dim); font-weight: 600; }
   .provider-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
-  .setting-toggle.compact { width: auto; min-height: 44px; padding: 8px 13px; gap: 14px; border: 1px solid #ffffff12; border-radius: 10px; background: #ffffff05; font-size: clamp(12px, .76vw, 14px); }
-  .provider-config { display: grid; gap: 0; padding: clamp(14px, 1.2vw, 20px); border: 1px solid #ffffff0a; border-radius: 12px; background: #090c12; }
+  .setting-toggle.compact { width: auto; min-height: 44px; padding: 8px 13px; gap: 14px; border: 1px solid var(--line); border-radius: 10px; background: #ffffff05; font-size: clamp(12px, .76vw, 14px); }
+  .provider-config { display: grid; gap: 0; padding: clamp(14px, 1.2vw, 20px); border: 1px solid #ffffff0a; border-radius: 12px; background: var(--bg); }
   .provider-config .field { margin-top: 14px; }
   .provider-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
   .provider-actions .panel-secondary, .provider-actions .text-link { margin-top: 0; }

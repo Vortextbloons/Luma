@@ -21,7 +21,7 @@
   {#if !trackingEnabled}
     <div class="activity-empty"><strong>Launch history is off</strong><span>Turn on local activity tracking in Settings to record app launches.</span></div>
   {:else if apps.length === 0}
-    <div class="activity-empty"><strong>No app launches yet</strong><span>Open Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, Spotify, YouTube, or Stremio from Luma.</span></div>
+    <div class="activity-empty"><strong>No app launches yet</strong><span>Open Steam, Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, Spotify, YouTube, or Stremio from Luma.</span></div>
   {:else}
     <div class="activity-track app-activity-track">
       {#each apps as item (item.id)}

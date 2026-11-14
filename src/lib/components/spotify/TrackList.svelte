@@ -19,18 +19,18 @@
 </div>
 <style>
   .tracks { display: grid; gap: 5px; }
-  button { display: flex; align-items: center; gap: 18px; min-height: 84px; padding: 12px 18px; text-align: left; border-radius: 12px; background: transparent; color: #f3f4fa; }
+  button { display: flex; align-items: center; gap: 18px; min-height: 84px; padding: 12px 18px; text-align: left; border-radius: 12px; background: transparent; color: var(--text); }
   button:hover, button:focus-visible { background: #ffffff10; }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .45; }
   .current .copy b { color: var(--accent); }
-  .number, .duration { color: #aab1c2; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .number, .duration { color: var(--muted); font-size: 18px; font-variant-numeric: tabular-nums; }
   .number { width: 26px; text-align: center; }
-  .art { width: 56px; height: 56px; flex: none; display: grid; place-items: center; background: #252c3d; border-radius: 6px; overflow: hidden; }
+  .art { width: 56px; height: 56px; flex: none; display: grid; place-items: center; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
   img { width: 100%; height: 100%; object-fit: contain; }
   .copy { display: grid; gap: 5px; flex: 1; min-width: 0; }
   b { font-size: clamp(18px,1.4vw,25px); font-weight: 600; }
-  small, .album { color: #aab1c2; font-size: clamp(16px,1.1vw,20px); }
+  small, .album { color: var(--muted); font-size: clamp(16px,1.1vw,20px); }
   b, small, .album { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .album { max-width: 25%; }
   @media(max-width:700px) { .album,.number { display: none; } button { gap: 12px; padding: 10px; } }

@@ -14,6 +14,14 @@ struct Service {
 
 const SERVICES: &[Service] = &[
     Service {
+        id: "Steam",
+        url: None,
+        executables: &[
+            ("ProgramFiles(x86)", r"Steam\steam.exe"),
+            ("ProgramFiles", r"Steam\steam.exe"),
+        ],
+    },
+    Service {
         id: "Spotify",
         url: None,
         executables: &[
@@ -100,6 +108,7 @@ pub(crate) fn slug(id: &str) -> String {
 fn icon(id: &str) -> Option<&'static [u8]> {
     Some(match id {
         "YouTube" => include_bytes!("../../resources/icons/youtube.png"),
+        "Steam" => include_bytes!("../../resources/icons/steam.png"),
         "Spotify" => include_bytes!("../../resources/icons/spotify.png"),
         "Stremio" => include_bytes!("../../resources/icons/stremio.png"),
         "Netflix" => include_bytes!("../../resources/icons/netflix.png"),
@@ -165,10 +174,44 @@ fn validate(path: &str) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn detect(name: &str) -> Option<PathBuf> {
+    if name == "Steam" {
+        return steam_path();
+    }
     known_paths(name)
         .into_iter()
         .find(|candidate| validate(&candidate.to_string_lossy()).is_ok())
         .or_else(|| registry_install(name))
+}
+
+fn steam_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        let registry = reg_text(
+            HKEY_CURRENT_USER,
+            Some(r"Software\Valve\Steam"),
+            Some("SteamExe"),
+        )
+        .or_else(|| {
+            reg_text(
+                HKEY_LOCAL_MACHINE,
+                Some(r"SOFTWARE\WOW6432Node\Valve\Steam"),
+                Some("InstallPath"),
+            )
+            .map(|path| format!(r"{}\steam.exe", path.trim_matches('"')))
+        });
+        registry
+            .and_then(|path| validate(path.trim_matches('"')).ok())
+            .or_else(|| {
+                known_paths("Steam")
+                    .into_iter()
+                    .find(|candidate| validate(&candidate.to_string_lossy()).is_ok())
+            })
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
 }
 
 fn known_paths(name: &str) -> Vec<PathBuf> {
@@ -430,6 +473,14 @@ pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHand
     if name == "Stremio" {
         crate::commands::stremio::show(app.clone(), None).await?;
         crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
+    if name == "Steam" {
+        crate::commands::steam::launch(&app)?;
+        crate::activity::record_launch(&app, &name);
+        if let Some(window) = app.get_webview_window("main") {
+            window.minimize().map_err(|e| e.to_string())?;
+        }
         return Ok(());
     }
     let configured = apps

@@ -25,7 +25,7 @@
     <h3>Startup</h3>
     <span class={enabled ? 'settings-badge is-good' : 'settings-badge is-muted'}>{busy ? 'Checking' : enabled ? 'Starts at sign-in' : 'Starts manually'}</span>
   </div>
-  <p class="panel-description">Closing the Luma window keeps it running in the notification area, so the Display Box and web remote stay available. To stop Luma completely, choose Quit from the tray menu.</p>
+  <p class="panel-description">Closing the Luma window asks whether to keep running in the notification area, so the Display Box and web remote stay available, or quit completely. The remote’s Stop command only closes the window.</p>
   <label class="setting-toggle"><span class="setting-toggle-copy"><span>Start Luma when I sign in</span><small>Luma opens quietly in the notification area.</small></span><input type="checkbox" checked={enabled} disabled={!native || busy} onchange={toggle} /></label>
   {#if error}<p role="status" class="error">{error}</p>{/if}
 </section>

@@ -1,0 +1,60 @@
+<script lang="ts">
+  import { widgetDefinitions } from '../services/widgets';
+  import type { Settings, WidgetPlacement } from '../types';
+  let { settings }: { settings: Settings } = $props();
+  const placementLabel: Record<WidgetPlacement, string> = {
+    bar: 'Bottom bar',
+    'top-right': 'Top right',
+    'bottom-right': 'Bottom right',
+    'bottom-left': 'Bottom left',
+  };
+</script>
+
+<section class="settings-group">
+  <h3>Widgets</h3>
+  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar is the current layout; corner widgets keep the same controls in a quieter card.</p>
+  <div class="widget-list">
+    {#each widgetDefinitions as widget (widget.id)}
+      {@const config = settings.widgets[widget.id]}
+      <article class="widget-card">
+        <div class="widget-head">
+          <div class="widget-title"><strong>{widget.name}</strong><span>{widget.description}</span></div>
+          <label class="widget-switch"><span>Show</span><input type="checkbox" bind:checked={config.enabled} /></label>
+        </div>
+        {#if config.enabled}
+          <div class="widget-placement" role="group" aria-label={`${widget.name} placement`}>
+            {#each widget.placements as placement (placement)}
+              <button class={['placement-choice', { 'is-active': config.placement === placement }]} aria-pressed={config.placement === placement} onclick={() => config.placement = placement}>
+                <span class={`placement-screen is-${placement}`} aria-hidden="true"><i></i></span>
+                <span>{placementLabel[placement]}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </article>
+    {/each}
+  </div>
+</section>
+
+<style>
+  .widget-list { display: grid; gap: 12px; }
+  .widget-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 45%, transparent); }
+  .widget-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .widget-title { display: grid; gap: 3px; min-width: 0; }
+  .widget-title strong { font-size: 15px; }
+  .widget-title span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .widget-switch { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 12px; font-weight: 600; }
+  .widget-switch input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .widget-placement { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+  .placement-choice { display: grid; gap: 8px; justify-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text-dim); font-size: 11.5px; font-weight: 600; transition: border-color .18s, background-color .18s, color .18s; }
+  .placement-choice:hover { border-color: var(--line-strong); background: var(--surface-3); }
+  .placement-choice.is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .placement-choice:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .placement-screen { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+  .placement-screen i { position: absolute; display: block; border-radius: 3px; background: var(--accent); }
+  .placement-screen.is-bar i { left: 8%; right: 8%; bottom: 8%; height: 22%; border-radius: 4px; }
+  .placement-screen.is-top-right i { top: 8%; right: 8%; width: 30%; height: 38%; }
+  .placement-screen.is-bottom-right i { right: 8%; bottom: 8%; width: 30%; height: 38%; }
+  .placement-screen.is-bottom-left i { left: 8%; bottom: 8%; width: 30%; height: 38%; }
+  @media (max-width: 720px) { .widget-placement { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>

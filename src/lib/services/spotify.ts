@@ -26,6 +26,7 @@ export const spotifyConnect = () => invoke<SpotifyConnection>('spotify_connect')
 export const spotifyDisconnect = () => invoke<SpotifyConnection>('spotify_disconnect');
 export const spotifyStart = () => invoke<void>('spotify_start');
 export const onSpotifyPlayback = (callback: (state: SpotifyPlaybackState) => void) => listen<SpotifyPlaybackState>('spotify-playback', event => callback(event.payload));
+export const onSpotifyArtwork = (callback: (artworkUrl: string) => void) => listen<string>('spotify-artwork', event => callback(event.payload));
 export const onSpotifyConnection = (callback: (state: SpotifyConnection) => void) => listen<SpotifyConnection>('spotify-connection', event => callback(event.payload));
 
 export const spotifyBrowse = (kind: SpotifyBrowseKind, id: string, offset = 0) => invoke<SpotifyBrowsePage>('spotify_browse', { kind, id, offset });

@@ -89,6 +89,7 @@ struct Inner {
 
 pub struct Stremio {
     inner: Mutex<Inner>,
+    service: Mutex<Option<std::process::Child>>,
     client: reqwest::Client,
 }
 
@@ -96,6 +97,7 @@ impl Default for Stremio {
     fn default() -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
+            service: Mutex::new(None),
             client: reqwest::Client::builder()
                 .user_agent(concat!("Luma/", env!("CARGO_PKG_VERSION")))
                 .timeout(Duration::from_secs(30))
@@ -612,7 +614,7 @@ pub async fn stremio_open(
 #[cfg(windows)]
 async fn ensure_streaming_service(app: &AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    let client = &app.state::<Stremio>().client;
+    let client = app.state::<Stremio>().client.clone();
     if client.get("http://127.0.0.1:11470/settings")
         .timeout(Duration::from_secs(1)).send().await
         .is_ok_and(|response| response.status().is_success()) {
@@ -623,7 +625,12 @@ async fn ensure_streaming_service(app: &AppHandle) -> Result<(), String> {
         .map(|path| path.join("Programs").join("Stremio"))
         .filter(|path| path.join("stremio-runtime.exe").is_file() && path.join("server.js").is_file())
         .ok_or("Install Stremio Desktop to enable its streaming service, then open Stremio again.")?;
-    std::process::Command::new(directory.join("stremio-runtime.exe"))
+    let state = app.state::<Stremio>();
+    let mut service = state.service.lock().map_err(|_| "The Stremio streaming service state is unavailable.".to_string())?;
+    if service.as_mut().is_some_and(|child| child.try_wait().ok().flatten().is_none()) {
+        return Ok(());
+    }
+    let child = std::process::Command::new(directory.join("stremio-runtime.exe"))
         .arg(directory.join("server.js"))
         .current_dir(&directory)
         .creation_flags(0x08000000)
@@ -632,7 +639,21 @@ async fn ensure_streaming_service(app: &AppHandle) -> Result<(), String> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|error| format!("Could not start the Stremio streaming service: {error}"))?;
+    *service = Some(child);
     Ok(())
+}
+
+pub fn shutdown(app: &AppHandle) {
+    let Some(state) = app.try_state::<Stremio>() else {
+        return;
+    };
+    let Ok(mut service) = state.service.lock() else {
+        return;
+    };
+    if let Some(mut child) = service.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), String> {
@@ -677,6 +698,7 @@ pub(crate) fn close(app: &AppHandle) {
         pause(&window);
     }
     restore_main(app);
+    crate::background::unload_when_idle(app, "stremio");
 }
 
 pub(crate) fn forward(app: &AppHandle, command: &str) {
@@ -757,6 +779,7 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
             tauri::async_runtime::spawn(async move {
                 pause(&close);
                 restore_main(&restore);
+                crate::background::unload_when_idle(&restore, "stremio");
             });
         }
     });

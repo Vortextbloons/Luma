@@ -527,10 +527,12 @@
   function checkForSkip() {
     if (!activeVideo || activeVideo.paused || segments.length === 0) return;
     const now = activeVideo.currentTime;
-    const segment = segments
-      .filter(entry => now > entry.startTime && now < entry.startTime + 2 && now < entry.endTime)
-      .sort((a, b) => a.startTime - b.startTime)[0];
-    if (segment) activeVideo.currentTime = segment.endTime;
+    let target = null;
+    for (const segment of segments) {
+      if (now > segment.startTime && now < segment.startTime + 2 && now < segment.endTime
+        && (!target || segment.startTime < target.startTime)) target = segment;
+    }
+    if (target) activeVideo.currentTime = target.endTime;
   }
 
   function currentVideoId() {

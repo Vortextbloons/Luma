@@ -15,6 +15,7 @@ use tauri::{Emitter, Manager};
 #[derive(Default)]
 pub struct Player {
     cache: Mutex<Option<PlaybackState>>,
+    artwork: Mutex<Option<String>>,
     starting: AtomicBool,
     error: Mutex<Option<String>>,
     display_name: Mutex<Option<String>>,
@@ -32,10 +33,23 @@ pub async fn initialize(app: tauri::AppHandle) {
     }
     let handle = app;
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
-        interval.tick().await;
         loop {
-            interval.tick().await;
+            let active = handle
+                .try_state::<Player>()
+                .and_then(|player| {
+                    player
+                        .cache
+                        .lock()
+                        .ok()
+                        .and_then(|cache| cache.as_ref().map(|state| state.playing))
+                })
+                .unwrap_or(false);
+            tokio::time::sleep(if active {
+                Duration::from_secs(15)
+            } else {
+                Duration::from_secs(60)
+            })
+            .await;
             let auth = handle.state::<Auth>();
             if auth.authenticated() {
                 let _ = snapshot(&handle, &auth).await;
@@ -61,6 +75,7 @@ pub fn publish_media_event(app: &tauri::AppHandle) {
         if let Some(cached) = cached.as_ref() {
             merge(&mut state, cached);
         }
+        restore_artwork(&handle, &mut state, cached.as_ref());
         if state.player_available && clear_error(&handle) {
             emit_connection(&handle);
         }
@@ -87,6 +102,7 @@ async fn windows_state(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackSt
     if let Some(cached) = cached.as_ref() {
         merge(&mut state, cached);
     }
+    restore_artwork(app, &mut state, cached.as_ref());
     if state.player_available && clear_error(app) {
         emit_connection(app);
     }
@@ -240,13 +256,36 @@ fn merge_api(media: &mut PlaybackState, api: &PlaybackState) {
     }
 }
 
+fn restore_artwork(app: &tauri::AppHandle, state: &mut PlaybackState, cached: Option<&PlaybackState>) {
+    if state.artwork_url.is_some() || state.title.is_none() {
+        return;
+    }
+    if !cached.is_some_and(|cached| cached.title == state.title && cached.artist == state.artist) {
+        return;
+    }
+    state.artwork_url = app
+        .state::<Player>()
+        .artwork
+        .lock()
+        .ok()
+        .and_then(|artwork| artwork.clone());
+}
+
 fn publish(app: &tauri::AppHandle, mut state: PlaybackState) {
     state.connected = app
         .try_state::<Auth>()
         .is_some_and(|auth| auth.authenticated());
+    let artwork = state.artwork_url.take();
+    let mut artwork_changed = false;
     if let Some(player) = app.try_state::<Player>() {
         if let Ok(mut cache) = player.cache.lock() {
             *cache = Some(state.clone());
+        }
+        if let Ok(mut cached) = player.artwork.lock() {
+            if *cached != artwork {
+                *cached = artwork.clone();
+                artwork_changed = true;
+            }
         }
         if let Some(title) = state.title.as_deref() {
             if !title.trim().is_empty() {
@@ -269,13 +308,16 @@ fn publish(app: &tauri::AppHandle, mut state: PlaybackState) {
                         title,
                         state.artist.as_deref().unwrap_or(""),
                         state.track_id.as_deref(),
-                        state.artwork_url.as_deref(),
+                        artwork.as_deref(),
                     );
                 }
             }
         }
     }
     let _ = app.emit("spotify-playback", state);
+    if artwork_changed {
+        let _ = app.emit("spotify-artwork", artwork.unwrap_or_default());
+    }
 }
 
 pub async fn control(

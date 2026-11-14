@@ -1,10 +1,11 @@
 <script lang="ts">
+  import type { WidgetPlacement } from '../../types';
   import MusicIcon from './MusicIcon.svelte';
   import ProviderIcon from '../activity/ProviderIcon.svelte';
   import { spotify } from '../../state/spotify.svelte';
   import PlaybackControls from './PlaybackControls.svelte';
 
-  let { onopen }: { onopen: () => void } = $props();
+  let { onopen, placement }: { onopen: () => void; placement: WidgetPlacement } = $props();
   const playback = $derived(spotify.playback);
   const visible = $derived(playback.playerAvailable || Boolean(playback.title));
   const duration = $derived(playback.durationMs ?? 0);
@@ -15,7 +16,7 @@
 </script>
 
 {#if visible}
-  <aside class="mini-player" aria-label="Now playing">
+  <aside class="mini-player" data-placement={placement} aria-label="Now playing">
     <div class="mini-player-brand" aria-hidden="true"><ProviderIcon provider="spotify" /><span>Spotify</span></div>
     <button class="mini-player-open" onclick={onopen} aria-label="Open now playing">
       <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>
@@ -31,5 +32,5 @@
     </div>
     <span class={['mini-player-status', { playing: playback.playing }]} aria-hidden="true"></span>
   </aside>
-  <div class="mini-player-spacer" aria-hidden="true"></div>
+  {#if placement === 'bar'}<div class="mini-player-spacer" aria-hidden="true"></div>{/if}
 {/if}

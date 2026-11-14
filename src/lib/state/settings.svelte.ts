@@ -1,37 +1,50 @@
-import type { AppId, Settings } from '../types';
+import type { AppId, Settings, WidgetPlacement } from '../types';
+import { defaultHomeRows, legacyHomeRows, sanitizeHomeRows } from '../services/home';
+import { resolveThemeId } from '../services/theme';
 
-const executable = ['Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
-const defaults: Settings = {
-  homeShortcut: 'Ctrl+W', accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false,
-  sections: { popular: true, apps: true, featured: true, continue: true, recent: true, recentApps: true },
-  paths: { Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
-  order: ['YouTube', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
-};
+const executable = ['Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
+const placements: WidgetPlacement[] = ['bar', 'top-right', 'bottom-right', 'bottom-left'];
+const appOrder: AppId[] = ['YouTube', 'Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'];
+
+function defaultSettings(): Settings {
+  return {
+    theme: 'violet-night',
+    density: 'comfortable',
+    appTileShape: 'wide',
+    homeShortcut: 'Ctrl+W',
+    fullscreen: false,
+    home: defaultHomeRows(),
+    widgets: { spotify: { enabled: true, placement: 'bar' } },
+    paths: { Steam: '', Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
+    order: [...appOrder],
+  };
+}
 
 export function createSettings() {
-  let value = structuredClone(defaults);
+  let value = defaultSettings();
   let error = '';
   try {
     const saved: unknown = JSON.parse(localStorage.getItem('luma-v1') ?? 'null');
     if (saved && typeof saved === 'object') {
-      const data = saved as Partial<Settings> & { shortcutVersion?: number };
-      if (['violet', 'blue', 'mint', 'peach'].includes(data.accent ?? '')) value.accent = data.accent!;
+      const data = saved as Partial<Settings> & { shortcutVersion?: number; accent?: unknown; sections?: unknown };
+      value.theme = resolveThemeId(data.theme, data.accent);
       if (data.density === 'compact') value.density = data.density;
       if (data.appTileShape === 'square') value.appTileShape = 'square';
       if (typeof data.homeShortcut === 'string' && /^(?:Ctrl\+(?:Alt\+)?|Alt\+)(?:Shift\+)?(?:[A-Z0-9]|Home|F(?:[1-9]|1[0-2]))$/.test(data.homeShortcut) && !data.homeShortcut.endsWith('+F11')) {
         value.homeShortcut = data.homeShortcut === 'Ctrl+H' && data.shortcutVersion !== 1 ? 'Ctrl+W' : data.homeShortcut;
       }
       value.fullscreen = data.fullscreen === true;
+      value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) {
-        const order = data.order.filter((id): id is AppId => defaults.order.includes(id) && typeof id === 'string');
-        value.order = [...new Set([...order, ...defaults.order.filter(id => !order.includes(id))])].filter(id => id !== 'Custom');
+        const order = data.order.filter((id): id is AppId => appOrder.includes(id) && typeof id === 'string');
+        value.order = [...new Set([...order, ...appOrder.filter(id => !order.includes(id))])].filter(id => id !== 'Custom');
         value.order.push('Custom');
       }
-      if (data.sections && typeof data.sections === 'object') {
-        for (const key of ['popular', 'apps', 'featured', 'continue', 'recent', 'recentApps'] as const) {
-          if (typeof data.sections[key] === 'boolean') value.sections[key] = data.sections[key];
-        }
+      const spotify = data.widgets?.spotify;
+      if (spotify && typeof spotify === 'object') {
+        if (typeof spotify.enabled === 'boolean') value.widgets.spotify.enabled = spotify.enabled;
+        if (placements.includes(spotify.placement)) value.widgets.spotify.placement = spotify.placement;
       }
     }
   } catch { error = 'Saved preferences could not be read.'; }

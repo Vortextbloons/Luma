@@ -99,8 +99,8 @@
     overflow: hidden;
     isolation: isolate;
     background:
-      radial-gradient(80% 90% at 74% 20%, #2a2438, transparent 70%),
-      linear-gradient(120deg, #151925, #0b0d12);
+      radial-gradient(80% 90% at 74% 20%, var(--ambient), transparent 70%),
+      linear-gradient(120deg, var(--accent-ink), var(--bg));
   }
   .hero-art {
     position: absolute;
@@ -110,7 +110,7 @@
     object-fit: cover;
     object-position: center 24%;
     filter: saturate(1.02);
-    animation: hero-art-in .32s var(--ease-out) both;
+    animation: hero-art-in .32s var(--ease-out);
   }
   @keyframes hero-art-in {
     from { opacity: .35; }
@@ -131,7 +131,7 @@
     border-radius: 16px;
     box-shadow: 0 24px 70px #000a;
     transform: translateY(-50%);
-    animation: hero-art-in .32s var(--ease-out) both;
+    animation: hero-art-in .32s var(--ease-out);
   }
   .hero-cover.is-portrait {
     width: clamp(130px, 11vw, 180px);
@@ -151,7 +151,7 @@
     width: 100%;
     max-width: min(920px, 64%);
     padding: calc(var(--topbar-space) + clamp(12px, 2.4vh, 28px)) var(--side) clamp(16px, 2.2vh, 28px);
-    animation: hero-copy-in .18s var(--ease-out) both;
+    animation: hero-copy-in .18s var(--ease-out);
   }
   @keyframes hero-copy-in {
     from { opacity: 0; transform: translateY(6px); }
@@ -159,7 +159,7 @@
   }
   .hero-eyebrow {
     display: block;
-    color: #c8ccda;
+    color: var(--text-dim);
     font-size: clamp(10px, .64vw, 11px);
     font-weight: 700;
     letter-spacing: .18em;
@@ -171,7 +171,7 @@
     font-weight: 700;
     line-height: 1.04;
     letter-spacing: -.045em;
-    color: #fbfbfe;
+    color: var(--text);
     text-shadow: 0 4px 30px #0009;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -186,7 +186,7 @@
     flex-wrap: wrap;
     gap: 6px 10px;
     margin: clamp(8px, 1.2vh, 12px) 0 0;
-    color: #d5d8e2;
+    color: var(--text-dim);
     font-size: clamp(12px, .78vw, 14px);
     font-weight: 550;
   }
@@ -195,19 +195,19 @@
     align-items: center;
     min-height: 24px;
     padding: 0 10px;
-    border: 1px solid #ffffff2b;
+    border: 1px solid var(--line-strong);
     border-radius: 99px;
     background: #ffffff0f;
-    color: #eef0f6;
+    color: var(--text);
     font-size: clamp(11px, .68vw, 12.5px);
     font-weight: 600;
     white-space: nowrap;
   }
-  .hero-chip.is-rating { color: #ffd98a; border-color: #ffd98a3d; background: #ffd98a14; }
+  .hero-chip.is-rating { color: var(--rating); border-color: #ffd98a3d; background: #ffd98a14; }
   .hero-description {
     max-width: 60ch;
     margin: clamp(6px, 1vh, 10px) 0 0;
-    color: #c3c8d6;
+    color: var(--text-dim);
     font-size: clamp(12px, .82vw, 15px);
     line-height: 1.45;
     display: -webkit-box;

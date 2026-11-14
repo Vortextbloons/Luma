@@ -1,7 +1,48 @@
 use crate::commands::youtube;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::{collections::BTreeMap, sync::Mutex};
 use tauri::{Emitter, Manager};
+
+const APPEARANCE_TOKENS: [&str; 20] = [
+    "--bg",
+    "--bg-soft",
+    "--ambient",
+    "--surface",
+    "--surface-2",
+    "--surface-3",
+    "--line",
+    "--line-strong",
+    "--text",
+    "--text-dim",
+    "--muted",
+    "--dim",
+    "--accent",
+    "--accent-strong",
+    "--accent-ink",
+    "--accent-soft",
+    "--good",
+    "--warn",
+    "--danger",
+    "--rating",
+];
+const MAX_APPEARANCE_TOKENS: usize = 24;
+const MAX_THEMES: usize = 8;
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    theme: String,
+    tokens: BTreeMap<String, String>,
+    themes: Vec<ThemeOption>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeOption {
+    id: String,
+    name: String,
+    tokens: BTreeMap<String, String>,
+}
 
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +51,61 @@ pub struct AppState {
     fullscreen: bool,
     window: Option<String>,
     window_fullscreen: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    appearance: Option<Appearance>,
+}
+
+fn valid_token_value(value: &str) -> bool {
+    matches!(value.len(), 7 | 9)
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn validate_tokens(tokens: &BTreeMap<String, String>) -> Result<(), String> {
+    if tokens.len() > MAX_APPEARANCE_TOKENS {
+        return Err(format!(
+            "Appearance has too many tokens (maximum {MAX_APPEARANCE_TOKENS})."
+        ));
+    }
+    for (name, value) in tokens {
+        if !APPEARANCE_TOKENS.contains(&name.as_str()) {
+            return Err(format!("Unsupported appearance token: {name}."));
+        }
+        if !valid_token_value(value) {
+            return Err(format!("{name} must be a #rrggbb or #rrggbbaa color."));
+        }
+    }
+    Ok(())
+}
+
+fn valid_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 32
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn validate_appearance(appearance: &Appearance) -> Result<(), String> {
+    if !valid_theme_id(&appearance.theme) {
+        return Err("Appearance theme id is invalid.".into());
+    }
+    validate_tokens(&appearance.tokens)?;
+    if appearance.themes.len() > MAX_THEMES {
+        return Err(format!(
+            "Appearance has too many themes (maximum {MAX_THEMES})."
+        ));
+    }
+    for theme in &appearance.themes {
+        if !valid_theme_id(&theme.id) {
+            return Err(format!("Theme id is invalid: {}.", theme.id));
+        }
+        if theme.name.chars().count() > 48 || theme.name.chars().any(char::is_control) {
+            return Err(format!("Theme name is invalid: {}.", theme.id));
+        }
+        validate_tokens(&theme.tokens)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -61,6 +157,8 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
             window.hide().map_err(|error| error.to_string())?;
         }
     }
+    crate::background::unload(app, "youtube");
+    crate::background::unload(app, "stremio");
     let _ = crate::tv::restore_audio_sync();
     Ok(())
 }
@@ -156,6 +254,7 @@ pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
 
 pub struct Remote {
     state: Mutex<AppState>,
+    appearance: tokio::sync::watch::Sender<Option<Appearance>>,
 }
 
 impl Default for Remote {
@@ -166,8 +265,18 @@ impl Default for Remote {
                 fullscreen: false,
                 window: None,
                 window_fullscreen: None,
+                appearance: None,
             }),
+            appearance: tokio::sync::watch::channel(None).0,
         }
+    }
+}
+
+impl Remote {
+    pub(crate) fn subscribe_appearance(
+        &self,
+    ) -> tokio::sync::watch::Receiver<Option<Appearance>> {
+        self.appearance.subscribe()
     }
 }
 
@@ -237,9 +346,89 @@ pub fn update_app_state(
     Ok(())
 }
 
+#[tauri::command]
+pub fn update_appearance(
+    remote: tauri::State<Remote>,
+    appearance: Appearance,
+) -> Result<(), String> {
+    validate_appearance(&appearance)?;
+    remote
+        .state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .appearance = Some(appearance.clone());
+    remote.appearance.send_replace(Some(appearance));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{frontend_receives, show_main, should_wake, NavigationCommand};
+    use super::{
+        frontend_receives, show_main, should_wake, validate_appearance, Appearance,
+        NavigationCommand, ThemeOption,
+    };
+    use std::collections::BTreeMap;
+
+    fn theme(id: &str, name: &str) -> ThemeOption {
+        ThemeOption {
+            id: id.into(),
+            name: name.into(),
+            tokens: BTreeMap::from([("--bg".into(), "#101010".into())]),
+        }
+    }
+
+    fn valid_appearance() -> Appearance {
+        Appearance {
+            theme: "violet-night".into(),
+            tokens: BTreeMap::from([
+                ("--bg".into(), "#0b0d12".into()),
+                ("--line".into(), "#ffffff17".into()),
+            ]),
+            themes: vec![
+                theme("violet-night", "Violet Night"),
+                theme("mint", "Mint"),
+            ],
+        }
+    }
+
+    #[test]
+    fn appearance_validation_accepts_a_theme_payload() {
+        assert!(validate_appearance(&valid_appearance()).is_ok());
+    }
+
+    #[test]
+    fn appearance_validation_rejects_unknown_tokens() {
+        let mut appearance = valid_appearance();
+        appearance.tokens.insert("--evil".into(), "#ffffff".into());
+        assert!(validate_appearance(&appearance).is_err());
+        let mut nested = valid_appearance();
+        nested.themes[0]
+            .tokens
+            .insert("--text-shadow".into(), "#000000".into());
+        assert!(validate_appearance(&nested).is_err());
+    }
+
+    #[test]
+    fn appearance_validation_rejects_invalid_hex_colors() {
+        let mut appearance = valid_appearance();
+        appearance.tokens.insert("--accent".into(), "red".into());
+        assert!(validate_appearance(&appearance).is_err());
+        appearance.tokens.insert("--accent".into(), "#12345".into());
+        assert!(validate_appearance(&appearance).is_err());
+        appearance.tokens.insert("--accent".into(), "#12345g".into());
+        assert!(validate_appearance(&appearance).is_err());
+    }
+
+    #[test]
+    fn appearance_validation_rejects_too_many_themes() {
+        let mut appearance = valid_appearance();
+        appearance.themes = (0..9)
+            .map(|index| theme(&format!("theme-{index}"), "Theme"))
+            .collect();
+        assert!(validate_appearance(&appearance).is_err());
+        appearance.themes.truncate(8);
+        assert!(validate_appearance(&appearance).is_ok());
+    }
 
     #[test]
     fn external_session_prevents_waking_the_launcher() {
@@ -269,6 +458,7 @@ mod tests {
             fullscreen: false,
             window: Some("YouTube".into()),
             window_fullscreen: Some(true),
+            appearance: None,
         };
         let value = serde_json::to_value(state).unwrap();
         assert_eq!(value["window"], "YouTube");

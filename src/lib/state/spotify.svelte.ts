@@ -1,5 +1,6 @@
 import { native } from '../services/tauri';
 import {
+  onSpotifyArtwork,
   onSpotifyConnection,
   onSpotifyPlayback,
   spotifyBrowse,
@@ -49,6 +50,7 @@ function emptyHome(): SpotifyHomeData {
 
 export function createSpotify() {
   let playback = $state<SpotifyPlaybackState>(emptyPlayback());
+  let artwork = $state('');
   let connection = $state<SpotifyConnection>(emptyConnection());
   let home = $state.raw<SpotifyHomeData>(emptyHome());
   let queueError = $state('');
@@ -72,7 +74,11 @@ export function createSpotify() {
     if (initialized) return;
     initialized = true;
     if (!native) return;
-    stops.push(await onSpotifyPlayback(state => { playback = state; }));
+    stops.push(await onSpotifyPlayback(state => {
+      if (state.title !== playback.title || state.artist !== playback.artist) artwork = '';
+      playback = state;
+    }));
+    stops.push(await onSpotifyArtwork(value => { artwork = value; }));
     stops.push(await onSpotifyConnection(state => { connection = state; }));
     timer = setInterval(() => {
       if (playback.playing && !document.hidden) tick = Date.now();
@@ -92,7 +98,10 @@ export function createSpotify() {
     if (!native) return;
     loading = true;
     try {
+      const previous = playback;
       [playback, connection] = await Promise.all([spotifyPlayback(), spotifyStatus()]);
+      if (playback.artworkUrl) artwork = playback.artworkUrl;
+      else if (playback.title !== previous.title || playback.artist !== previous.artist) artwork = '';
       error = '';
     } catch (cause) {
       error = String(cause);
@@ -196,6 +205,7 @@ export function createSpotify() {
     try {
       connection = await spotifyDisconnect();
       home = emptyHome();
+      artwork = '';
       queue = null;
       queueError = '';
       devices = [];
@@ -255,7 +265,7 @@ export function createSpotify() {
     get devicesLoading() { return devicesLoading; },
     get devicesError() { return devicesError; },
     get queueError() { return queueError; },
-    get playback() { return playback; },
+    get playback() { return { ...playback, artworkUrl: artwork || undefined }; },
     get connection() { return connection; },
     get home() { return home; },
     get queue() { return queue; },

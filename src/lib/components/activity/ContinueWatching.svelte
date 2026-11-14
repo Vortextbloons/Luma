@@ -47,7 +47,7 @@
 </section>
 
 <style>
-  .provider-preview { animation: provider-preview-in 220ms cubic-bezier(.2, .7, .2, 1) both; }
+  .provider-preview { animation: provider-preview-in 220ms cubic-bezier(.2, .7, .2, 1); }
   @keyframes provider-preview-in {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }

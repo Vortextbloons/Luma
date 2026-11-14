@@ -92,10 +92,10 @@
 </section>
 
 <style>
-  .spotify-advanced { margin-top: 18px; border: 1px solid #ffffff10; border-radius: 14px; background: #0b0e15; overflow: hidden; }
+  .spotify-advanced { margin-top: 18px; border: 1px solid #ffffff10; border-radius: 14px; background: var(--bg); overflow: hidden; }
   .spotify-advanced .settings-advanced-summary { min-height: 0; padding: 16px 18px; }
   .spotify-advanced[open] .settings-advanced-mark { transform: rotate(90deg); }
   .spotify-advanced .settings-advanced-body { padding: 0 18px 18px; border-top: 0; }
-  .spotify-steps { display: grid; gap: 8px; margin: 0 0 16px; padding-left: 20px; color: #a6a7b2; font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
-  .spotify-steps code { color: #dfe3eb; overflow-wrap: anywhere; }
+  .spotify-steps { display: grid; gap: 8px; margin: 0 0 16px; padding-left: 20px; color: var(--muted); font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
+  .spotify-steps code { color: var(--text); overflow-wrap: anywhere; }
 </style>

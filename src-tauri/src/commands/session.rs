@@ -11,32 +11,50 @@ struct Launched {
     name: String,
     pid: u32,
     web: bool,
+    keys: bool,
+    title: Option<&'static str>,
 }
 
+const STEAM_TITLE: &str = "Steam Big Picture Mode";
+
 pub fn track(app: &AppHandle, name: &str, pid: u32) {
-    track_with(app, name, pid, false);
+    track_with(app, name, pid, false, false, None);
 }
 
 pub(crate) fn track_web(app: &AppHandle, name: &str, pid: u32) {
-    track_with(app, name, pid, true);
+    track_with(app, name, pid, true, false, None);
 }
 
-fn track_with(app: &AppHandle, name: &str, pid: u32, web: bool) {
+pub(crate) fn track_steam(app: &AppHandle) {
+    track_with(app, "Steam", 0, false, true, Some(STEAM_TITLE));
+}
+
+fn track_with(
+    app: &AppHandle,
+    name: &str,
+    pid: u32,
+    web: bool,
+    keys: bool,
+    title: Option<&'static str>,
+) {
     if let Ok(mut current) = app.state::<Session>().0.lock() {
         *current = Some(Launched {
             name: name.into(),
             pid,
             web,
+            keys,
+            title,
         });
     }
     if let Some(bounds) = crate::tv::bounds(app) {
         let handle = app.clone();
         let name = name.to_owned();
+        let attempts = if title.is_some() { 150 } else { 50 };
         tauri::async_runtime::spawn(async move {
-            for _ in 0..50 {
+            for _ in 0..attempts {
                 let current = handle.state::<Session>().0.lock().ok().is_some_and(|session| session.as_ref().is_some_and(|session| session.pid == pid && session.name == name));
                 if !current { return; }
-                if let Some(window) = platform::find(pid, &name) {
+                if let Some(window) = locate_window(pid, &name, title) {
                     platform::place(window, bounds);
                     return;
                 }
@@ -47,11 +65,35 @@ fn track_with(app: &AppHandle, name: &str, pid: u32, web: bool) {
 
 }
 
+fn locate_window(pid: u32, name: &str, title: Option<&str>) -> Option<platform::Window> {
+    match title {
+        Some(title) => platform::exact(title),
+        None => platform::find(pid, name),
+    }
+}
+
+fn locate(launched: &Launched) -> Option<platform::Window> {
+    locate_window(launched.pid, &launched.name, launched.title)
+}
+
+pub(crate) fn focus_steam(app: &AppHandle) -> bool {
+    let Some(window) = platform::exact(STEAM_TITLE) else {
+        return false;
+    };
+    if let Some(bounds) = crate::tv::bounds(app) {
+        platform::place(window, bounds);
+    }
+    platform::restore(window);
+    let pid = platform::pid(window).unwrap_or(0);
+    track_with(app, "Steam", pid, false, true, Some(STEAM_TITLE));
+    true
+}
+
 pub(crate) fn active(app: &AppHandle) -> bool {
     app.state::<Session>().0.lock().map(|current| {
         current.as_ref().is_some_and(|launched|
-            platform::find(launched.pid, &launched.name).is_some()
-                || (!launched.web && platform::running(launched.pid)))
+            locate(launched).is_some()
+                || (!launched.web && launched.title.is_none() && launched.pid != 0 && platform::running(launched.pid)))
     }).unwrap_or(false)
 }
 
@@ -60,23 +102,25 @@ pub fn reuse(app: &AppHandle, name: &str) -> bool {
     let Ok(current) = state.0.lock() else {
         return false;
     };
-    let pid = current
+    let session = current
         .as_ref()
         .filter(|launched| launched.name == name)
-        .map(|launched| launched.pid);
+        .map(|launched| (launched.pid, launched.web, launched.keys, launched.title));
     drop(current);
-    let found = match pid {
-        Some(pid) => platform::find(pid, name),
-        None => platform::titled(name),
+    let found = match session {
+        Some((_, _, _, Some(title))) => platform::exact(title),
+        Some((pid, _, _, None)) if pid != 0 => platform::find(pid, name),
+        _ => platform::titled(name),
     };
     let Some(window) = found else {
         return false;
     };
     if let Some(bounds) = crate::tv::bounds(app) { platform::place(window, bounds); }
     platform::restore(window);
-    if pid.is_none() {
+    if session.is_none() || session.is_some_and(|(pid, _, _, _)| pid == 0) {
         if let Some(pid) = platform::pid(window) {
-            track(app, name, pid);
+            let (web, keys, title) = session.map(|(_, web, keys, title)| (web, keys, title)).unwrap_or((false, false, None));
+            track_with(app, name, pid, web, keys, title);
         }
     }
     true
@@ -108,25 +152,44 @@ fn action(luma_foreground: bool, found: bool, running: bool, command: &str, web:
     }
 }
 
-fn close_on_home(name: &str, web: bool) -> bool {
-    web || matches!(name, "Netflix" | "Disney+" | "Prime Video" | "Apple TV+" | "Hulu" | "Max" | "Peacock")
+#[tauri::command]
+pub fn close_launched_app(app: AppHandle) {
+    let state = app.state::<Session>();
+    let Ok(mut current) = state.0.lock() else {
+        return;
+    };
+    let Some(launched) = current.take() else {
+        return;
+    };
+    if let Some(window) = platform::find(launched.pid, &launched.name) {
+        platform::close(window);
+    }
+    if launched.web {
+        crate::commands::services::forget(&app, &launched.name);
+    }
+    restore(&app);
 }
 
 pub(crate) fn fullscreen(app: &AppHandle) -> Option<Result<(), String>> {
     let state = app.state::<Session>();
-    let (name, pid, web) = {
+    let (name, pid, web, keys, title) = {
         let current = match state.0.lock() {
             Ok(current) => current,
             Err(_) => return Some(Err("The remote could not read the app session.".into())),
         };
         let launched = current.as_ref()?;
-        (launched.name.clone(), launched.pid, launched.web)
+        (launched.name.clone(), launched.pid, launched.web, launched.keys, launched.title)
     };
     if platform::foreground_is_luma() {
         return None;
     }
-    let Some(window) = platform::owned(pid) else {
-        return Some(if platform::running(pid) {
+    let window = if title.is_some() {
+        locate_window(pid, &name, title)
+    } else {
+        platform::owned(pid)
+    };
+    let Some(window) = window else {
+        return Some(if title.is_none() && pid != 0 && platform::running(pid) {
             Err(format!("{name} is still starting. Try again in a moment."))
         } else {
             Err(format!("{name} is not showing a window."))
@@ -134,6 +197,9 @@ pub(crate) fn fullscreen(app: &AppHandle) -> Option<Result<(), String>> {
     };
     if !platform::foreground(window) {
         return Some(Err(format!("Bring {name} to the front on the PC first.")));
+    }
+    if keys {
+        return Some(Ok(()));
     }
     if !web && !platform::browser(window) {
         return Some(Err(format!(
@@ -157,6 +223,33 @@ fn browser_executable(path: &str) -> bool {
     )
 }
 
+fn steam_window() -> Option<platform::Window> {
+    platform::exact(STEAM_TITLE).or_else(|| platform::exact("Steam"))
+}
+
+fn home_steam(app: &AppHandle, window: Option<platform::Window>) {
+    crate::commands::steam::close();
+    if let Some(window) = window {
+        platform::minimize(window);
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..4 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if let Some(window) = steam_window() {
+                platform::minimize(window);
+            }
+        }
+        crate::background::show(&handle);
+        for _ in 0..4 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if let Some(window) = steam_window() {
+                platform::minimize(window);
+            }
+        }
+    });
+}
+
 pub fn route(app: &AppHandle, command: &str) -> bool {
     let state = app.state::<Session>();
     let Ok(mut current) = state.0.lock() else {
@@ -165,17 +258,23 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
     let Some(launched) = current.as_ref() else {
         return false;
     };
-    let (name, pid, web) = (launched.name.clone(), launched.pid, launched.web);
+    let (name, pid, web, keys, title) = (
+        launched.name.clone(),
+        launched.pid,
+        launched.web,
+        launched.keys,
+        launched.title,
+    );
     let luma_foreground = platform::foreground_is_luma();
     let window = if luma_foreground && command != "home" {
         None
     } else {
-        platform::find(pid, &name)
+        locate_window(pid, &name, title)
     };
     match action(
         luma_foreground,
         window.is_some(),
-        !luma_foreground && platform::running(pid),
+        !luma_foreground && title.is_none() && pid != 0 && platform::running(pid),
         command,
         web,
     ) {
@@ -193,24 +292,37 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
             let Some(window) = window else {
                 return false;
             };
-            match command {
-                "up" => platform::step(window, 0, -1),
-                "down" => platform::step(window, 0, 1),
-                "left" => platform::step(window, -1, 0),
-                "right" => platform::step(window, 1, 0),
-                "activate" => platform::click(window),
-                "back" => platform::escape(window),
-                _ => return false,
+            if keys {
+                platform::restore(window);
+                match command {
+                    "up" | "down" | "left" | "right" | "activate" => {
+                        platform::press(window, command)
+                    }
+                    "back" => platform::escape(window),
+                    _ => return false,
+                }
+            } else {
+                match command {
+                    "up" => platform::step(window, 0, -1),
+                    "down" => platform::step(window, 0, 1),
+                    "left" => platform::step(window, -1, 0),
+                    "right" => platform::step(window, 1, 0),
+                    "activate" => platform::click(window),
+                    "back" => platform::escape(window),
+                    _ => return false,
+                }
             }
             true
         }
         Action::Home => {
+            if name == "Steam" {
+                home_steam(app, window);
+                *current = None;
+                drop(current);
+                return true;
+            }
             if let Some(window) = window {
-                if close_on_home(&name, web) {
-                    platform::close(window);
-                } else {
-                    platform::minimize(window);
-                }
+                platform::close(window);
             }
             if web {
                 crate::commands::services::forget(app, &name);
@@ -240,7 +352,7 @@ pub(crate) fn release(app: &AppHandle) -> Result<(), String> {
     }
     if !platform::foreground_is_luma() {
         if let Some(launched) = launched {
-            if let Some(window) = platform::find(launched.pid, &launched.name) {
+            if let Some(window) = locate(&launched) {
                 platform::minimize(window);
             }
         }
@@ -418,6 +530,17 @@ mod platform {
         visible()
             .into_iter()
             .find(|(_, _, title)| title.to_lowercase().contains(&name))
+            .map(|(window, _, _)| window)
+    }
+
+    pub fn exact(title: &str) -> Option<Window> {
+        if title.is_empty() {
+            return None;
+        }
+        let title = title.to_lowercase();
+        visible()
+            .into_iter()
+            .find(|(_, _, value)| value.to_lowercase() == title)
             .map(|(window, _, _)| window)
     }
 
@@ -740,6 +863,9 @@ mod platform {
     pub fn titled(_: &str) -> Option<Window> {
         None
     }
+    pub fn exact(_: &str) -> Option<Window> {
+        None
+    }
     pub fn restore(_: Window) {}
     pub fn step(_: Window, _: i32, _: i32) {}
     pub fn click(_: Window) {}
@@ -756,7 +882,7 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{action, browser_executable, close_on_home, stepped, Action};
+    use super::{action, browser_executable, stepped, Action};
 
     #[test]
     fn remote_input_stays_in_luma_once_it_is_foreground() {
@@ -773,15 +899,6 @@ mod tests {
         assert_eq!(action(false, true, true, "home", true), Action::Home);
         assert_eq!(action(true, true, true, "home", false), Action::Home);
         assert_eq!(action(true, true, true, "home", true), Action::Home);
-    }
-
-    #[test]
-    fn home_closes_streaming_windows_but_preserves_unrelated_apps() {
-        assert!(close_on_home("Netflix", true));
-        assert!(close_on_home("Netflix", false));
-        assert!(close_on_home("Disney+", false));
-        assert!(!close_on_home("Custom", false));
-        assert!(!close_on_home("Spotify", false));
     }
 
     #[test]

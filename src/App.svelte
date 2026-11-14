@@ -15,8 +15,8 @@
   import ActivityCard from './lib/components/activity/ActivityCard.svelte';
   import AppDock from './lib/components/AppDock.svelte';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
+  import WidgetHost from './lib/components/WidgetHost.svelte';
   import MusicHome from './lib/components/spotify/MusicHome.svelte';
-  import MiniPlayer from './lib/components/spotify/MiniPlayer.svelte';
   import NowPlaying from './lib/components/spotify/NowPlaying.svelte';
   import { spotify } from './lib/state/spotify.svelte';
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
@@ -30,10 +30,11 @@
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
+  import { applyTheme, appearanceFor, themeById } from './lib/services/theme';
   import { appProviders, actionLabel, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from './lib/services/activity';
-  import { native, launchApp, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
+  import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog, searchMovies } from './lib/services/catalog';
-  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
+  import type { ActivityItem, AppId, ExecutableAppId, HomeRowId, MediaItem, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
   import type { MusicCardItem } from './lib/types/spotify';
 
   const preferences = createSettings();
@@ -43,6 +44,7 @@
   let tab = $state('Home');
   let panel = $state(false);
   let remotePairing = $state(false);
+  let exitRequested = $state(false);
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
@@ -78,11 +80,15 @@
   let stremioPreviewSyncedAt = 0;
   const navigation = createNavigation(back, home, () => settings.homeShortcut);
   const showHome = $derived(tab === 'Home');
+  const theme = $derived(themeById(settings.theme));
+  const rowVisible = (id: HomeRowId) => settings.home.some(row => row.id === id && row.visible);
+  const visibleHomeRows = $derived(settings.home.filter(row => row.visible));
+  const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
   const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
   const previewActivity = $derived(previewProvider ? activityItems.filter(item => item.provider === previewProvider && item.type !== 'application').slice(0, 8) : []);
   const previewMusic = $derived(spotify.home.recentlyPlayed.map((item, index) => ({ id: `${item.id ?? item.title}-${index}`, title: item.title, uri: item.uri, artworkUrl: item.artworkUrl, subtitle: item.artist })));
-  const continueItems = $derived(settings.sections.continue ? sortRecent(activityItems.filter(item => item.type !== 'application' && isContinueWatching(item))) : []);
+  const continueItems = $derived(rowVisible('continue') ? sortRecent(activityItems.filter(item => item.type !== 'application' && isContinueWatching(item))) : []);
   const appHeroItems = $derived.by(() => {
     const app = previewApp;
     if (!app) return [];
@@ -197,7 +203,8 @@
       if (stremioHero.length) return stremioHero.map(stremioSlide);
     }
     if (continueItems.length) return continueItems.slice(0, 5).map(item => activitySlide(item, 'CONTINUE WATCHING'));
-    if (settings.sections.featured) return featured.slice(0, 5).map(item => movieSlide(item));
+    if (rowVisible('featured')) return featured.slice(0, 5).map(item => movieSlide(item));
+    if (rowVisible('popular')) return popular.slice(0, 5).map(item => movieSlide(item));
     return [];
   });
   function preview(id: AppId) {
@@ -226,11 +233,18 @@
   }
 
   $effect(() => {
-    document.documentElement.dataset.accent = settings.accent;
+    applyTheme(theme.tokens);
+    document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.density = settings.density;
     document.documentElement.dataset.appTileShape = settings.appTileShape;
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, sections: settings.sections, order: settings.order })); }
+  });
+  $effect(() => {
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, home: settings.home, widgets: settings.widgets, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
+  });
+  $effect(() => {
+    if (!native) return;
+    invoke('update_appearance', { appearance: appearanceFor(theme) }).catch(() => {});
   });
   $effect(() => {
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
@@ -257,6 +271,11 @@
         const stopNavigation = await onNavigation(navigation.dispatch);
         if (disposed) { stopNavigation(); return; }
         track(stopNavigation);
+        track(await listen('exit-requested', () => {
+          if (disposed) return;
+          previous = document.activeElement as HTMLElement;
+          exitRequested = true;
+        }));
         const [stopActivity] = await Promise.all([
           activity.start(),
           stremioStatus().then(value => { if (!disposed) stremio = value; }).catch(error => { if (!disposed) message = String(error); }),
@@ -295,6 +314,7 @@
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
+    if (exitRequested) { cancelExit(); return; }
     if (remotePairing) { closeRemotePairing(); return; }
     if (stremioPairing) { closeStremioPairing(); return; }
     if (panel) { panel = false; void refreshStremio(); }
@@ -304,7 +324,21 @@
     else { home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
-  function home() { remotePairing = false; previewApp = null; heroPick = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function cancelExit() {
+    exitRequested = false;
+    requestAnimationFrame(() => navigation.focus(previous ?? undefined));
+  }
+  function keepRunning() {
+    exitRequested = false;
+    void hideToTray().catch(() => {});
+  }
+  function confirmQuit() { void quitLuma().catch(() => {}); }
+  function mountExitDialog(dialog: HTMLDialogElement) {
+    dialog.showModal();
+    requestAnimationFrame(() => dialog.querySelector<HTMLButtonElement>('button')?.focus());
+  }
+  function leaveApp() { if (native) void closeLaunchedApp().catch(() => {}); }
+  function home() { leaveApp(); remotePairing = false; previewApp = null; heroPick = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
@@ -350,7 +384,7 @@
       return () => animation.cancel();
     };
   }
-  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } if (value === 'Home') leaveApp(); previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   async function openMusic() {
     while (musicHome?.closeDetail()) {}
     previewApp = null;
@@ -394,7 +428,7 @@
     launching = id;
     try {
       if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Use Back to Luma when you are done.'; }
-      else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Use Back to Luma when you are done.' : `${id} opened. Press Home to return to Luma.`; }
+      else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Use Back to Luma when you are done.' : id === 'Steam' ? 'Steam Big Picture opened. Press Home to return to Luma.' : `${id} opened. Press Home to return to Luma.`; }
     } catch (error) { message = String(error); }
     finally { launching = null; }
   }
@@ -463,7 +497,7 @@
 
 <svelte:window onkeydown={keydown} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} />
+  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
@@ -471,23 +505,54 @@
   {#if showHome && heroSlides.length}
     <MovieHero slides={heroSlides} sourceKey={heroSource} />
   {/if}
-  <div {@attach smoothHeight}><div class="resizing-content">
-  {#if showHome && settings.sections.continue}
-    {#if previewApp === 'Stremio'}
-      <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} onpreview={previewStremio} cinematic /></div>
-    {:else}
-    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} onpreview={previewActivityItem} />
-    {/if}
+  {#if showHome}
+    <div {@attach smoothHeight}><div class="resizing-content">
+      {#each visibleHomeRows as row (row.id)}
+        {#if row.id === 'continue'}
+          {#if previewApp === 'Stremio'}
+            <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} onpreview={previewStremio} cinematic /></div>
+          {:else}
+            <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} onpreview={previewActivityItem} />
+          {/if}
+        {:else if row.id === 'apps'}
+          <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />
+          {#if previewApp && catalogVisible}
+            {#key previewApp}
+              <div class="view-swap">
+                {#if previewApp === 'YouTube' && youTubeFeed.length}
+                  <VideoRow items={youTubeFeed} open={openYouTubeItem} onpreview={previewVideo} />
+                {:else if previewApp === 'Spotify' && previewMusic.length}
+                  <PlaylistRow title="Recently played on Spotify" items={previewMusic} empty="" kind="Track" onselect={async item => { if (await spotify.playUri(item.uri)) openPlayer(); }} onpreview={previewMusicItem} />
+                {:else if previewApp === 'Stremio' && stremio?.items.length}
+                  <StremioRow title="Your Stremio library" items={stremio.items.slice(0, 10)} open={openStremio} onpreview={previewStremio} />
+                {:else if previewActivity.length}
+                  <section class="content-row"><div class="row-heading"><h2>From {previewApp}</h2></div><div class="activity-track">{#each previewActivity as item (item.id)}<ActivityCard {item} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />{/each}</div></section>
+                {:else}
+                  <section class="content-row" aria-label={`${previewApp} recommendations`}><div class="row-heading"><h2>From {previewApp === 'Custom' ? 'your custom app' : previewApp}</h2></div><div class="activity-empty"><strong>{previewApp === 'Spotify' && spotify.homeLoading ? 'Loading your music...' : 'No recommendations available yet'}</strong><span>{previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => previewApp && launch(previewApp)}>Open {previewApp === 'Custom' ? 'custom app' : previewApp}</button></div></section>
+                {/if}
+              </div>
+            {/key}
+          {/if}
+        {:else if row.id === 'popular'}
+          {#if !previewApp}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} onpreview={item => previewMovie(item, 'POPULAR MOVIE')} />{/if}
+        {:else if row.id === 'featured'}
+          {#if !previewApp}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} onpreview={item => previewMovie(item, 'TOP-RATED MOVIE')} />{/if}
+        {:else if row.id === 'recent'}
+          <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
+        {:else if row.id === 'recentApps'}
+          <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
+        {/if}
+      {/each}
+    </div></div>
   {/if}
-  </div></div>
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Apps'}
     <header class="page-head">
       <div><span class="eyebrow">ON THIS PC</span><h1>Apps</h1><p>Open your streaming apps and keep the ones you use most in reach.</p></div>
       <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
     </header>
+    <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />
   {/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} showHeading={tab !== 'Apps'} active={previewApp} />{/if}
   {#if tab === 'Watch'}
     <header class="page-head">
       <div><span class="eyebrow">STREMIO CATALOG</span><h1>Watch</h1><p>Search for a title or browse what is popular right now.</p></div>
@@ -505,42 +570,15 @@
         <div class="view-swap"><MediaRow id="search-results" title="Search results" items={movieResults} onselect={item => openStremioDetail('movie', item.id)} /></div>
       {/key}
     {/if}
-  {/if}
-  <div {@attach smoothHeight}><div class="resizing-content">
-  {#key previewApp}
-    <div class="view-swap">
-    {#if showHome && previewApp && (settings.sections.popular || settings.sections.featured)}
-      {#if previewApp === 'YouTube' && youTubeFeed.length}
-        <VideoRow items={youTubeFeed} open={openYouTubeItem} onpreview={previewVideo} />
-      {:else if previewApp === 'Spotify' && previewMusic.length}
-        <PlaylistRow title="Recently played on Spotify" items={previewMusic} empty="" kind="Track" onselect={async item => { if (await spotify.playUri(item.uri)) openPlayer(); }} onpreview={previewMusicItem} />
-      {:else if previewApp === 'Stremio' && stremio?.items.length}
-        <StremioRow title="Your Stremio library" items={stremio.items.slice(0, 10)} open={openStremio} onpreview={previewStremio} />
-      {:else if previewActivity.length}
-        <section class="content-row"><div class="row-heading"><h2>From {previewApp}</h2></div><div class="activity-track">{#each previewActivity as item (item.id)}<ActivityCard {item} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />{/each}</div></section>
-      {:else}
-        <section class="content-row" aria-label={`${previewApp} recommendations`}><div class="row-heading"><h2>From {previewApp === 'Custom' ? 'your custom app' : previewApp}</h2></div><div class="activity-empty"><strong>{previewApp === 'Spotify' && spotify.homeLoading ? 'Loading your music...' : 'No recommendations available yet'}</strong><span>{previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => previewApp && launch(previewApp)}>Open {previewApp === 'Custom' ? 'custom app' : previewApp}</button></div></section>
-      {/if}
-    {:else}
-      {#if showHome}
-        {#if settings.sections.popular}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} onpreview={item => previewMovie(item, 'POPULAR MOVIE')} />{/if}
-        {#if settings.sections.featured}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} onpreview={item => previewMovie(item, 'TOP-RATED MOVIE')} />{/if}
-      {:else if tab === 'Watch'}
-        <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
-        <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
-      {/if}
-    {/if}
-    </div>
-  {/key}
-  </div></div>
-  {#if tab === 'Music'}<MusicHome bind:this={musicHome} onopen={openPlayer} onsettings={openIntegrations} />{/if}
-  {#if tab === 'Watch'}
+    <div {@attach smoothHeight}><div class="resizing-content">
+      <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
+      <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
+    </div></div>
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} />
-  {/if}
-  {#if (showHome && settings.sections.recent) || tab === 'Watch'}
     <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
   {/if}
-  {#if (showHome && settings.sections.recentApps) || tab === 'Apps'}
+  {#if tab === 'Music'}<MusicHome bind:this={musicHome} onopen={openPlayer} onsettings={openIntegrations} />{/if}
+  {#if tab === 'Apps'}
     <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
   {/if}
   </div>
@@ -548,7 +586,7 @@
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
     <UpdateNotice {native} />
   </div>
-  {#if !playerOpen}<MiniPlayer onopen={openPlayer} />{/if}
+  {#if !playerOpen}<WidgetHost widgets={settings.widgets} onopen={openPlayer} />{/if}
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>
@@ -569,10 +607,28 @@
   </dialog>
 {/if}
 
+{#if exitRequested}
+  <dialog {@attach mountExitDialog} class="exit-dialog" aria-labelledby="exit-title" oncancel={(event) => { event.preventDefault(); cancelExit(); }}>
+    <h2 id="exit-title">Exit Luma?</h2>
+    <p>Keep Luma running in the notification area so the Display Box and web remote stay connected, or quit completely and stop the server.</p>
+    <div class="exit-actions">
+      <button class="panel-secondary exit-keep" onclick={keepRunning}>Keep running in tray</button>
+      <button class="panel-secondary" onclick={confirmQuit}>Quit Luma</button>
+    </div>
+  </dialog>
+{/if}
+
 <style>
   .resizing-content { display: flow-root; }
   .remote-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: clamp(24px, 3vw, 40px); overflow-y: auto; border: 1px solid #ffffff26; border-radius: 24px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
   .remote-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(6px); }
   .remote-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
   .remote-dialog-heading h2 { margin: 8px 0 0; font-size: clamp(26px, 2.4vw, 36px); }
+  .exit-dialog { width: min(560px, calc(100vw - 48px)); margin: auto; padding: clamp(26px, 3vw, 38px); border: 1px solid #ffffff26; border-radius: 22px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
+  .exit-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(6px); }
+  .exit-dialog h2 { margin: 0 0 12px; font-size: clamp(24px, 2.2vw, 32px); letter-spacing: -.03em; }
+  .exit-dialog p { margin: 0 0 24px; color: #a9aab5; font-size: clamp(13px, .95vw, 16px); line-height: 1.6; }
+  .exit-actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; }
+  .exit-actions button { width: auto; min-height: 48px; margin: 0; padding: 0 22px; }
+  .exit-actions .exit-keep { border-color: transparent; background: var(--accent); color: #10131b; }
 </style>
