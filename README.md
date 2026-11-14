@@ -1,5 +1,23 @@
 # Luma TV
 
+Change the application version with `npm run version:set -- patch` (or `minor`, `major`, or an explicit version such as `0.2.0`). This updates the npm and Tauri manifests and both lockfiles together. Run `node scripts/version.mjs --check` to verify they agree.
+
+## Releases and updates
+
+The desktop header shows VPN detection from active Windows network profiles and refreshes on network changes without polling. Detection uses tunnel/PPP interface types and common VPN adapter names; it cannot verify that all traffic is protected, and some third-party VPNs may not be identifiable. Luma leaves internet traffic on Windows' configured route. Web remote and Display Box pairing advertise local Ethernet/Wi-Fi addresses instead of the default internet route, so a VPN tunnel address is not preferred. VPN settings must allow local network access for remote control and local media servers; Luma does not bypass a VPN's kill switch or LAN restrictions.
+
+Settings → Updates checks for a newer release automatically once per app launch and provides a manual check. **Update now** downloads and verifies the signed installer; **Restart to update** applies it and reopens Luma. Leaving Settings preserves the download. Downloads stay in memory until installation or app exit; closing Luma before installing means downloading again. The updater downloads a full compressed installer, not binary deltas, and only downloads after you choose Update now. Preferences and application data stay in their existing locations.
+
+Local builds have updates disabled. No repository or credentials are needed while developing. When ready to distribute:
+
+1. Push this project to a public GitHub repository.
+2. Generate an updater signing key with `npm run tauri -- signer generate -w <path-outside-the-repository>`. Keep the private key and password backed up securely; future releases must use the same key.
+3. In GitHub repository Actions settings, add the public key contents as variable `TAURI_SIGNING_PUBLIC_KEY`, the private key contents as secret `TAURI_SIGNING_PRIVATE_KEY`, and its password as secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (omit for an unencrypted key). Never commit the private key.
+4. Run `npm run version:set -- patch`, commit the changed manifests and lockfiles, then push a matching tag such as `v0.1.1`. Alternatively run the Release workflow manually for the current version.
+5. The workflow checks versions, types, and tests, then builds a signed Windows x64 NSIS installer and updater manifest in a draft GitHub release. Review the assets and release notes, then publish the draft when ready. Keep `latest.json`, the installer, and its signature attached. Only published stable releases are offered to installed apps.
+
+The workflow derives the updater URL from the GitHub repository running it and embeds the public key in the installer. Releases use a per-user installation and quiet updates, so Restart to update does not open an installer wizard. Install the first workflow-built release manually to establish the update channel. Subsequent published releases appear in Settings. Test the full flow with two successive versions before distributing widely. Moving repositories or replacing signing keys requires a migration for existing installations. Updater signing verifies updates; Windows code signing is separate and SmartScreen may still prompt for an unsigned installer.
+
 A Windows TV launcher built with Tauri 2, Svelte 5, TypeScript, Tailwind CSS 4, and Rust. Movie rows and the hero feature load real titles from Stremio's public Cinemeta catalog, with artwork from MetaHub. Luma launches installed applications rather than streaming movies itself. An optional Stremio account connection adds Continue Watching and a synchronized library, and Stremio Web opens inside Luma instead of the Stremio desktop app.
 
 Use current Node.js LTS, npm, Rust stable, and the Windows Tauri prerequisites (MSVC build tools and WebView2).
@@ -75,7 +93,7 @@ These endpoints, payload shapes, and web routes are implementation-specific. The
 
 ## Local remote server
 
-One local server starts with Luma at `0.0.0.0:9877` when local remote access is enabled in Settings → Remote & Startup. It serves the Display Box frame protocol and a phone browser remote on the same LAN, so both can stay connected at once. Disabling access stops the server. LAN traffic is unencrypted HTTP; use it only on a trusted private network, and allow Luma through Windows Firewall on private networks. No firewall rules are added automatically.
+One local server starts with Luma at `0.0.0.0:9877` when local remote access is enabled in Settings → Remote & Startup. It serves the Display Box frame protocol and a web remote on the same LAN, so both can stay connected at once. Disabling access stops the server. LAN traffic is unencrypted HTTP; use it only on a trusted private network, and allow Luma through Windows Firewall on private networks. No firewall rules are added automatically.
 
 ### Display Box frame
 
@@ -85,18 +103,18 @@ The frame keeps its existing protocol on port 9877 and authenticates with `Autho
 - `GET /state` returns the PC name and connection state.
 - `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; volume commands are `volumeup`, `volumedown`, and `mute`.
 
-Frame credentials are persistent and are not replaced by phone pairing. This protocol rejects requests that include an Origin header. Commands cannot carry executable paths or shell arguments.
+Frame credentials are persistent and are not replaced by web remote pairing. This protocol rejects requests that include an Origin header. Commands cannot carry executable paths or shell arguments.
 
-### Phone remote
+### Web remote
 
-Open `http://<PC-Wi-Fi-address>:9877/` on a phone connected to the same network, or choose **Open remote in browser** in Settings to test the same page at `http://localhost:9877/` on this PC. Settings shows the exact phone address. Choose **Pair a phone** in Luma, then enter the six-digit code in the browser you opened. Both addresses use the same server, pairing, and commands. The server sets an `HttpOnly`, `SameSite=Strict` browser cookie, and the page polls while it is visible. Phone pairing is stored separately from the frame credential, so pairing or replacing either one does not disconnect the other. Luma must stay running; closing its window leaves it in the system tray.
+Open `http://<PC-Wi-Fi-address>:9877/` in a browser on any device connected to the same network, or choose **Open remote in browser** in Settings to test the same page at `http://localhost:9877/` on this PC. Settings shows the exact web remote address. Choose **Connect** in Luma, then enter the six-digit code in the browser you opened. Both addresses use the same server, pairing, and commands. The server sets an `HttpOnly`, `SameSite=Strict` browser cookie, and the page uses an authenticated WebSocket for commands and state checks while visible. It closes the socket in the background and reconnects when visible. HTTP commands remain available while the socket connects; interrupted commands are never replayed automatically. Web remote pairing is stored separately from the frame credential, so pairing or replacing either one does not disconnect the other. Luma must stay running; closing its window leaves it in the system tray.
 
-- `GET /` serves the phone page.
-- `POST /phone/pair` accepts `{ "code": "123456" }` and sets the phone cookie.
+- `GET /` serves the web remote page.
+- `POST /phone/pair` accepts `{ "code": "123456" }` and sets the web remote cookie.
 - `GET /phone/state` returns the PC name and the current Luma view.
 - `POST /phone/command` accepts the same command objects as Display Box.
 
-Phone commands require the server's own origin; cross-origin and missing-origin POSTs are rejected. The separate port 9876 HTTP/WebSocket remote, its manually configured allowed origin, and its per-session credential are replaced by this consolidated server. Browsers can now control navigation, app launches, playback, and PC volume from the page Luma serves.
+Web remote commands require the server's own origin; cross-origin and missing-origin POSTs are rejected. The separate port 9876 HTTP/WebSocket remote, its manually configured allowed origin, and its per-session credential are replaced by this consolidated server. Browsers can now control navigation, app launches, playback, and PC volume from the page Luma serves.
 
 ## Remote control of launched applications
 

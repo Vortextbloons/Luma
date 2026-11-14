@@ -25,7 +25,7 @@
   {#if !native}
     <div class="library-empty"><h2>Desktop app required</h2><p>Stremio account integration is available in the Luma desktop application.</p></div>
   {:else if !status?.connected}
-    <div class="library-empty"><h2>Connect Stremio</h2><p>Link your account once in Settings, then your Continue Watching and library appear here. Luma never asks for your Stremio password.</p><button class="btn btn-primary" onclick={connect}>Open settings</button></div>
+    <div class="library-empty"><h2>Connect Stremio</h2><p>Link your account once, then your Continue Watching and library appear here. Luma never asks for your Stremio password.</p><button class="btn btn-primary" onclick={connect}>Connect Stremio</button></div>
   {:else if status.items.length === 0}
     <div class="library-empty"><h2>No library titles yet</h2><p>{status.lastSync ? 'Your synchronized Stremio library is empty.' : 'Synchronize your Stremio library to load it here.'}</p><button class="btn btn-primary" disabled={busy} onclick={synchronize}>{busy ? 'Synchronizing…' : 'Sync Now'}</button></div>
   {:else}

@@ -269,6 +269,7 @@ fn publish(app: &tauri::AppHandle, mut state: PlaybackState) {
                         title,
                         state.artist.as_deref().unwrap_or(""),
                         state.track_id.as_deref(),
+                        state.artwork_url.as_deref(),
                     );
                 }
             }

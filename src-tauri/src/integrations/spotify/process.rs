@@ -74,7 +74,7 @@ pub fn launch_path_minimized(executable: &std::path::Path) -> Result<(), String>
     let operation = wide("open");
     let file = wide(&executable.to_string_lossy());
     let directory = directory.map(|path| wide(&path.to_string_lossy()));
-    let parameters = wide("");
+    let parameters = wide("--minimized");
     let result = unsafe {
         ShellExecuteW(
             None,

@@ -36,7 +36,60 @@ impl NavigationCommand {
     }
 }
 
+fn should_wake(visible: bool, external_session: bool) -> bool {
+    !visible && !external_session
+}
+
+pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
+    let visible = ["main", "youtube", "stremio"].iter().any(|label|
+        app.get_webview_window(label).is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)));
+    if should_wake(visible, crate::commands::session::active(app)) {
+        let window = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+        crate::background::present(window, None).await?;
+    }
+    Ok(())
+}
+
+pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::remote::pointer::stop_all(app);
+    crate::remote::pointer::show_cursor(app);
+    for label in ["main", "youtube", "stremio"] {
+        if let Some(window) = app.get_webview_window(label) {
+            if label != "main" { let _ = window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause())"); }
+            window.hide().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn type_text(text: &str) -> Result<(), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP};
+    let inputs: Vec<INPUT> = text.encode_utf16().flat_map(|unit| [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP].map(|flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wScan: unit, dwFlags: flags, ..Default::default() } },
+    })).collect();
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize != inputs.len() { return Err("Windows could not type the text. Focus a text field on the PC and try again.".into()); }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub(crate) fn type_text(_: &str) -> Result<(), String> { Err("Remote typing requires Windows.".into()) }
+
 pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
+    match command {
+        NavigationCommand::Home => {
+            crate::remote::pointer::stop_all(app);
+            crate::remote::pointer::show_cursor(app);
+        }
+        NavigationCommand::Up
+        | NavigationCommand::Down
+        | NavigationCommand::Left
+        | NavigationCommand::Right
+        | NavigationCommand::Activate
+        | NavigationCommand::Back => crate::remote::pointer::hide_cursor(app),
+    }
     let handled = crate::commands::session::route(app, command.as_str());
     let embedded = if handled {
         false
@@ -136,7 +189,14 @@ pub fn update_app_state(
 
 #[cfg(test)]
 mod tests {
-    use super::{frontend_receives, show_main, NavigationCommand};
+    use super::{frontend_receives, show_main, should_wake, NavigationCommand};
+
+    #[test]
+    fn external_session_prevents_waking_the_launcher() {
+        assert!(!should_wake(false, true));
+        assert!(should_wake(false, false));
+        assert!(!should_wake(true, false));
+    }
 
     #[test]
     fn home_always_resets_the_luma_frontend() {

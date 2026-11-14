@@ -4,15 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "version:set": "node scripts/version.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types --test src/lib/services/navigation.test.mjs src/lib/services/activity.test.mjs src-tauri/resources/stremio/inject.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/services/navigation.test.mjs src/lib/services/activity.test.mjs src/lib/state/updates.test.mjs src-tauri/resources/stremio/inject.test.mjs src-tauri/src/phone.test.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.4"
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-updater": "^2.14.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

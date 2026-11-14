@@ -17,6 +17,7 @@
   const home = $derived(spotify.home);
 
   let section = $state('Listen now');
+  let accountMenu: HTMLDetailsElement;
   let collections = $state<MusicCollection[]>([]);
   const collection = $derived(collections.at(-1));
   let collectionPrevious: HTMLElement | null = null;
@@ -27,6 +28,11 @@
     ondetailchange?.(true);
   }
   export function closeDetail() {
+    if (accountMenu?.open) {
+      accountMenu.open = false;
+      accountMenu.querySelector('summary')?.focus();
+      return true;
+    }
     if (!collections.length) return false;
     collections = collections.slice(0, -1);
     ondetailchange?.(collections.length > 0);
@@ -66,16 +72,17 @@
 <section class="music-home" aria-labelledby="music-title">
   <header class="music-page-header">
     <div>
-      <span class="panel-kicker">LUMA MUSIC</span>
+      <span class="panel-kicker">YOUR SOUNDTRACK</span>
       <h1 id="music-title">Music</h1>
-      <p>Your music. Room to listen.</p>
+      <p>Pick something you love.</p>
     </div>
-    <div class="music-status">
-      <span class={["music-status-led", { "inactive": !playback.playerAvailable }]} aria-hidden="true"></span>
-      <span>{connection.authenticated ? (connection.displayName ? `Connected as ${connection.displayName}` : 'Spotify account connected') : playback.playerAvailable ? 'Spotify controls ready' : connection.processRunning ? 'Spotify is running' : 'Spotify is not active'}</span>
-      {#if connection.authenticated}<button class="text-link" disabled={spotify.homeLoading} onclick={() => spotify.loadHome(true)}>{spotify.homeLoading ? 'Refreshing…' : 'Refresh library'}</button>{/if}
-      <button class="text-link" onclick={onsettings}>Manage Spotify</button>
-    </div>
+    <details class="music-menu" bind:this={accountMenu}>
+      <summary aria-label="Music options"><span class="music-avatar" aria-hidden="true">{#if connection.displayName}{connection.displayName.slice(0, 1).toUpperCase()}{:else}<MusicIcon name="music" />{/if}</span><span>{connection.displayName || 'Your music'}</span><MusicIcon name="chevron-right" /></summary>
+      <div class="music-menu-panel">
+        {#if connection.authenticated}<button disabled={spotify.homeLoading} onclick={() => spotify.loadHome(true)}>{spotify.homeLoading ? 'Refreshing...' : 'Refresh library'}</button>{/if}
+        <button onclick={onsettings}>{connection.authenticated ? 'Account settings' : 'Connect Spotify'}</button>
+      </div>
+    </details>
   </header>
 
   <nav class="music-sections" aria-label="Music sections">
@@ -93,13 +100,13 @@
   {#if connection.starting}
     <section class="music-starting">
       <span class="music-pulse" aria-hidden="true"></span>
-      <div><h2>Starting Spotify in the background</h2><p>Luma is waiting for Spotify to be ready. Spotify may briefly show a window while it starts.</p></div>
+      <div><h2>Getting your music ready</h2><p>Just a moment...</p></div>
     </section>
   {:else if !connection.processRunning && !connection.playerAvailable}
     <section class="music-starting">
       <div>
-        <h2>{connection.installed ? 'Spotify is not running' : 'Spotify was not found'}</h2>
-        <p>{connection.installed ? 'Start Spotify and Luma will handle the playback controls.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
+        <h2>{connection.installed ? 'Ready to listen?' : 'Spotify was not found'}</h2>
+        <p>{connection.installed ? 'Open Spotify to start listening.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
       </div>
       {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Open settings</button>{/if}
     </section>
@@ -112,12 +119,12 @@
     </div>
     <div class="music-now-copy">
       <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
-      <h2>{playback.title ?? 'Spotify is not playing'}</h2>
-      <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || (playback.playerAvailable ? 'Start a track in Spotify or search your library.' : connection.processRunning ? 'Spotify is running. Start a track in Spotify to connect.' : 'Start Spotify and play something to connect.')}</p>
+      <h2>{playback.title ?? 'Find your next favorite'}</h2>
+      <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || 'Explore your library or search for something new.'}</p>
       <div class="music-progress" aria-hidden="true"><span style:transform={`scaleX(${spotify.progress})`}></span></div>
       <div class="music-now-actions">
         <PlaybackControls {playback} busy={spotify.busy} onaction={action} />
-        <button class="btn btn-glass" onclick={onopen}>Open full player</button>
+        <button class="btn btn-glass" onclick={onopen}>Now playing</button>
       </div>
       {#if playback.deviceName}<p class="music-device-label">Playing on {playback.deviceName}</p>{/if}
     </div>
@@ -129,16 +136,16 @@
     {#if section === 'Devices'}<DevicePicker />{/if}
     {#if section === 'Listen now' || section === 'Library'}
 
-    {#if home.warnings.length}<p class="music-inline-error" role="status">Some Spotify sections could not be loaded. {home.warnings[0]}</p>{/if}
+    {#if home.warnings.length}<p class="music-inline-error" role="status">Some music is unavailable right now. Try refreshing your library from the account menu.</p>{/if}
 
-    {#if section === 'Listen now'}<PlaylistRow title="Recently played" subtitle="From your Spotify account" items={recent} empty={spotify.homeLoading ? 'Loading recent tracks…' : 'No recent Spotify tracks yet.'} kind="Track" onselect={item => play(item.uri)} />{/if}
-    <PlaylistRow title="Your playlists" subtitle="Owned and followed playlists" items={playlists} empty={spotify.homeLoading ? 'Loading playlists…' : 'No playlists found.'} kind="Playlist" onselect={item => browse({ ...item, kind: 'playlist' })} />
+    {#if section === 'Listen now'}<PlaylistRow title="Recently played" items={recent} empty={spotify.homeLoading ? 'Loading recent tracks…' : 'No recent Spotify tracks yet.'} kind="Track" onselect={item => play(item.uri)} />{/if}
+    <PlaylistRow title="Your playlists" items={playlists} empty={spotify.homeLoading ? 'Loading playlists…' : 'No playlists found.'} kind="Playlist" onselect={item => browse({ ...item, kind: 'playlist' })} />
     <button class="library-more" onclick={() => browse({ id: '', title: 'Your playlists', kind: 'playlists' })}>Browse all playlists <MusicIcon name="chevron-right" /></button>
-    <PlaylistRow title="Saved albums" subtitle="From your Spotify library" items={albums} empty={spotify.homeLoading ? 'Loading saved albums…' : 'No saved albums.'} kind="Album" onselect={item => browse({ ...item, kind: 'album' })} />
+    <PlaylistRow title="Saved albums" items={albums} empty={spotify.homeLoading ? 'Loading saved albums…' : 'No saved albums.'} kind="Album" onselect={item => browse({ ...item, kind: 'album' })} />
     <button class="library-more" onclick={() => browse({ id: '', title: 'Saved albums', kind: 'albums' })}>Browse all albums <MusicIcon name="chevron-right" /></button>
 
     <section class="content-row music-row">
-      <div class="row-heading"><div><h2>Liked songs</h2><p>From your Spotify library</p></div></div>
+      <div class="row-heading"><div><h2>Liked songs</h2></div></div>
       <TrackList tracks={home.tracks.slice(0, 5)} onplay={play} />
       {#if !home.tracks.length}<p class="music-empty-line">{spotify.homeLoading ? 'Loading liked songs...' : 'Save songs in Spotify to find them here.'}</p>{/if}
       <button class="library-more" onclick={() => browse({ id: '', title: 'Liked songs', subtitle: 'Saved in your Spotify library', kind: 'tracks' })}>Browse all liked songs <MusicIcon name="chevron-right" /></button>
@@ -149,13 +156,12 @@
   {:else}
     <section class="music-account">
       <div>
-        <span class="panel-kicker">OPTIONAL</span>
+        <span class="panel-kicker">MADE FOR YOU</span>
         <h2>Connect your Spotify account</h2>
-        <p>Adds playlists, saved music, search, recent listening, and device controls. Playback stays in the Spotify desktop app. The controls above work without signing in.</p>
+        <p>Bring your playlists, favorite albums, and liked songs together.</p>
       </div>
       <div class="music-account-actions">
-        <button class="btn btn-glass" onclick={onsettings}>Set up Spotify</button>
-        <p class="music-note">Spotify Premium is required for Web API playback control. Development Mode apps have limited endpoint access.</p>
+        <button class="btn btn-glass" onclick={onsettings}>Connect Spotify</button>
       </div>
     </section>
   {/if}
@@ -176,12 +182,23 @@
   .music-home .btn { min-height: 56px; font-size: 18px; padding: 14px 24px; }
   .music-now-card { background: linear-gradient(125deg,#263954,#151c2a 75%); border-radius: 24px; }
   .music-now-art img { object-fit: contain; } .music-now-art { border-radius: 10px; }
-  .music-status { font-size: 16px; border-radius: 16px; max-width: 440px; padding: 16px 20px; }
-  .music-status .text-link { font-size: 16px; min-height: 44px; }
+  .music-page-header { align-items: center; margin-bottom: 28px; }
+  .music-page-header h1 { font-size: clamp(44px, 4vw, 68px); }
+  .music-menu { position: relative; flex: none; z-index: 2; }
+  .music-menu summary { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 14px 6px 6px; border: 1px solid #ffffff18; border-radius: 99px; cursor: pointer; list-style: none; font-size: 16px; }
+  .music-menu summary::-webkit-details-marker { display: none; }
+  .music-menu summary :global(svg) { width: 16px; transform: rotate(90deg); }
+  .music-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--music-ink); font-weight: 700; }
+  .music-menu-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 230px; padding: 8px; background: #222735; border: 1px solid #ffffff20; border-radius: 16px; box-shadow: 0 16px 40px #0006; }
+  .music-menu-panel button { display: block; width: 100%; min-height: 48px; padding: 12px 16px; text-align: left; border-radius: 10px; font-size: 16px; }
+  .music-menu-panel button:hover { background: #ffffff0c; }
+  .music-menu summary:focus-visible,.music-menu-panel button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .music-now-card { grid-template-columns: clamp(200px, 18vw, 290px) minmax(0, 1fr); padding: clamp(24px, 2.4vw, 36px); }
+  .music-now-copy h2 { font-size: clamp(32px, 3vw, 56px); }
   .library-more { margin: -8px 0 36px; background: transparent; border-color: #ffffff24; }
   .music-home :global(.music-row .row-heading h2) { font-size: clamp(26px,2vw,38px); }
   .music-home :global(.music-row .row-heading p) { font-size: 18px; color: var(--music-muted); }
   .music-home :global(.music-inline-error),.music-home :global(.music-empty-line) { font-size: 18px; }
-  .music-account p,.music-starting p { font-size: 19px; } .music-note { font-size: 16px; }
-  @media(max-width:900px) { .music-page-header { align-items: flex-start; flex-direction: column; } .music-status { max-width: none; justify-content: flex-start; } }
+  .music-account p,.music-starting p { font-size: 19px; }
+  @media(max-width:900px) { .music-page-header { align-items: flex-start; flex-direction: column; } .music-menu-panel { left: 0; right: auto; } .music-now-card { grid-template-columns: 1fr; } }
 </style>

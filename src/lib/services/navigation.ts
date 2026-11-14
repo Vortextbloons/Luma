@@ -28,6 +28,10 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     const candidates = elements();
     if (!candidates.includes(current)) { focus(candidates[0]); return; }
     if (command === 'activate') {
+      if (current instanceof HTMLInputElement && current.type === 'search' && current.form) {
+        current.form.requestSubmit();
+        return;
+      }
       if (!(current instanceof HTMLInputElement && current.type === 'range')) current.click();
       return;
     }

@@ -10,3 +10,4 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 AGENTS.md
+src-tauri/tauri.release.conf.json

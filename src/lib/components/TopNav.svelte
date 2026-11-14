@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import NetworkStatus from './NetworkStatus.svelte';
   import logo from '../../assets/luma.png';
   let { active, navigate, settings, connect, fullscreen, toggle }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void } = $props();
   let clock = $state('');
@@ -19,6 +20,7 @@
     {/each}
   </nav>
   <div class="header-right">
+    <NetworkStatus />
     <time class="clock">{clock}</time>
     <button class="header-btn" onclick={connect}>Connect</button>
     {#if fullscreen}

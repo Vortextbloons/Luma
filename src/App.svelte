@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { initializeUpdates } from './lib/state/updates.svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
+  import FramePairing from './lib/components/FramePairing.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import VideoRow from './lib/components/VideoRow.svelte';
   import AppDock from './lib/components/AppDock.svelte';
@@ -14,6 +16,7 @@
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
   import StremioRow from './lib/components/StremioRow.svelte';
   import StremioLibrary from './lib/components/StremioLibrary.svelte';
+  import StremioIntegration from './lib/components/StremioIntegration.svelte';
   import ContinueWatching from './lib/components/activity/ContinueWatching.svelte';
   import RecentlyPlayed from './lib/components/activity/RecentlyPlayed.svelte';
   import RecentApps from './lib/components/activity/RecentApps.svelte';
@@ -22,7 +25,7 @@
   import { createNavigation } from './lib/services/navigation';
   import { appProviders } from './lib/services/activity';
   import { native, launchApp, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
-  import { loadCatalog } from './lib/services/catalog';
+  import { loadCatalog, searchMovies } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioStatus, YouTubeFeedItem } from './lib/types';
 
   const preferences = createSettings();
@@ -31,16 +34,33 @@
   const activityItems = $derived(activity.items);
   let tab = $state('Home');
   let panel = $state(false);
-  let connectRemote = $state(false);
+  let remotePairing = $state(false);
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
+  let movieQuery = $state('');
+  let movieResults = $state<MediaItem[]>([]);
+  let searching = $state(false);
+  let searchStatus = $state('');
+  let searchRequest = 0;
+  async function searchWatch(event: SubmitEvent) {
+    event.preventDefault();
+    const request = ++searchRequest;
+    if (!movieQuery.trim()) { movieResults = []; searchStatus = ''; searching = false; return; }
+    searching = true; movieResults = []; searchStatus = '';
+    try {
+      const results = await searchMovies(movieQuery);
+      if (request === searchRequest) { movieResults = results; searchStatus = results.length ? '' : 'No movies found. Try another title.'; }
+    } catch { if (request === searchRequest) searchStatus = 'Search could not load. Check your connection and try again.'; }
+    finally { if (request === searchRequest) searching = false; }
+  }
   let popular = $state<MediaItem[]>([]);
   let featured = $state<MediaItem[]>([]);
   let playerOpen = $state(false);
   let musicHome = $state<MusicHome>();
   let player = $state<NowPlaying>();
   let launching = $state<AppId | null>(null);
+  let stremioPairing = $state(false);
   let stremio = $state<StremioStatus | null>(null);
   let previewApp = $state<AppId | null>(null);
   let youTubeFeed = $state<YouTubeFeedItem[]>([]);
@@ -78,6 +98,7 @@
     if (activity.error) message = activity.error;
   });
   onMount(() => {
+    void initializeUpdates();
     navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
     loadCatalog()
       .then(data => { popular = data.popular; featured = data.featured; })
@@ -85,7 +106,7 @@
     let disposed = false;
     const cleanup: (() => void)[] = [];
     async function start() {
-      if (!native) { message = 'Browser preview. Native app launching, fullscreen, phone remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
+      if (!native) { message = 'Browser preview. Native app launching, fullscreen, web remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
@@ -97,6 +118,7 @@
         youtubeFeed().then(items => youTubeFeed = items).catch(() => {});
         cleanup.push(await activity.start());
         await spotify.initialize();
+        if (spotify.connection.installed) void spotify.start();
         cleanup.push(() => spotify.dispose());
         stremio = await stremioStatus();
         const paths = await invoke<Record<ExecutableAppId, string>>('app_paths');
@@ -112,6 +134,8 @@
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
+    if (remotePairing) { closeRemotePairing(); return; }
+    if (stremioPairing) { closeStremioPairing(); return; }
     if (panel) { panel = false; void refreshStremio(); }
     else if (details) details = null;
     else if (playerOpen) { if (!player?.closeOverlay()) closePlayer(); return; }
@@ -119,7 +143,7 @@
     else { home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
-  function home() { previewApp = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function home() { remotePairing = false; previewApp = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
@@ -150,7 +174,17 @@
     }
     navigation.keydown(event);
   }
-  function navigate(value: string) { previewApp = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function animateView(_view: string) {
+    return (element: HTMLElement) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const animation = element.animate(
+        [{ opacity: .72, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 140, easing: 'cubic-bezier(.22,.8,.24,1)' },
+      );
+      return () => animation.cancel();
+    };
+  }
+  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } previewApp = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   async function openMusic() {
     while (musicHome?.closeDetail()) {}
     previewApp = null;
@@ -165,10 +199,23 @@
       navigation.focusMusic();
     }
   }
+  function openRemotePairing() { rememberFocus(); remotePairing = true; }
+  function closeRemotePairing() {
+    remotePairing = false;
+    requestAnimationFrame(() => navigation.focus(previous ?? undefined));
+  }
+  function mountRemoteDialog(dialog: HTMLDialogElement) { dialog.showModal(); }
   function openSettings() { showSettings('Display'); }
   function openApps() { showSettings('Apps'); }
+  function openStremioPairing() { rememberFocus(); stremioPairing = true; }
+  function closeStremioPairing() {
+    stremioPairing = false;
+    void refreshStremio();
+    requestAnimationFrame(() => navigation.focus(previous ?? undefined));
+  }
+  function mountStremioDialog(dialog: HTMLDialogElement) { dialog.showModal(); }
   function openIntegrations() { showSettings('Integrations'); }
-  function showSettings(category: string) { connectRemote = category === 'Remote & Startup'; previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
+  function showSettings(category: string) { previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
   async function launch(id: AppId) {
     if (id === 'Spotify') {
@@ -243,16 +290,29 @@
 
 <svelte:window onkeydown={keydown} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} {connectRemote} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
+  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
   {:else}
-  <TopNav active={tab} {navigate} settings={openSettings} connect={() => showSettings('Remote & Startup')} fullscreen={settings.fullscreen} toggle={fullscreen} />
+  <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
+  <div class="view-content" {@attach animateView(tab)}>
   {#if showHome && settings.sections.continue}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} focusProvider={previewApp ? appProviders[previewApp] : null} />
   {/if}
   {#if showHome && settings.sections.continue && stremio?.continueWatching.length}<StremioRow title="Continue watching on Stremio" items={stremio.continueWatching.slice(0, 10)} open={openStremio} />{/if}
-  {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openIntegrations} sync={syncStremio} />{/if}
+  {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openApps} preview={id => previewApp = id} />{/if}
+  {#if tab === 'Watch'}
+    <section class="content-row" aria-label="Search movies">
+      <div class="row-heading"><div><h2>Search movies</h2><p>Find a title from Stremio's catalog</p></div></div>
+      <form onsubmit={searchWatch} class="movie-search-field" role="search">
+        <svg class="movie-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <input id="movie-search" type="search" bind:value={movieQuery} placeholder="Search by movie title" aria-label="Search movies" autocomplete="off" spellcheck="false" />
+        <button type="submit" class="movie-search-submit">Search</button>
+      </form>
+      <p class="movie-search-status" role="status">{searching ? 'Searching movies…' : searchStatus}</p>
+    </section>
+    {#if movieResults.length}<MediaRow id="search-results" title="Search results" items={movieResults} onselect={item => openStremioDetail('movie', item.id)} />{/if}
+  {/if}
   {#if youtubePicks && (settings.sections.popular || settings.sections.featured)}
     <VideoRow items={youTubeFeed} open={openYouTubeItem} />
   {:else}
@@ -269,6 +329,7 @@
   {#if (showHome && settings.sections.recentApps) || tab === 'Apps'}
     <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
   {/if}
+  </div>
 {#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
   <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back · Space toggles playback</span></footer>
   {#if !playerOpen}<MiniPlayer onopen={openPlayer} />{/if}
@@ -276,3 +337,25 @@
   {/if}
 </main>
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
+
+{#if stremioPairing}
+  <dialog {@attach mountStremioDialog} class="details-dialog" aria-label="Connect Stremio" oncancel={(event) => { event.preventDefault(); closeStremioPairing(); }}>
+    <button class="close-btn float-right mb-4" onclick={closeStremioPairing} aria-label="Close Stremio connection">?</button>
+    <StremioIntegration {native} autoConnect onconnected={closeStremioPairing} />
+  </dialog>
+{/if}
+
+{#if remotePairing}
+  <dialog {@attach mountRemoteDialog} class="remote-dialog" aria-label="Connect a remote" oncancel={(event) => { event.preventDefault(); closeRemotePairing(); }}>
+    <div class="remote-dialog-heading"><div><span class="eyebrow">REMOTE CONTROL</span><h2>Connect to Luma</h2></div><button class="close-btn" aria-label="Close connection" onclick={closeRemotePairing}>&times;</button></div>
+    <FramePairing {native} autoConnect pairingOnly />
+    <button class="panel-secondary" onclick={closeRemotePairing}>Done</button>
+  </dialog>
+{/if}
+
+<style>
+  .remote-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: clamp(24px, 3vw, 40px); overflow-y: auto; border: 1px solid #ffffff26; border-radius: 24px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
+  .remote-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(8px); }
+  .remote-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .remote-dialog-heading h2 { margin: 8px 0 0; font-size: clamp(26px, 2.4vw, 36px); }
+</style>

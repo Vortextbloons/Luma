@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  let { native, autoConnect = false }: { native: boolean; autoConnect?: boolean } = $props();
+  let { native, autoConnect = false, pairingOnly = false }: { native: boolean; autoConnect?: boolean; pairingOnly?: boolean } = $props();
   type Status = { enabled: boolean; paired: boolean; addresses: string[]; pcName: string; code: string | null; phonePaired: boolean; phoneUrl: string; phoneCode: string | null };
   type Device = 'phone' | 'frame';
   let status = $state<Status | null>(null);
@@ -25,11 +25,11 @@
   }
   const badge = $derived(status?.enabled
     ? status.paired && status.phonePaired
-      ? 'Display Box and phone paired'
+      ? 'Display Box and web remote paired'
       : status.paired
         ? 'Display Box paired'
         : status.phonePaired
-          ? 'Phone paired'
+          ? 'Web remote paired'
           : 'Ready to pair'
     : 'Remote control off');
   const tone = $derived(!status?.enabled ? 'is-muted' : status.paired || status.phonePaired ? 'is-good' : 'is-warn');
@@ -66,23 +66,28 @@
   });
 </script>
 
-<section class="settings-group">
+<section class:pairing-only={pairingOnly} class="settings-group">
+  {#if !pairingOnly}
   <div class="settings-group-head">
-    <h3>Phone &amp; Display Box remote</h3>
+    <h3>Web remote &amp; Display Box</h3>
     {#if status}<span class={`settings-badge ${tone}`}>{badge}</span>{/if}
   </div>
-  <p class="panel-description">Use a phone or Display Box to control Luma from another screen. Luma remembers paired devices after a restart.</p>
+  <p class="panel-description">Use a browser or Display Box to control Luma from another screen. Luma remembers paired devices after a restart.</p>
+  <p class="panel-description">Using a VPN? Allow local network access in your VPN settings so your web remote and Display Box can reach this PC.</p>
+  {/if}
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if status}
+    {#if !pairingOnly}
     <button class="panel-secondary is-primary" disabled={busy} onclick={() => connect()}>Connect a remote</button>
     <label class="setting-toggle">
       <span class="setting-toggle-copy"><span>Allow remote control</span><small>Paired devices can control Luma while it is running.</small></span>
       <input type="checkbox" checked={status.enabled} disabled={busy} onchange={toggleRemote} />
     </label>
+    {/if}
     {#if status.enabled && connecting}
       <div class="remote-choice" role="group" aria-label="Choose a device">
         <button disabled={busy} class:selected={device === 'phone'} aria-pressed={device === 'phone'} onclick={() => connect('phone')}>
-          <strong>Phone</strong><span>Test on this PC, or use a phone on this Wi-Fi.</span>
+          <strong>Web remote</strong><span>Use a browser on any phone, tablet, or computer.</span>
         </button>
         <button disabled={busy} class:selected={device === 'frame'} aria-pressed={device === 'frame'} onclick={() => connect('frame')}>
           <strong>Display Box</strong><span>Use a Luma Display Box frame.</span>
@@ -90,9 +95,16 @@
       </div>
       {#if device === 'phone'}
         <div class="frame-connect">
-          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote on your phone" /><p class="remote-note">Scan with your phone camera, then enter the code below. Keep both devices on the same Wi-Fi.</p>{/if}
+          {#if status.phoneCode}
+            <div class="frame-code">
+              <span class="frame-code-label">Web remote pairing code</span>
+              <p class="pair-code" aria-label="Web remote pairing code">{status.phoneCode}</p>
+              <p class="panel-description">Enter this code in the web remote. Valid for five minutes; you can pair multiple browsers.</p>
+            </div>
+          {/if}
+          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote in your browser" /><p class="remote-note">Scan with a camera to open the web remote. Keep both devices on the same Wi-Fi.</p>{/if}
           <ol class="remote-steps">
-            <li>Scan the QR code, or type this address in your phone's browser.</li>
+            <li>Scan the QR code, or type this address in a browser on your device.</li>
             <li>Enter the pairing code shown below.</li>
           </ol>
           {#if status.addresses.length}
@@ -101,16 +113,9 @@
             <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
           {/if}
           <div class="remote-launch"><button class="panel-secondary" disabled={busy} onclick={openRemote}>Open remote in browser</button></div>
-          <p class="remote-note">On your phone, use the address above, not localhost. Keep Luma running and both devices on the same Wi-Fi.</p>
-          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New phone code' : status.phonePaired ? 'Pair another phone' : 'Pair a phone'}</button>
-          {#if status.phoneCode}
-            <div class="frame-code">
-              <span class="frame-code-label">Phone pairing code</span>
-              <p class="pair-code" aria-label="Phone pairing code">{status.phoneCode}</p>
-              <p class="panel-description">Enter this code on the phone or this PC's browser. It is valid for five minutes and can connect multiple phones.</p>
-            </div>
-          {/if}
-          {#if status.phonePaired}<p class="remote-paired">A phone or browser has been paired. Luma remembers it for next time.</p>{/if}
+          <p class="remote-note">On another device, use the address above, not localhost. Keep Luma running and both devices on the same Wi-Fi.</p>
+          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New web remote code' : status.phonePaired ? 'Pair another browser' : 'Pair a web remote'}</button>
+          {#if status.phonePaired}<p class="remote-paired">A web remote has been paired. Luma remembers it for next time.</p>{/if}
         </div>
       {:else}
         <div class="frame-connect">
@@ -137,15 +142,21 @@
       {/if}
       <details class="remote-help">
         <summary tabindex="0">Can't connect?</summary>
-        <p>Make sure the phone or Display Box is on the same private Wi-Fi network as this PC. On a trusted home Wi-Fi network, set the Windows network profile to Private and allow Luma through Windows Firewall. Guest Wi-Fi may block connections between devices. Remote control uses HTTP on port 9877.</p>
+        <p>Make sure the web remote or Display Box is on the same private Wi-Fi network as this PC. On a trusted home Wi-Fi network, set the Windows network profile to Private and allow Luma through Windows Firewall. Guest Wi-Fi may block connections between devices. Remote control uses HTTP on port 9877.</p>
       </details>
     {:else}
-      <p class="remote-note">Choose Connect a remote to set up your phone or Display Box.</p>
+      <button class="panel-secondary" disabled={busy} onclick={() => connect()}>Connect a remote</button>
     {/if}
+  {:else if busy}<p class="remote-note" role="status">Preparing your connection?</p>
+  {:else if native}<button class="panel-secondary" disabled={busy} onclick={() => connect()}>Try again</button>
   {:else if !native}<p class="panel-description">Available in the desktop application.</p>{/if}
 </section>
 
 <style>
+  .pairing-only { border-top: 0; padding: 0; }
+  .pairing-only .frame-connect { display: flow-root; }
+  .pairing-only .remote-qr { float: right; width: min(210px, 36%); margin: 0 0 18px 24px; }
+  .pairing-only .frame-code { margin: 0 0 20px; padding: 0; border: 0; }
   .remote-qr { display: block; width: min(240px, 100%); aspect-ratio: 1; margin: 0 0 18px; border: 12px solid white; border-radius: 12px; background: white; }
   .remote-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
   .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid #ffffff12; border-radius: 13px; background: #ffffff04; color: #c7ccd8; text-align: left; }

@@ -29,4 +29,11 @@
   .mini-player-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
   .mini-player-art { width: 58px; height: 58px; } .mini-player-art img { object-fit: contain; }
   .mini-player-copy b { font-size: 20px; } .mini-player-copy small { font-size: 16px; }
+  @media (max-width: 710px) {
+    .mini-player { width: calc(100vw - 20px); padding: 10px 14px; gap: 12px; }
+    .mini-player-open { min-height: 48px; gap: 10px; }
+    .mini-player-art { width: 44px; height: 44px; }
+    .mini-player-copy b { font-size: 16px; }
+    .mini-player-copy small { font-size: 13px; }
+  }
 </style>

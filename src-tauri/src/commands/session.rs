@@ -21,6 +21,13 @@ pub fn track(app: &AppHandle, name: &str, pid: u32) {
     }
 }
 
+pub(crate) fn active(app: &AppHandle) -> bool {
+    app.state::<Session>().0.lock().map(|current| {
+        current.as_ref().is_some_and(|launched|
+            platform::find(launched.pid, &launched.name).is_some() || platform::running(launched.pid))
+    }).unwrap_or(false)
+}
+
 pub fn reuse(app: &AppHandle, name: &str) -> bool {
     let state = app.state::<Session>();
     let Ok(current) = state.0.lock() else {
@@ -53,6 +60,7 @@ enum Action {
     Forward,
     Home,
     Release,
+    Wait,
 }
 
 fn action(luma_foreground: bool, found: bool, running: bool, command: &str) -> Action {
@@ -66,7 +74,7 @@ fn action(luma_foreground: bool, found: bool, running: bool, command: &str) -> A
         return Action::Forward;
     }
     if running {
-        Action::Pass
+        Action::Wait
     } else {
         Action::Release
     }
@@ -94,6 +102,7 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
         command,
     ) {
         Action::Pass => false,
+        Action::Wait => true,
         Action::Forward => {
             let Some(window) = window else {
                 return false;
@@ -444,7 +453,7 @@ mod tests {
     #[test]
     fn a_closed_app_releases_the_session() {
         assert_eq!(action(false, false, false, "left"), Action::Release);
-        assert_eq!(action(false, false, true, "left"), Action::Pass);
+        assert_eq!(action(false, false, true, "left"), Action::Wait);
     }
 
     #[test]

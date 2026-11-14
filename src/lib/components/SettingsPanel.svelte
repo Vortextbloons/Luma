@@ -2,6 +2,7 @@
   import { homeShortcut } from '../services/navigation';
   import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
+  import UpdateSettings from './UpdateSettings.svelte';
   import FramePairing from './FramePairing.svelte';
   import StremioIntegration from './StremioIntegration.svelte';
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
@@ -11,11 +12,11 @@
   import type { ActivityState } from '../state/activity.svelte';
   import type { AppId, ExecutableAppId, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display', connectRemote = false }: {
+  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display' }: {
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
     report: (message: string) => void; activity: ActivityState;
-    startCategory?: string; connectRemote?: boolean;
+    startCategory?: string;
   } = $props();
   const categoryGroups = [
     { name: 'Picture', categories: [
@@ -28,7 +29,8 @@
     ] },
     { name: 'Connections', categories: [
       { name: 'Integrations', description: 'Spotify and Stremio.' },
-      { name: 'Remote & Startup', description: 'Display Box, phone remote, and startup.' },
+      { name: 'Remote & Startup', description: 'Display Box, web remote, and startup.' },
+      { name: 'Updates', description: 'Version, downloads, and restart.' },
     ] },
   ] as const;
   const categories: { name: string; description: string }[] = categoryGroups.flatMap(group => [...group.categories]);
@@ -230,6 +232,8 @@
       {:else if category === 'Integrations'}
         <SpotifyIntegration {native} />
         <StremioIntegration {native} />
+      {:else if category === 'Updates'}
+        <UpdateSettings {native} />
       {:else}
         <section class="settings-group">
           <h3>Keyboard</h3>
@@ -241,7 +245,7 @@
           {#if shortcutFeedback}<p role="status" class="panel-description">{shortcutFeedback}</p>{/if}
         </section>
         <BackgroundSettings {native} />
-        <FramePairing {native} autoConnect={connectRemote} />
+        <FramePairing {native} />
       {/if}
     </div>
   </div>

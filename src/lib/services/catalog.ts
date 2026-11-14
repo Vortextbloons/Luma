@@ -27,3 +27,5 @@ export async function loadCatalog() {
   const [popular, featured] = await Promise.all([load('top'), load('imdbRating')]);
   return { popular, featured, hero: popular[0] ?? featured[0] };
 }
+
+export const searchMovies = (query: string) => load(`top/search=${encodeURIComponent(query.trim())}`);

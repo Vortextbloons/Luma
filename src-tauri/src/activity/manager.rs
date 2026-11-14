@@ -218,14 +218,16 @@ impl Activity {
         title: &str,
         artist: &str,
         track_id: Option<&str>,
+        artwork: Option<&str>,
     ) -> Result<Option<ActivityItem>, String> {
         let title = title.trim();
         if title.is_empty() || !self.tracking_enabled()? || !self.provider_enabled("spotify")? {
             return Ok(None);
         }
-        let item = super::providers::spotify::activity(title, artist, track_id, &now());
+        let mut item = super::providers::spotify::activity(title, artist, track_id, &now());
+        item.artwork = artwork.map(str::to_owned);
         if let Some(latest) = self.storage.latest_for_provider("spotify")? {
-            if latest.id == item.id {
+            if latest.id == item.id && latest.artwork == item.artwork {
                 if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&latest.last_activity_at) {
                     if chrono::Utc::now().signed_duration_since(last.with_timezone(&chrono::Utc))
                         < chrono::Duration::minutes(30)
@@ -555,11 +557,11 @@ pub fn record_youtube(app: &AppHandle, report: &PlaybackReport) {
     }
 }
 
-pub fn record_spotify(app: &AppHandle, title: &str, artist: &str, track_id: Option<&str>) {
+pub fn record_spotify(app: &AppHandle, title: &str, artist: &str, track_id: Option<&str>, artwork: Option<&str>) {
     let Some(activity) = app.try_state::<Activity>() else {
         return;
     };
-    match activity.record_spotify(title, artist, track_id) {
+    match activity.record_spotify(title, artist, track_id, artwork) {
         Ok(Some(_)) => publish(app),
         Ok(None) => {}
         Err(error) => eprintln!("Activity Spotify: {error}"),

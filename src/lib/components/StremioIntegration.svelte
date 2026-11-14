@@ -4,7 +4,7 @@
   import { stremioDisconnect, stremioLinkCancel, stremioLinkPoll, stremioLinkStart, stremioOpenLink, stremioStatus, stremioSync } from '../services/tauri';
   import ProviderIcon from './activity/ProviderIcon.svelte';
 
-  let { native }: { native: boolean } = $props();
+  let { native, autoConnect = false, onconnected }: { native: boolean; autoConnect?: boolean; onconnected?: () => void } = $props();
   let status = $state<StremioStatus | null>(null);
   let busy = $state(false);
   let error = $state('');
@@ -33,6 +33,7 @@
     try {
       status = await stremioStatus();
       if (status.linking) startPolling();
+      else if (autoConnect && !status.connected) await connect();
     } catch (cause) { error = String(cause); }
   }
 
@@ -55,6 +56,7 @@
       if (status.connected) {
         stopPolling();
         note = 'Stremio connected and your library is up to date.';
+        onconnected?.();
       }
     } catch (cause) {
       error = String(cause);
@@ -97,7 +99,7 @@
     try {
       status = await stremioDisconnect();
       stopPolling();
-      note = 'Stremio disconnected. Your account was not changed.';
+      note = 'Signed out of Stremio in Luma. Choose Connect account to use another account.';
     } catch (cause) { error = String(cause); }
     finally { busy = false; }
   }
@@ -120,9 +122,9 @@
     <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library. Stremio opens inside Luma with this account and its installed add-ons.</p>
     <div class="settings-actions">
       <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync now'}</button>
-      <button class="text-link" disabled={busy} onclick={disconnect}>Disconnect account</button>
+      <button class="text-link" disabled={busy} onclick={disconnect}>Sign out</button>
     </div>
-    <p class="panel-description">Disconnecting closes Stremio and removes Luma's saved connection. Your Stremio account and its library are not modified.</p>
+    <p class="panel-description">Luma remembers this connection when you restart. Sign out to choose a different account. Signing out closes Stremio and removes Luma's saved connection; your Stremio account and library are preserved.</p>
   {:else if waiting}
     <div class="stremio-link">
       <p class="panel-description">On your phone or another device, open the link below and sign in to Stremio, or scan the QR code. Luma will connect automatically. The code expires after five minutes.</p>

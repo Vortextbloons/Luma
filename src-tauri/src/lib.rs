@@ -1,6 +1,7 @@
 mod activity;
 mod background;
 mod frame;
+mod network;
 mod commands;
 mod integrations;
 mod remote;
@@ -10,9 +11,18 @@ use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
 
+#[tauri::command]
+fn updates_enabled(app: tauri::AppHandle) -> bool {
+    app.config().plugins.0.get("updater").is_some_and(|config| {
+        config.get("pubkey").and_then(|value| value.as_str()).is_some_and(|key| !key.is_empty())
+            && config.get("endpoints").and_then(|value| value.as_array()).is_some_and(|urls| !urls.is_empty())
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == "--background") { background::show(app); }
         }))
@@ -22,12 +32,15 @@ pub fn run() {
         .manage(session::Session::default())
         .manage(media::Media::default())
         .manage(server::Remote::default())
+        .manage(remote::pointer::Pointer::default())
         .manage(frame::Frame::default())
         .manage(youtube::Bridge::default())
         .manage(stremio::Stremio::default())
         .manage(spotify::player::Player::default())
         .manage(spotify::windows_media::Media::default())
         .setup(|app| {
+            #[cfg(windows)]
+            app.manage(network::watch(app.handle())?);
             background::setup(app)?;
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?);
@@ -56,6 +69,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            updates_enabled,
+            network::network_status,
             background::startup_enabled,
             background::open_setup_link,
             background::set_startup,

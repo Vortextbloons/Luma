@@ -127,6 +127,18 @@ test('remote arrows adjust playback sliders and vertical navigation leaves them'
   assert.equal(f.document.activeElement, next);
 });
 
+test('remote activate submits the form for a focused search field', () => {
+  const f = fixture();
+  const field = f.button(0, 0);
+  let submitted = 0;
+  Object.setPrototypeOf(field, Input.prototype);
+  Object.assign(field, { type: 'search', form: { requestSubmit: () => submitted++ } });
+  field.focus();
+  f.navigation.dispatch('activate');
+  assert.equal(submitted, 1);
+  assert.equal(field.clicks, 0);
+});
+
 test('details summary controls join the remote focus order', () => {
   const f = fixture();
   const first = f.button(0, 0), disclosure = f.summary(0, 100);

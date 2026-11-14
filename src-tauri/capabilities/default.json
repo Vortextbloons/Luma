@@ -6,6 +6,9 @@
     "main"
   ],
   "permissions": [
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
     "core:default",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen"

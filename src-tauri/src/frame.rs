@@ -4,7 +4,7 @@ use crate::{
 };
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, State},
+    extract::{ws::{Message, WebSocketUpgrade}, DefaultBodyLimit, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -21,7 +21,7 @@ use tauri_plugin_opener::OpenerExt;
 const PHONE_COOKIE: &str = "luma_phone";
 const PHONE_LOCAL_URL: &str = "http://localhost:9877/";
 const PHONE: &str = include_str!("phone.html");
-const PHONE_CSP: &str = "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
@@ -256,11 +256,16 @@ struct Command {
     command: String,
 }
 async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), String>> {
+    if command != "stop" && command != "click" {
+        if let Err(error) = server::wake(app).await { return Some(Err(error)); }
+    }
     if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
         server::navigate(app, nav);
         return Some(Ok(()));
     }
     let result = match command {
+        "stop" => server::stop(app),
+        "click" => crate::remote::pointer::click(app),
         "toggle" | "previous" | "next" => media::control(app, command).await,
         "volumeup" | "volumedown" | "mute" => volume(command),
         "youtube" => youtube::open_youtube(app.clone(), true).await,
@@ -394,6 +399,84 @@ async fn phone_command(
         Err(error) => serde_json::json!({"error": error, "state": state}),
     }))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PointerRequest {
+    action: String,
+    owner: String,
+    #[serde(default)]
+    x: f32,
+    #[serde(default)]
+    y: f32,
+}
+async fn pointer(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<PointerRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if phone_authorized(&app, &headers).is_ok() { same_origin(&headers)?; }
+    else { authorized(&app, &headers)?; }
+    if request.owner.is_empty() || request.owner.len() > 64 || request.owner.chars().any(char::is_control) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let value = |axis: f32| if axis.is_finite() { axis.clamp(-1.0, 1.0) } else { 0.0 };
+    let (x, y) = (value(request.x), value(request.y));
+    let released = match request.action.as_str() {
+        "start" => {
+            crate::remote::pointer::start(&app, &request.owner, x, y);
+            false
+        }
+        "move" => crate::remote::pointer::update(&app, &request.owner, x, y),
+        "stop" => {
+            crate::remote::pointer::stop(&app, &request.owner);
+            false
+        }
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    Ok(Json(serde_json::json!({ "released": released })))
+}
+async fn phone_socket(
+    State(app): State<tauri::AppHandle>, headers: HeaderMap, upgrade: WebSocketUpgrade,
+) -> Result<Response, StatusCode> {
+    same_origin(&headers)?;
+    phone_authorized(&app, &headers)?;
+    Ok(upgrade.max_message_size(4096).max_frame_size(4096).write_buffer_size(0).on_upgrade(move |mut socket| async move {
+        while let Some(Ok(message)) = socket.recv().await {
+            if phone_authorized(&app, &headers).is_err() { break; }
+            let Message::Text(text) = message else { continue; };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { break; };
+            let Some(id) = value.get("id").and_then(|id| id.as_u64()) else { break; };
+            let result = if let Some(command) = value.get("command").and_then(|command| command.as_str()) {
+                perform(&app, command).await.unwrap_or_else(|| Err("Unknown remote command.".into()))
+            } else { Ok(()) };
+            let response = serde_json::json!({ "id": id, "error": result.err(), "state": server::snapshot(&app).ok() });
+            if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
+        }
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextRequest { text: String }
+
+async fn remote_text(
+    State(app): State<tauri::AppHandle>, headers: HeaderMap, Json(request): Json<TextRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if phone_authorized(&app, &headers).is_ok() { same_origin(&headers)?; }
+    else { authorized(&app, &headers)?; }
+    if request.text.is_empty() || request.text.len() > 1024 || request.text.chars().any(char::is_control) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let result = match server::wake(&app).await {
+        Ok(()) => server::type_text(&request.text),
+        Err(error) => Err(error),
+    };
+    Ok(Json(match result {
+        Ok(()) => serde_json::json!({"accepted": true}),
+        Err(error) => serde_json::json!({"error": error}),
+    }))
+}
+
 #[cfg(windows)]
 fn volume(action: &str) -> Result<(), String> {
     #[link(name = "user32")]
@@ -427,10 +510,13 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/command", post(command))
         .route("/phone/pair", post(phone_pair))
         .route("/phone/state", get(phone_state))
+        .route("/phone/ws", get(phone_socket))
         .route("/phone/command", post(phone_command))
+        .route("/pointer", post(pointer))
+        .route("/text", post(remote_text))
         .route("/apps", get(apps_list))
         .route("/apps/{command}/icon", get(app_icon))
-        .layer(DefaultBodyLimit::max(512))
+        .layer(DefaultBodyLimit::max(4096))
         .with_state(app.clone());
     let task = tauri::async_runtime::spawn(async move {
         let _ = axum::serve(listener, router).await;
@@ -488,15 +574,7 @@ pub fn frame_status(app: tauri::AppHandle) -> Result<Status, String> {
     })
 }
 fn local_addresses() -> Vec<String> {
-    let mut addresses = Vec::new();
-    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if socket.connect("192.0.2.1:80").is_ok() {
-            if let Ok(address) = socket.local_addr() {
-                addresses.push(address.ip().to_string());
-            }
-        }
-    }
-    addresses
+    crate::network::local_addresses().unwrap_or_default()
 }
 #[tauri::command]
 pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Status, String> {
@@ -513,6 +591,8 @@ pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Sta
         save(&app, &saved)?;
     }
     if !enabled {
+        crate::remote::pointer::stop_all(&app);
+        crate::remote::pointer::show_cursor(&app);
         if let Some(task) = frame.task.lock().map_err(|e| e.to_string())?.take() {
             task.abort();
         }
@@ -560,7 +640,7 @@ pub fn open_phone_remote(app: tauri::AppHandle) -> Result<(), String> {
     }
     app.opener()
         .open_url(PHONE_LOCAL_URL, None::<&str>)
-        .map_err(|error| format!("Could not open the phone remote: {error}"))
+        .map_err(|error| format!("Could not open the web remote: {error}"))
 }
 
 #[cfg(test)]
@@ -661,7 +741,7 @@ mod tests {
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
-            assert!(String::from_utf8_lossy(&body).contains("Pair this phone"));
+            assert!(String::from_utf8_lossy(&body).contains("Pair this device"));
         });
     }
 }
