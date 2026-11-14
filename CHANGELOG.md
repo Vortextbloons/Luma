@@ -6,7 +6,10 @@ Notable changes to Luma, newest first. The Release workflow publishes the matchi
 
 ### Added
 
-- TV-first launcher with 10-foot typography, accent colors, wallpapers, and navigation from a keyboard, remote, or phone.
+- TV-first launcher with 10-foot typography, themes, and navigation from a keyboard, remote, or phone.
+- Five coordinated themes that recolor every screen and sync to the web remote, with an optional local override on the phone.
+- Home layout editor with a live preview, reorderable and hideable rows, a movable featured hero, and reset.
+- Widget framework with a compact Spotify now-playing widget that can dock to the bottom bar or a screen corner.
 - App dock for Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, YouTube, Spotify, Stremio, and a custom app, with Windows app detection and fullscreen browser fallbacks.
 - Movie catalog browsing and search from Cinemeta, with title details and Stremio playback.
 - Spotify account connection with transport controls, playlists, saved albums, liked songs, search, and device transfer.

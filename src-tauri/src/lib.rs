@@ -7,6 +7,7 @@ mod commands;
 mod credentials;
 mod integrations;
 mod remote;
+mod sound;
 
 use commands::{apps, media, services, session, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
@@ -72,6 +73,7 @@ pub fn run() {
             tv::save_tv_setup,
             tv::restore_tv_audio,
             network::network_status,
+            sound::play_startup_sound,
             background::startup_enabled,
             background::open_setup_link,
             background::quit_app,
@@ -131,6 +133,7 @@ pub fn run() {
         .expect("error while running Luma");
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            commands::session::close_steam(app);
             media::stop(app);
             stremio::shutdown(app);
             let _ = tv::restore_audio_sync();

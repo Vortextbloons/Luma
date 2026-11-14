@@ -1,8 +1,9 @@
 import type { HomeRow, HomeRowId } from '../types';
 
-export const homeRowIds: HomeRowId[] = ['continue', 'apps', 'popular', 'featured', 'recent', 'recentApps'];
+export const homeRowIds: HomeRowId[] = ['hero', 'continue', 'apps', 'popular', 'featured', 'recent', 'recentApps'];
 
 export const homeRowMeta: Record<HomeRowId, { label: string; detail: string }> = {
+  hero: { label: 'Featured hero', detail: 'Large spotlight for the movie, show, or track you are previewing.' },
   continue: { label: 'Continue Watching', detail: 'In-progress movies and shows from this PC and connected services.' },
   apps: { label: 'Your apps', detail: 'The app dock on the home screen.' },
   popular: { label: 'Popular movies', detail: 'The shared movie catalog.' },
@@ -12,7 +13,7 @@ export const homeRowMeta: Record<HomeRowId, { label: string; detail: string }> =
 };
 
 const defaultVisible: Record<HomeRowId, boolean> = {
-  continue: true, apps: true, popular: true, featured: true, recent: true, recentApps: true,
+  hero: true, continue: true, apps: true, popular: true, featured: true, recent: true, recentApps: true,
 };
 
 export function defaultHomeRows(): HomeRow[] {
@@ -36,7 +37,11 @@ export function sanitizeHomeRows(value: unknown): HomeRow[] | null {
     rows.push({ id: id as HomeRowId, visible: (entry as { visible?: unknown }).visible !== false });
   }
   if (!rows.length) return null;
-  for (const id of homeRowIds) if (!seen.has(id)) rows.push({ id, visible: defaultVisible[id] });
+  if (!seen.has('hero')) {
+    rows.unshift({ id: 'hero', visible: true });
+    seen.add('hero');
+  }
+  for (const id of homeRowIds) if (id !== 'hero' && !seen.has(id)) rows.push({ id, visible: defaultVisible[id] });
   return rows;
 }
 

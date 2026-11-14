@@ -13,6 +13,8 @@ function defaultSettings(): Settings {
     appTileShape: 'wide',
     homeShortcut: 'Ctrl+W',
     fullscreen: false,
+    interfaceSounds: 'real',
+    soundLevel: 'standard',
     home: defaultHomeRows(),
     widgets: { spotify: { enabled: true, placement: 'bar' } },
     paths: { Steam: '', Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
@@ -34,6 +36,8 @@ export function createSettings() {
         value.homeShortcut = data.homeShortcut === 'Ctrl+H' && data.shortcutVersion !== 1 ? 'Ctrl+W' : data.homeShortcut;
       }
       value.fullscreen = data.fullscreen === true;
+      if (data.interfaceSounds === 'google' || data.interfaceSounds === 'roku' || data.interfaceSounds === 'off') value.interfaceSounds = data.interfaceSounds;
+      if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
       value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) {

@@ -86,7 +86,7 @@ test('joystick updates coalesce and a physical takeover stops the stick', async 
 test('pc fullscreen label only promises exit when the PC reports its window state', () => {
   const view = { textContent: '', hidden: false };
   const pcFullscreenButton = { textContent: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; } };
-  const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {} });
+  const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {}, soundState: { preset: 'real' }, loadSounds() {} });
   const applyState = source.slice(source.indexOf('  function applyState('), source.indexOf('  let appsOpen = true;'));
   vm.runInContext(applyState, context);
   vm.runInContext('applyState({ view: "Home", window: "YouTube", windowFullscreen: true })', context);
@@ -97,6 +97,21 @@ test('pc fullscreen label only promises exit when the PC reports its window stat
   vm.runInContext('applyState({ view: "Home", window: "Netflix" })', context);
   assert.equal(pcFullscreenButton.textContent, 'Toggle');
   assert.equal(pcFullscreenButton.attrs['aria-pressed'], undefined);
+});
+
+test('remote follows the TV sound preset', () => {
+  const view = { textContent: '', hidden: false };
+  const pcFullscreenButton = { textContent: '', setAttribute() {}, removeAttribute() {} };
+  const loaded = [];
+  const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {}, soundState: { preset: 'real' }, loadSounds: preset => loaded.push(preset) });
+  const applyState = source.slice(source.indexOf('  function applyState('), source.indexOf('  let appsOpen = true;'));
+  vm.runInContext(applyState, context);
+  vm.runInContext('applyState({ view: "Home", sound: "google" })', context);
+  assert.equal(vm.runInContext('soundState.preset', context), 'google');
+  assert.deepEqual(loaded, ['google']);
+  vm.runInContext('applyState({ view: "Home", sound: "off" })', context);
+  assert.equal(vm.runInContext('soundState.preset', context), 'off');
+  assert.deepEqual(loaded, ['google', 'off']);
 });
 
 test('joystick starts at the center, follows dragging, and only taps click', () => {

@@ -1,0 +1,393 @@
+<script lang="ts">
+  import { tick } from 'svelte';
+  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, WidgetConfig } from '../types';
+  import { homeRowMeta } from '../services/home';
+  import HomePreview from './HomePreview.svelte';
+
+  let { rows, popular, featured, activityItems, apps, widget, onmove, onmoveto, ontoggle, onreset }: {
+    rows: HomeRow[];
+    popular: MediaItem[];
+    featured: MediaItem[];
+    activityItems: ActivityItem[];
+    apps: AppId[];
+    widget: WidgetConfig;
+    onmove: (id: HomeRowId, direction: -1 | 1) => void;
+    onmoveto: (id: HomeRowId, index: number) => void;
+    ontoggle: (id: HomeRowId) => void;
+    onreset: () => void;
+  } = $props();
+
+  let lifted = $state<HomeRowId | null>(null);
+  let liftOrigin = $state(0);
+  let status = $state('');
+  let hovered = $state<HomeRowId | null>(null);
+  let focused = $state<HomeRowId | null>(null);
+  let listElement = $state<HTMLOListElement | null>(null);
+
+  const highlight = $derived(hovered ?? focused);
+  const visibleCount = $derived(rows.filter(row => row.visible).length);
+
+  function startLift(id: HomeRowId, index: number) {
+    lifted = id;
+    liftOrigin = index;
+    status = `${homeRowMeta[id].label} is ready to move. Use the arrow keys or the buttons, then choose Done.`;
+  }
+
+  async function refocus(target: HTMLElement | null, id: HomeRowId) {
+    await tick();
+    const fallback = listElement?.querySelector<HTMLButtonElement>(`li[data-row="${id}"] .layout-action`);
+    (target?.isConnected ? target : fallback)?.focus({ preventScroll: true });
+  }
+
+  function focusedElement() {
+    return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  function move(id: HomeRowId, direction: -1 | 1) {
+    if (lifted !== id) return;
+    const index = rows.findIndex(row => row.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= rows.length) {
+      status = `${homeRowMeta[id].label} is already ${direction < 0 ? 'at the top' : 'at the bottom'}.`;
+      return;
+    }
+    const focusTarget = focusedElement();
+    onmove(id, direction);
+    status = `${homeRowMeta[id].label} moved to position ${target + 1} of ${rows.length}.`;
+    void refocus(focusTarget, id);
+  }
+
+  function commit() {
+    if (!lifted) return;
+    const id = lifted;
+    const index = rows.findIndex(row => row.id === id);
+    status = `${homeRowMeta[id].label} saved at position ${index + 1} of ${rows.length}.`;
+    lifted = null;
+  }
+
+  function cancel() {
+    if (!lifted) return;
+    const id = lifted;
+    const focusTarget = focusedElement();
+    onmoveto(id, liftOrigin);
+    status = `${homeRowMeta[id].label} returned to position ${liftOrigin + 1} of ${rows.length}. Move cancelled.`;
+    lifted = null;
+    void refocus(focusTarget, id);
+  }
+
+  function toggle(row: HomeRow) {
+    const wasVisible = row.visible;
+    ontoggle(row.id);
+    status = `${homeRowMeta[row.id].label} ${wasVisible ? 'hidden from Home' : 'shown on Home'}.`;
+  }
+
+  function reset() {
+    const focusTarget = focusedElement();
+    const id = lifted;
+    lifted = null;
+    onreset();
+    status = 'Home layout reset to its default order.';
+    if (id) void refocus(focusTarget, id);
+  }
+
+  function rowKeydown(event: KeyboardEvent, id: HomeRowId) {
+    if (lifted !== id) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      cancel();
+      return;
+    }
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    event.stopPropagation();
+    move(id, event.key === 'ArrowUp' ? -1 : 1);
+  }
+
+  function rowBlur(event: FocusEvent, id: HomeRowId) {
+    const next = event.relatedTarget as Node | null;
+    if (next && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(next)) return;
+    if (focused === id) focused = null;
+  }
+
+  function rowLeave(id: HomeRowId) {
+    if (hovered === id) hovered = null;
+  }
+</script>
+
+<section class="settings-group home-layout">
+  <header class="layout-head">
+    <div class="layout-head-copy">
+      <h3>Home layout</h3>
+      <p class="panel-description">Choose which rows appear on Home and the order they play in. Select Move, then use the arrow keys or the up and down buttons to place the row.</p>
+    </div>
+    <button class="panel-secondary layout-reset" onclick={reset}>Reset layout</button>
+  </header>
+  <div class="layout-grid">
+    <div class="layout-preview">
+      <div class="preview-label"><span>Live preview</span><small>{visibleCount} of {rows.length} rows</small></div>
+      <HomePreview {rows} {popular} {featured} {activityItems} {apps} {widget} {highlight} />
+      <p class="preview-note">Focus or hover a row to find it in the preview.</p>
+    </div>
+    <div class="layout-editor">
+      <ol bind:this={listElement} class="layout-list" aria-label="Home rows">
+        {#each rows as row, index (row.id)}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <li
+            data-row={row.id}
+            class:is-lifted={lifted === row.id}
+            class:is-hidden={!row.visible}
+            onkeydown={(event) => rowKeydown(event, row.id)}
+            onfocusin={() => focused = row.id}
+            onfocusout={(event) => rowBlur(event, row.id)}
+            onmouseenter={() => hovered = row.id}
+            onmouseleave={() => rowLeave(row.id)}
+          >
+            <span class="layout-index" aria-hidden="true">{index + 1}</span>
+            <div class="layout-copy">
+              <strong>{homeRowMeta[row.id].label}{#if !row.visible}<span class="settings-badge is-muted">Hidden</span>{/if}</strong>
+              <small>{homeRowMeta[row.id].detail}</small>
+            </div>
+            <div class="layout-controls">
+              <label class="layout-visibility">
+                <input type="checkbox" checked={row.visible} aria-label={`Show ${homeRowMeta[row.id].label} on Home`} onchange={() => toggle(row)} />
+                <span>Visible</span>
+              </label>
+              {#if lifted === row.id}
+                <div class="layout-nudge">
+                  <button onclick={() => move(row.id, -1)} aria-label={`Move ${homeRowMeta[row.id].label} up`}>↑</button>
+                  <button onclick={() => move(row.id, 1)} aria-label={`Move ${homeRowMeta[row.id].label} down`}>↓</button>
+                </div>
+              {/if}
+              <button
+                class="layout-action"
+                class:is-done={lifted === row.id}
+                aria-label={lifted === row.id ? `Finish moving ${homeRowMeta[row.id].label}` : `Move ${homeRowMeta[row.id].label}`}
+                onclick={() => lifted === row.id ? commit() : startLift(row.id, index)}
+              >{lifted === row.id ? 'Done' : 'Move'}</button>
+            </div>
+          </li>
+        {/each}
+      </ol>
+      <p class="layout-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .home-layout {
+    container-type: inline-size;
+  }
+  .layout-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .layout-head-copy {
+    min-width: 0;
+  }
+  .layout-head .panel-description {
+    margin: 0;
+  }
+  .layout-reset {
+    flex: none;
+  }
+  .layout-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+    align-items: start;
+    gap: clamp(20px, 2.4vw, 38px);
+  }
+  .layout-preview {
+    position: sticky;
+    top: 8px;
+    align-self: start;
+    width: 100%;
+    max-width: 560px;
+  }
+  .preview-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .preview-label small {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .preview-note {
+    margin: 10px 0 0;
+    color: var(--dim);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .layout-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .layout-list > li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #ffffff04;
+    transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
+  }
+  .layout-list > li:hover {
+    background: #ffffff07;
+    border-color: var(--line-strong);
+  }
+  .layout-list > li.is-hidden {
+    background: #ffffff02;
+    border-color: #ffffff0a;
+  }
+  .layout-list > li.is-hidden .layout-copy {
+    opacity: .55;
+  }
+  .layout-list > li.is-hidden:hover .layout-copy,
+  .layout-list > li.is-hidden:focus-within .layout-copy {
+    opacity: 1;
+  }
+  .layout-list > li.is-lifted {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .layout-index {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #ffffff08;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .is-lifted .layout-index {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--text);
+  }
+  .layout-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+  .layout-copy strong {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.25;
+  }
+  .layout-copy small {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .layout-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .layout-visibility {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #ffffff06;
+    color: var(--text-dim);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .layout-visibility:hover {
+    background: #ffffff0d;
+    border-color: var(--line-strong);
+  }
+  .layout-visibility input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    accent-color: var(--accent);
+  }
+  .layout-nudge {
+    display: flex;
+    gap: 6px;
+  }
+  .layout-nudge button,
+  .layout-action {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: #ffffff08;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .layout-nudge button {
+    width: 42px;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .layout-nudge button:hover,
+  .layout-action:hover {
+    background: #ffffff12;
+    color: #fff;
+  }
+  .layout-action.is-done {
+    border-color: transparent;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .layout-action.is-done:hover {
+    background: var(--accent-strong);
+    color: var(--accent-ink);
+  }
+  .layout-status {
+    min-height: 20px;
+    margin: 12px 2px 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  @container (max-width: 1040px) {
+    .layout-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .layout-preview {
+      position: static;
+    }
+  }
+</style>

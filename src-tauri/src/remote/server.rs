@@ -28,7 +28,17 @@ const APPEARANCE_TOKENS: [&str; 20] = [
 const MAX_APPEARANCE_TOKENS: usize = 24;
 const MAX_THEMES: usize = 8;
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SoundPreset {
+    #[default]
+    Real,
+    Google,
+    Roku,
+    Off,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Appearance {
     theme: String,
@@ -36,7 +46,7 @@ pub struct Appearance {
     themes: Vec<ThemeOption>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeOption {
     id: String,
@@ -49,6 +59,7 @@ pub struct ThemeOption {
 pub struct AppState {
     view: String,
     fullscreen: bool,
+    sound: SoundPreset,
     window: Option<String>,
     window_fullscreen: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,6 +160,7 @@ pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::commands::session::close_steam(app);
     crate::remote::pointer::stop_all(app);
     crate::remote::pointer::show_cursor(app);
     for label in ["main", "youtube", "stremio"] {
@@ -263,6 +275,7 @@ impl Default for Remote {
             state: Mutex::new(AppState {
                 view: "Home".into(),
                 fullscreen: false,
+                sound: SoundPreset::Real,
                 window: None,
                 window_fullscreen: None,
                 appearance: None,
@@ -336,6 +349,7 @@ pub fn update_app_state(
     remote: tauri::State<Remote>,
     view: String,
     fullscreen: bool,
+    sound: SoundPreset,
 ) -> Result<(), String> {
     if !["Home", "Watch", "Music", "Apps", "Settings", "Details"].contains(&view.as_str()) {
         return Err("Invalid view.".into());
@@ -343,6 +357,7 @@ pub fn update_app_state(
     let mut state = remote.state.lock().map_err(|e| e.to_string())?;
     state.view = view;
     state.fullscreen = fullscreen;
+    state.sound = sound;
     Ok(())
 }
 
@@ -365,7 +380,7 @@ pub fn update_appearance(
 mod tests {
     use super::{
         frontend_receives, show_main, should_wake, validate_appearance, Appearance,
-        NavigationCommand, ThemeOption,
+        NavigationCommand, SoundPreset, ThemeOption,
     };
     use std::collections::BTreeMap;
 
@@ -456,6 +471,7 @@ mod tests {
         let state = super::AppState {
             view: "Home".into(),
             fullscreen: false,
+            sound: SoundPreset::Real,
             window: Some("YouTube".into()),
             window_fullscreen: Some(true),
             appearance: None,
@@ -463,6 +479,7 @@ mod tests {
         let value = serde_json::to_value(state).unwrap();
         assert_eq!(value["window"], "YouTube");
         assert_eq!(value["windowFullscreen"], true);
+        assert_eq!(value["sound"], "real");
     }
 
     #[test]

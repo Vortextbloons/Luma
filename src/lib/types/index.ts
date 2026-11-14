@@ -2,7 +2,9 @@ export type AppId = 'YouTube' | 'Steam' | 'Spotify' | 'Stremio' | 'Netflix' | 'D
 export type ExecutableAppId = Exclude<AppId, 'YouTube'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
 export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite';
-export type HomeRowId = 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
+export type SoundPreset = 'real' | 'google' | 'roku' | 'off';
+export type SoundLevel = 'soft' | 'standard' | 'loud';
+export type HomeRowId = 'hero' | 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
 export type WidgetId = 'spotify';
 export type WidgetPlacement = 'bar' | 'top-right' | 'bottom-right' | 'bottom-left';
 export interface HomeRow { id: HomeRowId; visible: boolean; }
@@ -13,6 +15,8 @@ export interface Settings {
   appTileShape: 'wide' | 'square';
   homeShortcut: string;
   fullscreen: boolean;
+  interfaceSounds: SoundPreset;
+  soundLevel: SoundLevel;
   home: HomeRow[];
   widgets: Record<WidgetId, WidgetConfig>;
   paths: Record<ExecutableAppId, string>;

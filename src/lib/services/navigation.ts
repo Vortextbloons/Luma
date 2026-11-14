@@ -5,7 +5,7 @@ export function homeShortcut(event: KeyboardEvent) {
   return `${event.ctrlKey ? 'Ctrl+' : ''}${event.altKey ? 'Alt+' : ''}${event.shiftKey ? 'Shift+' : ''}${event.key.length === 1 ? event.key.toUpperCase() : event.key}`;
 }
 
-export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+W') {
+export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+W', sound: (name: 'move' | 'press' | 'volume') => void = () => {}) {
   let cached: HTMLElement[] | undefined;
   let cachedRoot: Element | Document | undefined;
   let observer: MutationObserver | undefined;
@@ -22,14 +22,16 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     cached = [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
     return cached;
   };
-  function focus(el?: HTMLElement) {
+  function focus(el?: HTMLElement, audible = false) {
     const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
+    const changed = !!target && document.activeElement !== target;
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    if (audible && changed) sound('move');
   }
   function dispatch(command: NavigationCommand) {
     if (command === 'back') { back(); return; }
-    if (command === 'home') { home(); return; }
+    if (command === 'home') { sound('press'); home(); return; }
     const current = document.activeElement as HTMLElement;
     if ((command === 'left' || command === 'right') && current instanceof HTMLSelectElement && !current.disabled) {
       const direction = command === 'right' ? 1 : -1;
@@ -38,6 +40,7 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
         current.selectedIndex = index;
         current.dispatchEvent(new Event('input', { bubbles: true }));
         current.dispatchEvent(new Event('change', { bubbles: true }));
+        sound('move');
         break;
       }
       return;
@@ -49,16 +52,19 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       current.value = String(next);
       current.dispatchEvent(new Event('input', { bubbles: true }));
       current.dispatchEvent(new Event('change', { bubbles: true }));
+      sound('volume');
       return;
     }
     const candidates = elements();
-    if (!candidates.includes(current)) { focus(candidates[0]); return; }
+    if (!candidates.includes(current)) { focus(candidates[0], true); return; }
     if (command === 'activate') {
+      if (current instanceof HTMLInputElement && current.type === 'range') { sound('volume'); return; }
+      if (!(current instanceof HTMLInputElement && (current.type === 'checkbox' || current.type === 'radio'))) sound('press');
       if (current instanceof HTMLInputElement && current.type === 'search' && current.form) {
         current.form.requestSubmit();
         return;
       }
-      if (!(current instanceof HTMLInputElement && current.type === 'range')) current.click();
+      current.click();
       return;
     }
     const categories = current.closest?.('.settings-categories');
@@ -66,14 +72,14 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     const page = current.closest?.('.settings-page');
     if (categories && command === 'right') {
       const target = candidates.find(el => el.closest?.('.settings-content'));
-      if (target) focus(target);
+      if (target) focus(target, true);
       return;
     }
     if ((categories || content) && (command === 'up' || command === 'down')) {
       const group = candidates.filter(el => (categories ?? content)!.contains(el));
       const index = group.indexOf(current) + (command === 'down' ? 1 : -1);
-      if (group[index]) focus(group[index]);
-      else if (command === 'up') focus(page?.querySelector<HTMLElement>(content ? '.settings-category.selected' : '.settings-page-header button') ?? current);
+      if (group[index]) focus(group[index], true);
+      else if (command === 'up') focus(page?.querySelector<HTMLElement>(content ? '.settings-category.selected' : '.settings-page-header button') ?? current, true);
       return;
     }
     const a = current.getBoundingClientRect();
@@ -93,8 +99,8 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       const distance = Math.abs(primary) + Math.abs(secondary) * 3;
       if (primary * sign > 4 && distance < score) { best = el; score = distance; }
     }
-    if (best) focus(best);
-    else if (content && command === 'left') focus(page?.querySelector<HTMLElement>('.settings-category.selected') ?? current);
+    if (best) focus(best, true);
+    else if (content && command === 'left') focus(page?.querySelector<HTMLElement>('.settings-category.selected') ?? current, true);
   }
   function keydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.isComposing) return;
@@ -102,8 +108,8 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     if (event.key === 'Tab') {
       const candidates = elements();
       const index = candidates.indexOf(document.activeElement as HTMLElement);
-      if (event.shiftKey && index <= 0) { event.preventDefault(); focus(candidates.at(-1)); }
-      else if (!event.shiftKey && index === candidates.length - 1) { event.preventDefault(); focus(candidates[0]); }
+      if (event.shiftKey && index <= 0) { event.preventDefault(); focus(candidates.at(-1), true); }
+      else if (!event.shiftKey && index === candidates.length - 1) { event.preventDefault(); focus(candidates[0], true); }
       return;
     }
     const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || (event.target as HTMLElement)?.tagName === 'TEXTAREA' || (event.target as HTMLElement)?.isContentEditable;

@@ -13,6 +13,9 @@ export default defineConfig({
   // 1. Don't clear the screen so Rust compiler errors stay visible.
   // 2. Use a fixed port that src-tauri/tauri.conf.json points at.
   clearScreen: false,
+  build: {
+    assetsInlineLimit: file => file.endsWith('.wav') ? false : undefined,
+  },
   server: {
     port: 1420,
     strictPort: true,

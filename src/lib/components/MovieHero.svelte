@@ -19,7 +19,7 @@
 </script>
 
 <script lang="ts">
-  let { slides, sourceKey }: { slides: HeroSlide[]; sourceKey: string } = $props();
+  let { slides, sourceKey, inset = false }: { slides: HeroSlide[]; sourceKey: string; inset?: boolean } = $props();
   let index = $state(0);
   let shownKey = $state('');
   const active = $derived(Math.min(index, slides.length - 1));
@@ -33,7 +33,7 @@
 </script>
 
 {#if item}
-  <section class="hero" aria-label={item.eyebrow}>
+  <section class="hero" class:is-inset={inset} aria-label={item.eyebrow}>
     {#key item.key}
       {#if item.art}
         <img class="hero-art" class:is-shaped={item.artShape} src={item.art} alt="" decoding="async" fetchpriority="high" />
@@ -102,6 +102,9 @@
       radial-gradient(80% 90% at 74% 20%, var(--ambient), transparent 70%),
       linear-gradient(120deg, var(--accent-ink), var(--bg));
   }
+  .hero.is-inset {
+    margin-top: 0;
+  }
   .hero-art {
     position: absolute;
     inset: 0;
@@ -141,9 +144,9 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(90deg, rgba(11, 13, 18, .97) 0%, rgba(11, 13, 18, .84) 34%, rgba(11, 13, 18, .32) 64%, rgba(11, 13, 18, .1) 100%),
-      linear-gradient(0deg, var(--bg) 0%, rgba(11, 13, 18, .55) 16%, transparent 50%),
-      linear-gradient(180deg, rgba(11, 13, 18, .76) 0%, transparent 30%);
+      linear-gradient(90deg, color-mix(in srgb, var(--bg) 97%, transparent) 0%, color-mix(in srgb, var(--bg) 84%, transparent) 34%, color-mix(in srgb, var(--bg) 32%, transparent) 64%, color-mix(in srgb, var(--bg) 10%, transparent) 100%),
+      linear-gradient(0deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 55%, transparent) 16%, transparent 50%),
+      linear-gradient(180deg, color-mix(in srgb, var(--bg) 76%, transparent) 0%, transparent 30%);
   }
   .hero-inner {
     position: relative;
@@ -271,8 +274,8 @@
     .hero-dots { position: static; justify-content: flex-start; padding: 0 var(--side) clamp(14px, 2vh, 20px); }
     .hero-shade {
       background:
-        linear-gradient(0deg, rgba(11, 13, 18, .98) 0%, rgba(11, 13, 18, .8) 34%, rgba(11, 13, 18, .2) 70%),
-        linear-gradient(180deg, rgba(11, 13, 18, .72) 0%, transparent 34%);
+        linear-gradient(0deg, color-mix(in srgb, var(--bg) 98%, transparent) 0%, color-mix(in srgb, var(--bg) 80%, transparent) 34%, color-mix(in srgb, var(--bg) 20%, transparent) 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg) 72%, transparent) 0%, transparent 34%);
     }
   }
   @media (max-width: 520px) {

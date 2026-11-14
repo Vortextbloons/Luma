@@ -1,5 +1,6 @@
 <script lang="ts">
   import { homeShortcut } from '../services/navigation';
+  import { previewSounds, setSoundSettings } from '../services/sound';
   import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
   import UpdateSettings from './UpdateSettings.svelte';
@@ -27,7 +28,7 @@
   } = $props();
   const categoryGroups = [
     { name: 'Picture', categories: [
-      { name: 'Display', description: 'Fullscreen, layout density, and screen fit.' },
+      { name: 'Display', description: 'Fullscreen, layout, and interface sounds.' },
       { name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
       { name: 'Home layout', description: 'Order and hide the rows on Home.' },
       { name: 'Widgets', description: 'Now playing and future widgets.' },
@@ -111,6 +112,30 @@
       {#if message}<p role="status" class="panel-feedback">{message}</p>{/if}
       {#if category === 'Display'}
         <TvSettings {native} />
+        <section class="settings-group">
+          <h3>Interface sounds</h3>
+          <p class="panel-description">Short feedback for focus, select, back, and app launch. Plays on this screen and on the web remote.</p>
+          <div class="settings-form-grid">
+            <label class="field">Sound set
+              <select bind:value={settings.interfaceSounds}>
+                <option value="real">Real hardware</option>
+                <option value="google">Google TV</option>
+                <option value="roku">Roku</option>
+                <option value="off">Off</option>
+              </select>
+              <span class="field-hint">Real hardware uses recorded remote and Roku clicks.</span>
+            </label>
+            <label class="field">Level
+              <select bind:value={settings.soundLevel} disabled={settings.interfaceSounds === 'off'}>
+                <option value="soft">Soft</option>
+                <option value="standard">Standard</option>
+                <option value="loud">Loud</option>
+              </select>
+              <span class="field-hint">Standard is tuned for a quiet room.</span>
+            </label>
+          </div>
+          <div class="settings-actions"><button class="panel-secondary" disabled={settings.interfaceSounds === 'off'} onclick={() => { setSoundSettings(settings.interfaceSounds, settings.soundLevel); previewSounds(); }}>Preview sounds</button></div>
+        </section>
         <section class="settings-group">
           <h3>Screen</h3>
           <p class="panel-description">Choose how Luma fills this display and how much room its cards get.</p>

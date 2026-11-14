@@ -18,7 +18,7 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const PHONE_COOKIE: &str = "luma_phone";
@@ -323,6 +323,7 @@ async fn command(
     let result = perform(&app, &request.command)
         .await
         .ok_or(StatusCode::BAD_REQUEST)?;
+    volume_feedback(&app, &request.command);
     let state = if request.command == "fullscreen" {
         server::snapshot_live(&app)
     } else {
@@ -425,6 +426,39 @@ async fn app_icon(
         .body(Body::from(entry.icon))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
+async fn phone_sound(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    axum::extract::Path((preset, role)): axum::extract::Path<(String, String)>,
+) -> Result<Response, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    let bytes: &'static [u8] = match (preset.as_str(), role.as_str()) {
+        ("real", "move") => include_bytes!("../../src/assets/sounds/real/move.wav"),
+        ("real", "press") => include_bytes!("../../src/assets/sounds/real/press.wav"),
+        ("real", "back") => include_bytes!("../../src/assets/sounds/real/back.wav"),
+        ("real", "volume") => include_bytes!("../../src/assets/sounds/real/volume.wav"),
+        ("real", "open") => include_bytes!("../../src/assets/sounds/real/open.wav"),
+        ("real", "toggle") => include_bytes!("../../src/assets/sounds/real/toggle.wav"),
+        ("google", "move") => include_bytes!("../../src/assets/sounds/google/move.wav"),
+        ("google", "press") => include_bytes!("../../src/assets/sounds/google/press.wav"),
+        ("google", "back") => include_bytes!("../../src/assets/sounds/google/back.wav"),
+        ("google", "volume") => include_bytes!("../../src/assets/sounds/google/volume.wav"),
+        ("google", "open") => include_bytes!("../../src/assets/sounds/google/open.wav"),
+        ("google", "toggle") => include_bytes!("../../src/assets/sounds/google/toggle.wav"),
+        ("roku", "move") => include_bytes!("../../src/assets/sounds/roku/move.wav"),
+        ("roku", "press") => include_bytes!("../../src/assets/sounds/roku/press.wav"),
+        ("roku", "back") => include_bytes!("../../src/assets/sounds/roku/back.wav"),
+        ("roku", "volume") => include_bytes!("../../src/assets/sounds/roku/volume.wav"),
+        ("roku", "open") => include_bytes!("../../src/assets/sounds/roku/open.wav"),
+        ("roku", "toggle") => include_bytes!("../../src/assets/sounds/roku/toggle.wav"),
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+    Response::builder()
+        .header("content-type", "audio/wav")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
 async fn phone_command(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -435,6 +469,7 @@ async fn phone_command(
     let result = perform(&app, &request.command)
         .await
         .ok_or(StatusCode::BAD_REQUEST)?;
+    volume_feedback(&app, &request.command);
     let state = if request.command == "fullscreen" {
         server::snapshot_live(&app)
     } else {
@@ -502,6 +537,7 @@ async fn phone_socket(
                     let response = match command {
                         Some(command) => {
                             let result = perform(&app, command).await.unwrap_or_else(|| Err("Unknown remote command.".into()));
+                            volume_feedback(&app, command);
                             let state = if command == "fullscreen" {
                                 server::snapshot_live(&app)
                             } else {
@@ -587,6 +623,12 @@ fn volume(_: &str) -> Result<(), String> {
     Err("PC volume requires Windows.".into())
 }
 
+fn volume_feedback(app: &tauri::AppHandle, command: &str) {
+    if matches!(command, "volumeup" | "volumedown" | "mute") {
+        let _ = app.emit_to("main", "remote-volume", ());
+    }
+}
+
 async fn secure_headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -611,6 +653,7 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/state", get(phone_state))
         .route("/phone/ws", get(phone_socket))
         .route("/phone/command", post(phone_command))
+        .route("/phone/sound/{preset}/{role}", get(phone_sound))
         .route("/pointer", post(pointer))
         .route("/text", post(remote_text))
         .route("/apps", get(apps_list))

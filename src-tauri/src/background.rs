@@ -123,11 +123,13 @@ pub fn request_exit(app: &tauri::AppHandle) {
 
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
+    crate::commands::session::close_steam(&app);
     app.exit(0);
 }
 
 #[tauri::command]
 pub fn hide_to_tray(app: tauri::AppHandle) {
+    crate::commands::session::close_steam(&app);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }

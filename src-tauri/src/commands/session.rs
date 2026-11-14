@@ -89,6 +89,19 @@ pub(crate) fn focus_steam(app: &AppHandle) -> bool {
     true
 }
 
+pub(crate) fn close_steam(app: &AppHandle) {
+    let state = app.state::<Session>();
+    let Ok(mut current) = state.0.lock() else {
+        return;
+    };
+    if !current.as_ref().is_some_and(|launched| launched.name == "Steam") {
+        return;
+    }
+    let launched = current.take();
+    drop(current);
+    end_steam(launched.and_then(|launched| locate(&launched)));
+}
+
 pub(crate) fn active(app: &AppHandle) -> bool {
     app.state::<Session>().0.lock().map(|current| {
         current.as_ref().is_some_and(|launched|
@@ -161,6 +174,11 @@ pub fn close_launched_app(app: AppHandle) {
     let Some(launched) = current.take() else {
         return;
     };
+    if launched.name == "Steam" {
+        drop(current);
+        home_steam(&app, locate(&launched));
+        return;
+    }
     if let Some(window) = platform::find(launched.pid, &launched.name) {
         platform::close(window);
     }
@@ -227,26 +245,33 @@ fn steam_window() -> Option<platform::Window> {
     platform::exact(STEAM_TITLE).or_else(|| platform::exact("Steam"))
 }
 
-fn home_steam(app: &AppHandle, window: Option<platform::Window>) {
+fn end_steam(window: Option<platform::Window>) {
+    if window.is_none() && steam_window().is_none() {
+        return;
+    }
     crate::commands::steam::close();
     if let Some(window) = window {
         platform::minimize(window);
     }
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if let Some(window) = steam_window() {
+                platform::minimize(window);
+            }
+        }
+    });
+}
+
+fn home_steam(app: &AppHandle, window: Option<platform::Window>) {
+    end_steam(window);
+    if platform::foreground_is_luma() {
+        return;
+    }
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        for _ in 0..4 {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            if let Some(window) = steam_window() {
-                platform::minimize(window);
-            }
-        }
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         crate::background::show(&handle);
-        for _ in 0..4 {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            if let Some(window) = steam_window() {
-                platform::minimize(window);
-            }
-        }
     });
 }
 
@@ -347,6 +372,10 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
 pub(crate) fn release(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Session>();
     let launched = state.0.lock().map_err(|error| error.to_string())?.take();
+    if let Some(launched) = launched.as_ref().filter(|launched| launched.name == "Steam") {
+        end_steam(locate(launched));
+        return Ok(());
+    }
     if let Some(launched) = launched.as_ref().filter(|launched| launched.web) {
         crate::commands::services::forget(app, &launched.name);
     }

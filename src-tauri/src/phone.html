@@ -314,6 +314,7 @@
     position: fixed; left: 50%; top: calc(58px + env(safe-area-inset-top)); z-index: 30;
     width: min(calc(100% - 32px), 398px); padding: 12px 16px;
     border-radius: 13px; border: 1px solid var(--line-strong);
+    background: var(--surface-3);
     background: color-mix(in srgb, var(--surface-3) 97%, transparent); color: var(--text);
     box-shadow: 0 18px 44px rgba(0, 0, 0, .45);
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
@@ -495,14 +496,46 @@
   .settings-pill:active { background: rgba(255, 255, 255, .13); transform: scale(.96); }
   .settings-pill[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
   .settings-pill:disabled { opacity: .5; }
+  .theme-picker { position: relative; flex: none; }
   .theme-select {
-    min-height: 38px; max-width: 170px; padding: 0 12px;
-    border-radius: 99px; border: 1px solid var(--line-strong);
-    background: rgba(255, 255, 255, .07); color: var(--text);
-    font-size: 13px; font-weight: 650;
-    appearance: none; -webkit-appearance: none;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    min-height: 40px; min-width: 148px; max-width: 190px; padding: 0 14px;
+    border-radius: 12px; border: 1px solid var(--line-strong);
+    background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+    color: var(--text); font: inherit; font-size: 13px; font-weight: 650;
+    text-align: left;
+  }
+  .theme-select::after {
+    content: ''; flex: none; width: 0; height: 0;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 5px solid var(--muted);
+  }
+  .theme-select[aria-expanded="true"] {
+    border-color: var(--accent); background: var(--accent-soft);
   }
   .theme-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .theme-menu {
+    position: absolute; z-index: 6; top: calc(100% + 6px); right: 0;
+    width: 214px; max-height: 248px; overflow-y: auto; padding: 5px;
+    border: 1px solid var(--line-strong); border-radius: 14px;
+    background: color-mix(in srgb, var(--surface-2) 98%, transparent);
+    box-shadow: 0 18px 42px #000a;
+  }
+  .theme-option {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    min-height: 38px; padding: 0 10px; border-radius: 9px;
+    background: transparent; color: var(--text-dim); font-size: 13px; font-weight: 600; text-align: left;
+  }
+  .theme-option:hover, .theme-option:focus-visible {
+    background: var(--accent-soft); color: var(--text); outline: none;
+  }
+  .theme-option[aria-selected="true"] {
+    color: var(--text); background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .theme-dot {
+    width: 16px; height: 16px; flex: none; border-radius: 50%;
+    border: 2px solid var(--accent); background: var(--surface);
+  }
 </style>
 </head>
 <body>
@@ -664,12 +697,13 @@
     </section>
     <section class="settings-group">
       <h3 class="settings-heading">This browser</h3>
-      <label class="settings-row" for="theme-select">
+      <div class="settings-row">
         <span><b>Theme</b><small>Follow the TV or keep a theme on this phone.</small></span>
-        <select id="theme-select" class="theme-select">
-          <option value="follow">Follow TV</option>
-        </select>
-      </label>
+        <div class="theme-picker">
+          <button type="button" id="theme-select" class="theme-select" aria-haspopup="listbox" aria-expanded="false">Follow TV</button>
+          <div id="theme-menu" class="theme-menu" role="listbox" aria-label="Remote theme" hidden></div>
+        </div>
+      </div>
       <div class="settings-row">
         <span><b>Fullscreen</b><small id="fullscreen-note" role="status">Fills this browser window. The PC screen is not affected.</small></span>
         <button type="button" id="fullscreen-toggle" class="settings-pill" aria-pressed="false">Enter</button>
@@ -702,6 +736,8 @@
   const settingsButton = document.getElementById('settings-toggle');
   const settingsDialog = document.getElementById('settings-dialog');
   const settingsClose = document.getElementById('settings-close');
+  const themeSelect = document.getElementById('theme-select');
+  const themeMenu = document.getElementById('theme-menu');
   const joystickToggle = document.getElementById('joystick-toggle');
   const fullscreenButton = document.getElementById('fullscreen-toggle');
   const fullscreenNote = document.getElementById('fullscreen-note');
@@ -723,6 +759,77 @@
   let toastTimer = 0;
   let pcLabel = 'Luma PC';
   let activeApp = '';
+  let currentAppearance = null;
+
+  const soundRoles = ['move', 'press', 'back', 'volume', 'open', 'toggle'];
+  const soundGain = { move: .3, press: .5, back: .4, volume: .34, open: .5, toggle: .3 };
+  const soundForCommand = {
+    up: 'move', down: 'move', left: 'move', right: 'move',
+    activate: 'press', click: 'press', toggle: 'toggle', previous: 'press', next: 'press',
+    back: 'back', home: 'back',
+    volumeup: 'volume', volumedown: 'volume', mute: 'volume',
+    fullscreen: 'press', stop: 'press',
+  };
+  const soundState = { preset: 'real', context: null, master: null, lastMove: 0 };
+  const soundBuffers = new Map();
+
+  function soundContext() {
+    if (!soundState.context) {
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return null;
+      try {
+        soundState.context = new AudioCtor({ latencyHint: 'interactive' });
+        soundState.master = soundState.context.createGain();
+        soundState.master.gain.value = .9;
+        soundState.master.connect(soundState.context.destination);
+      } catch (_) {
+        soundState.context = null;
+        soundState.master = null;
+        return null;
+      }
+    }
+    if (soundState.context.state === 'suspended') void soundState.context.resume().catch(() => {});
+    return soundState.context;
+  }
+
+  function loadSounds(preset) {
+    if (!preset || preset === 'off' || soundBuffers.has(preset)) return;
+    const context = soundContext();
+    if (!context) return;
+    const set = {};
+    soundBuffers.set(preset, set);
+    for (const role of soundRoles) {
+      fetch(`/phone/sound/${preset}/${role}.wav`, { credentials: 'same-origin' })
+        .then(response => response.ok ? response.arrayBuffer() : null)
+        .then(bytes => bytes ? context.decodeAudioData(bytes) : null)
+        .then(buffer => { if (buffer) set[role] = buffer; })
+        .catch(() => {});
+    }
+  }
+
+  function playFeedbackUnsafe(command) {
+    if (soundState.preset === 'off') return;
+    const context = soundContext();
+    if (!context) return;
+    const role = soundForCommand[command] || 'open';
+    const buffer = soundBuffers.get(soundState.preset)?.[role];
+    if (!buffer) { loadSounds(soundState.preset); return; }
+    if (role === 'move') {
+      const now = performance.now();
+      if (now - soundState.lastMove < 32) return;
+      soundState.lastMove = now;
+    }
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const gain = context.createGain();
+    gain.gain.value = soundGain[role] || .4;
+    source.connect(gain).connect(soundState.master);
+    source.start();
+  }
+
+  function playFeedback(command) {
+    try { playFeedbackUnsafe(command); } catch (_) {}
+  }
 
   async function request(path, options = {}) {
     const init = { credentials: 'same-origin', cache: 'no-store', ...options };
@@ -752,8 +859,97 @@
     link.title = status;
   }
 
+  function closeThemeMenu() {
+    if (themeMenu.hidden) return;
+    themeMenu.hidden = true;
+    themeSelect.setAttribute('aria-expanded', 'false');
+  }
+
+  function openThemeMenu() {
+    if (!themeMenu.hidden) return;
+    themeMenu.hidden = false;
+    themeSelect.setAttribute('aria-expanded', 'true');
+    const selected = themeMenu.querySelector('.theme-option[aria-selected="true"]') ?? themeMenu.querySelector('.theme-option');
+    selected?.focus();
+  }
+
+  function themeLabel(appearance, choice) {
+    if (choice === 'follow') return 'Follow TV';
+    return appearance.themes.find(theme => theme && theme.id === choice)?.name || 'Follow TV';
+  }
+
+  function selectTheme(value) {
+    const known = value === 'follow' || (currentAppearance && Array.isArray(currentAppearance.themes) && currentAppearance.themes.some(theme => theme && theme.id === value));
+    const choice = known ? value : 'follow';
+    saveThemeChoice(choice);
+    if (currentAppearance) {
+      applyAppearance(currentAppearance);
+      renderThemeOptions(currentAppearance);
+    }
+    closeThemeMenu();
+    themeSelect.focus();
+  }
+
+  function renderThemeOptions(appearance) {
+    if (!appearance || !Array.isArray(appearance.themes)) return;
+    currentAppearance = appearance;
+    const choice = readThemeChoice();
+    const wanted = choice === 'follow' || appearance.themes.some(theme => theme && theme.id === choice) ? choice : 'follow';
+    if (wanted !== choice) saveThemeChoice('follow');
+    const signature = appearance.themes.map(theme => `${theme?.id ?? ''}\u0000${theme?.name ?? ''}\u0000${theme?.tokens?.['--bg'] ?? ''}\u0000${theme?.tokens?.['--accent'] ?? ''}`).join('\u0001');
+    if (themeMenu.dataset.themes !== signature) {
+      const fragment = document.createDocumentFragment();
+      const follow = document.createElement('button');
+      follow.type = 'button';
+      follow.className = 'theme-option';
+      follow.dataset.value = 'follow';
+      follow.setAttribute('role', 'option');
+      const followDot = document.createElement('span');
+      followDot.className = 'theme-dot';
+      const followLabel = document.createElement('span');
+      followLabel.textContent = 'Follow TV';
+      follow.append(followDot, followLabel);
+      follow.addEventListener('click', () => selectTheme('follow'));
+      fragment.append(follow);
+      for (const theme of appearance.themes) {
+        if (!theme || typeof theme.id !== 'string' || typeof theme.name !== 'string') continue;
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'theme-option';
+        option.dataset.value = theme.id;
+        option.setAttribute('role', 'option');
+        const dot = document.createElement('span');
+        dot.className = 'theme-dot';
+        const tokens = theme.tokens || {};
+        if (typeof tokens['--bg'] === 'string' && appearanceHex.test(tokens['--bg'])) dot.style.background = tokens['--bg'];
+        if (typeof tokens['--accent'] === 'string' && appearanceHex.test(tokens['--accent'])) dot.style.borderColor = tokens['--accent'];
+        const label = document.createElement('span');
+        label.textContent = theme.name;
+        option.append(dot, label);
+        option.addEventListener('click', () => selectTheme(theme.id));
+        fragment.append(option);
+      }
+      themeMenu.replaceChildren(fragment);
+      themeMenu.dataset.themes = signature;
+    }
+    for (const option of themeMenu.querySelectorAll('.theme-option')) {
+      option.setAttribute('aria-selected', option.dataset.value === wanted ? 'true' : 'false');
+    }
+    themeSelect.textContent = themeLabel(appearance, wanted);
+  }
+
+  function syncAppearance(appearance) {
+    if (!appearance) return;
+    applyAppearance(appearance);
+    renderThemeOptions(appearance);
+  }
+
   function applyState(state) {
     if (!state) return;
+    const preset = ['real', 'google', 'roku', 'off'].includes(state.sound) ? state.sound : 'real';
+    soundState.preset = preset;
+    loadSounds(preset);
+    if (state.appearance) syncAppearance(state.appearance);
     const next = state.view || 'Home';
     if (view.textContent !== next) view.textContent = next;
     view.hidden = next === 'Home';
@@ -1031,8 +1227,37 @@
     fullscreenNote.textContent = 'This browser cannot enlarge the remote.';
   }
 
-  settingsButton.addEventListener('click', () => { if (!settingsDialog.open) settingsDialog.showModal(); });
-  settingsClose.addEventListener('click', () => settingsDialog.close());
+  settingsButton.addEventListener('click', () => {
+    closeThemeMenu();
+    if (!settingsDialog.open) settingsDialog.showModal();
+  });
+  settingsClose.addEventListener('click', () => { closeThemeMenu(); settingsDialog.close(); });
+  settingsDialog.addEventListener('close', closeThemeMenu);
+  themeSelect.addEventListener('click', () => { if (themeMenu.hidden) openThemeMenu(); else closeThemeMenu(); });
+  themeSelect.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); openThemeMenu(); }
+    else if (event.key === 'Escape') closeThemeMenu();
+  });
+  themeMenu.addEventListener('keydown', event => {
+    const options = [...themeMenu.querySelectorAll('.theme-option')];
+    const index = options.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const next = event.key === 'ArrowDown' ? Math.min(options.length - 1, index + 1) : Math.max(0, index - 1);
+      options[next]?.focus();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeThemeMenu();
+      themeSelect.focus();
+    } else if (event.key === 'Tab') {
+      closeThemeMenu();
+    }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (themeMenu.hidden) return;
+    if (event.target instanceof Node && (themeMenu.contains(event.target) || themeSelect.contains(event.target))) return;
+    closeThemeMenu();
+  });
 
   async function refresh() {
     if (refreshing) return;
@@ -1066,6 +1291,7 @@
       const data = JSON.parse(event.data);
       const entry = pending.get(data.id);
       if (entry) { clearTimeout(entry.timer); pending.delete(data.id); entry.resolve(data); }
+      if (data.appearance) syncAppearance(data.appearance);
       applyState(data.state);
       setLink(true);
     };
@@ -1088,6 +1314,7 @@
   }
 
   async function send(command, button = pad.querySelector('.ok')) {
+    playFeedback(command);
     button.setAttribute('aria-busy', 'true');
     try {
       const { response, data } = socket?.readyState === WebSocket.OPEN

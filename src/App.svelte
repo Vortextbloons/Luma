@@ -30,6 +30,7 @@
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
+  import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
   import { applyTheme, appearanceFor, themeById } from './lib/services/theme';
   import { appProviders, actionLabel, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from './lib/services/activity';
   import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
@@ -78,11 +79,13 @@
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
   let stremioPreviewSyncedAt = 0;
-  const navigation = createNavigation(back, home, () => settings.homeShortcut);
+  const navigation = createNavigation(back, home, () => settings.homeShortcut, playSound);
   const showHome = $derived(tab === 'Home');
   const theme = $derived(themeById(settings.theme));
   const rowVisible = (id: HomeRowId) => settings.home.some(row => row.id === id && row.visible);
   const visibleHomeRows = $derived(settings.home.filter(row => row.visible));
+  const firstHomeRowIsHero = $derived(visibleHomeRows[0]?.id === 'hero');
+  const homeRowsAfterHero = $derived(firstHomeRowIsHero ? visibleHomeRows.slice(1) : visibleHomeRows);
   const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
   const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
@@ -239,7 +242,10 @@
     document.documentElement.dataset.appTileShape = settings.appTileShape;
   });
   $effect(() => {
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, home: settings.home, widgets: settings.widgets, order: settings.order })); }
+    setSoundSettings(settings.interfaceSounds, settings.soundLevel);
+  });
+  $effect(() => {
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, widgets: settings.widgets, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
   });
   $effect(() => {
@@ -247,12 +253,17 @@
     invoke('update_appearance', { appearance: appearanceFor(theme) }).catch(() => {});
   });
   $effect(() => {
-    if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
+    if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen, sound: settings.interfaceSounds }).catch(error => message = String(error));
   });
   $effect(() => {
     if (activity.error) message = activity.error;
   });
   onMount(() => {
+    setSoundSettings(settings.interfaceSounds, settings.soundLevel);
+    warmSound();
+    const unlock = () => unlockSound();
+    window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+    window.addEventListener('keydown', unlock, { once: true, capture: true });
     void initializeUpdates();
     loadCatalog()
       .then(data => { popular = data.popular; featured = data.featured; })
@@ -271,6 +282,7 @@
         const stopNavigation = await onNavigation(navigation.dispatch);
         if (disposed) { stopNavigation(); return; }
         track(stopNavigation);
+        track(await listen('remote-volume', () => { if (!disposed) void playSound('volume'); }));
         track(await listen('exit-requested', () => {
           if (disposed) return;
           previous = document.activeElement as HTMLElement;
@@ -306,22 +318,34 @@
         await tick();
         document.getElementById('startup')?.remove();
         document.getElementById('app')?.removeAttribute('inert');
-        if (!disposed) navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+        if (!disposed) {
+          void getCurrentWindow().isVisible().then(visible => {
+            if (!visible || disposed) return;
+            if (native) void invoke('play_startup_sound', { preset: settings.interfaceSounds, level: settings.soundLevel }).catch(() => playStartupSound());
+            else void playStartupSound();
+          }).catch(() => {});
+          navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+        }
       }
     }
     void reveal();
-    return () => { disposed = true; cleanup.splice(0).forEach(stop => stop()); };
+    return () => {
+      disposed = true;
+      cleanup.splice(0).forEach(stop => stop());
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+    };
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
-    if (exitRequested) { cancelExit(); return; }
-    if (remotePairing) { closeRemotePairing(); return; }
-    if (stremioPairing) { closeStremioPairing(); return; }
-    if (panel) { panel = false; void refreshStremio(); }
-    else if (details) details = null;
-    else if (playerOpen) { if (!player?.closeOverlay()) closePlayer(); return; }
-    else if (tab === 'Music' && musicHome?.closeDetail()) return;
-    else { home(); return; }
+    if (exitRequested) { void playSound('back'); cancelExit(); return; }
+    if (remotePairing) { void playSound('back'); closeRemotePairing(); return; }
+    if (stremioPairing) { void playSound('back'); closeStremioPairing(); return; }
+    if (panel) { void playSound('back'); panel = false; void refreshStremio(); }
+    else if (details) { void playSound('back'); details = null; }
+    else if (playerOpen) { void playSound('back'); if (!player?.closeOverlay()) closePlayer(); return; }
+    else if (tab === 'Music' && musicHome?.closeDetail()) { void playSound('back'); return; }
+    else { void playSound('back'); home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
   function cancelExit() {
@@ -332,7 +356,7 @@
     exitRequested = false;
     void hideToTray().catch(() => {});
   }
-  function confirmQuit() { void quitLuma().catch(() => {}); }
+  async function confirmQuit() { await playShutdownSound(); void quitLuma().catch(() => {}); }
   function mountExitDialog(dialog: HTMLDialogElement) {
     dialog.showModal();
     requestAnimationFrame(() => dialog.querySelector<HTMLButtonElement>('button')?.focus());
@@ -347,6 +371,15 @@
   function closePlayer() {
     playerOpen = false;
     requestAnimationFrame(() => navigation.focus(playerPrevious ?? undefined));
+  }
+  function pointerSound(event: MouseEvent) {
+    if (event.detail === 0 || soundPlayedRecently()) return;
+    if (!(event.target instanceof Element) || event.target.closest('input, select, textarea, label, option')) return;
+    const target = event.target.closest('button, a[href], summary, [role="button"]');
+    if (target && !(target instanceof HTMLButtonElement && target.disabled)) void playSound('press');
+  }
+  function changeSound(event: Event) {
+    if (event.target instanceof HTMLInputElement && (event.target.type === 'checkbox' || event.target.type === 'radio')) void playSound('toggle');
   }
   function keydown(event: KeyboardEvent) {
     if (event.target instanceof HTMLInputElement && event.target.type === 'range') {
@@ -384,8 +417,9 @@
       return () => animation.cancel();
     };
   }
-  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } if (value === 'Home') leaveApp(); previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } if (value !== tab) void playSound('page'); if (value === 'Home') leaveApp(); previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   async function openMusic() {
+    if (tab !== 'Music') void playSound('page');
     while (musicHome?.closeDetail()) {}
     previewApp = null;
     heroPick = null;
@@ -429,13 +463,14 @@
     try {
       if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Use Back to Luma when you are done.'; }
       else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Use Back to Luma when you are done.' : id === 'Steam' ? 'Steam Big Picture opened. Press Home to return to Luma.' : `${id} opened. Press Home to return to Luma.`; }
-    } catch (error) { message = String(error); }
+      void playSound('open');
+    } catch (error) { message = String(error); void playSound('error'); }
     finally { launching = null; }
   }
   async function openItem(item: ActivityItem) {
     if (!native) { message = 'Opening activity is available in the Luma desktop app.'; return; }
-    try { message = (await activity.open(item.id, settings.fullscreen)).message; }
-    catch (error) { message = String(error); }
+    try { message = (await activity.open(item.id, settings.fullscreen)).message; void playSound('open'); }
+    catch (error) { message = String(error); void playSound('error'); }
   }
   async function removeItem(item: ActivityItem) {
     if (!native) return;
@@ -480,35 +515,37 @@
   }
   async function openYouTubeItem(id: string) {
     if (!native) { message = 'Opening YouTube is available in the desktop app.'; return; }
-    try { await openYouTubeVideo(id, settings.fullscreen); message = 'Opening in YouTube. Press Ctrl+W there to return.'; }
-    catch (error) { message = String(error); }
+    try { await openYouTubeVideo(id, settings.fullscreen); message = 'Opening in YouTube. Press Ctrl+W there to return.'; void playSound('open'); }
+    catch (error) { message = String(error); void playSound('error'); }
   }
   async function openStremio(id: string) {
     if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
-    try { await stremioOpen(id); message = 'Opening in Stremio inside Luma.'; }
-    catch (error) { message = String(error); }
+    try { await stremioOpen(id); message = 'Opening in Stremio inside Luma.'; void playSound('open'); }
+    catch (error) { message = String(error); void playSound('error'); }
   }
   async function openStremioDetail(kind: string, id: string) {
     if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
-    try { await stremioOpenDetail(kind, id); message = 'Opening in Stremio inside Luma.'; }
-    catch (error) { message = String(error); }
+    try { await stremioOpenDetail(kind, id); message = 'Opening in Stremio inside Luma.'; void playSound('open'); }
+    catch (error) { message = String(error); void playSound('error'); }
   }
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
   {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
-  {#if showHome && heroSlides.length}
+  {#if showHome && firstHomeRowIsHero && heroSlides.length}
     <MovieHero slides={heroSlides} sourceKey={heroSource} />
   {/if}
   {#if showHome}
     <div {@attach smoothHeight}><div class="resizing-content">
-      {#each visibleHomeRows as row (row.id)}
-        {#if row.id === 'continue'}
+      {#each homeRowsAfterHero as row (row.id)}
+        {#if row.id === 'hero'}
+          {#if heroSlides.length}<MovieHero slides={heroSlides} sourceKey={heroSource} inset />{/if}
+        {:else if row.id === 'continue'}
           {#if previewApp === 'Stremio'}
             <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} onpreview={previewStremio} cinematic /></div>
           {:else}
@@ -620,15 +657,15 @@
 
 <style>
   .resizing-content { display: flow-root; }
-  .remote-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: clamp(24px, 3vw, 40px); overflow-y: auto; border: 1px solid #ffffff26; border-radius: 24px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
+  .remote-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: clamp(24px, 3vw, 40px); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 24px; background: var(--surface-2); color: var(--text); box-shadow: 0 24px 90px #0008; }
   .remote-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(6px); }
   .remote-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
   .remote-dialog-heading h2 { margin: 8px 0 0; font-size: clamp(26px, 2.4vw, 36px); }
-  .exit-dialog { width: min(560px, calc(100vw - 48px)); margin: auto; padding: clamp(26px, 3vw, 38px); border: 1px solid #ffffff26; border-radius: 22px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
+  .exit-dialog { width: min(560px, calc(100vw - 48px)); margin: auto; padding: clamp(26px, 3vw, 38px); border: 1px solid var(--line-strong); border-radius: 22px; background: var(--surface-2); color: var(--text); box-shadow: 0 24px 90px #0008; }
   .exit-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(6px); }
   .exit-dialog h2 { margin: 0 0 12px; font-size: clamp(24px, 2.2vw, 32px); letter-spacing: -.03em; }
-  .exit-dialog p { margin: 0 0 24px; color: #a9aab5; font-size: clamp(13px, .95vw, 16px); line-height: 1.6; }
+  .exit-dialog p { margin: 0 0 24px; color: var(--muted); font-size: clamp(13px, .95vw, 16px); line-height: 1.6; }
   .exit-actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; }
   .exit-actions button { width: auto; min-height: 48px; margin: 0; padding: 0 22px; }
-  .exit-actions .exit-keep { border-color: transparent; background: var(--accent); color: #10131b; }
+  .exit-actions .exit-keep { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
 </style>

@@ -12,7 +12,7 @@
 
 <section class="settings-group">
   <h3>Widgets</h3>
-  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar is the current layout; corner widgets keep the same controls in a quieter card.</p>
+  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar is the current layout; corner widgets keep the same controls in a compact card below the header or above the bottom edge.</p>
   <div class="widget-list">
     {#each widgetDefinitions as widget (widget.id)}
       {@const config = settings.widgets[widget.id]}
