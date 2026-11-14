@@ -84,6 +84,56 @@ fn service(id: &str) -> Option<&'static Service> {
     SERVICES.iter().find(|service| service.id == id)
 }
 
+pub(crate) struct CatalogEntry {
+    pub command: String,
+    pub name: &'static str,
+    pub icon: &'static [u8],
+}
+
+pub(crate) fn slug(id: &str) -> String {
+    id.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+fn icon(id: &str) -> Option<&'static [u8]> {
+    Some(match id {
+        "YouTube" => include_bytes!("../../resources/icons/youtube.png"),
+        "Spotify" => include_bytes!("../../resources/icons/spotify.png"),
+        "Stremio" => include_bytes!("../../resources/icons/stremio.png"),
+        "Netflix" => include_bytes!("../../resources/icons/netflix.png"),
+        "Disney+" => include_bytes!("../../resources/icons/disneyplus.png"),
+        "Prime Video" => include_bytes!("../../resources/icons/primevideo.png"),
+        "Apple TV+" => include_bytes!("../../resources/icons/appletv.png"),
+        "Hulu" => include_bytes!("../../resources/icons/hulu.png"),
+        "Max" => include_bytes!("../../resources/icons/max.png"),
+        "Peacock" => include_bytes!("../../resources/icons/peacock.png"),
+        "Custom" => include_bytes!("../../resources/icons/custom.png"),
+        _ => return None,
+    })
+}
+
+pub(crate) fn catalog() -> Vec<CatalogEntry> {
+    std::iter::once("YouTube")
+        .chain(SERVICES.iter().map(|service| service.id))
+        .filter_map(|id| {
+            icon(id).map(|icon| CatalogEntry {
+                command: slug(id),
+                name: id,
+                icon,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn app_command(command: &str) -> Option<&'static str> {
+    catalog()
+        .into_iter()
+        .find(|entry| entry.command == command)
+        .map(|entry| entry.name)
+}
+
 #[derive(Default)]
 pub struct Apps(pub Mutex<BTreeMap<String, String>>);
 

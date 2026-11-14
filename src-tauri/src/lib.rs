@@ -46,9 +46,21 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let window = window.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = window.hide();
+                        });
+                    }
+                    tauri::WindowEvent::Focused(true) => {
+                        let app = window.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            background::restore_input(&app);
+                        });
+                    }
+                    _ => {}
                 }
             }
         })

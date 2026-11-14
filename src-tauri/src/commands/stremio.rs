@@ -607,7 +607,35 @@ pub async fn stremio_open(
     show(app, target.as_deref()).await
 }
 
+#[cfg(windows)]
+async fn ensure_streaming_service(app: &AppHandle) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let client = &app.state::<Stremio>().client;
+    if client.get("http://127.0.0.1:11470/settings")
+        .timeout(Duration::from_secs(1)).send().await
+        .is_ok_and(|response| response.status().is_success()) {
+        return Ok(());
+    }
+    let directory = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|path| path.join("Programs").join("Stremio"))
+        .filter(|path| path.join("stremio-runtime.exe").is_file() && path.join("server.js").is_file())
+        .ok_or("Install Stremio Desktop to enable its streaming service, then open Stremio again.")?;
+    std::process::Command::new(directory.join("stremio-runtime.exe"))
+        .arg(directory.join("server.js"))
+        .current_dir(&directory)
+        .creation_flags(0x08000000)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Could not start the Stremio streaming service: {error}"))?;
+    Ok(())
+}
+
 pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), String> {
+    #[cfg(windows)]
+    ensure_streaming_service(&app).await?;
     let window = match app.get_webview_window("stremio") {
         Some(window) => {
             let target = serde_json::to_string(&target).map_err(|error| error.to_string())?;
@@ -724,9 +752,13 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            pause(&close);
-            let _ = close.hide();
-            restore_main(&restore);
+            let close = close.clone();
+            let restore = restore.clone();
+            tauri::async_runtime::spawn(async move {
+                pause(&close);
+                let _ = close.hide();
+                restore_main(&restore);
+            });
         }
     });
     Ok(window)

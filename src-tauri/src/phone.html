@@ -112,11 +112,7 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
     font-size: 11px; font-weight: 600; color: var(--muted); background: rgba(25, 22, 36, .7);
   }
-  .app-key span { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .app-key[data-command="youtube"] span { background: #ff5a5a; }
-  .app-key[data-command="spotify"] span { background: #6ee7a8; }
-  .app-key[data-command="stremio"] span { background: #b7a6ff; }
-  .app-key[data-command="custom"] span { background: #c8c3dc; }
+  .app-key img { width: 24px; height: 24px; object-fit: contain; display: block; }
   .app-key:active { color: var(--text); border-color: rgba(165, 155, 255, .35); }
 
   .deck {
@@ -204,12 +200,7 @@
       <button type="button" data-command="home">Home</button>
     </div>
 
-    <div class="apps" role="group" aria-label="Launch apps">
-      <button type="button" class="app-key" data-command="youtube"><span></span>YouTube</button>
-      <button type="button" class="app-key" data-command="spotify"><span></span>Spotify</button>
-      <button type="button" class="app-key" data-command="stremio"><span></span>Stremio</button>
-      <button type="button" class="app-key" data-command="custom"><span></span>Custom</button>
-    </div>
+    <div class="apps" id="apps" role="group" aria-label="Launch apps"></div>
 
     <section class="deck" aria-label="Playback and volume">
       <p class="deck-label">Playback</p>
@@ -237,8 +228,10 @@
   const view = document.getElementById('view');
   const pcName = document.getElementById('pc-name');
   const live = document.getElementById('live');
+  const appGrid = document.getElementById('apps');
   let paired = false;
   let refreshing = false;
+  let appsLoaded = false;
 
   async function request(path, options = {}) {
     const init = { credentials: 'same-origin', ...options };
@@ -259,6 +252,30 @@
     view.textContent = state.view || 'Home';
   }
 
+  async function loadApps() {
+    if (appsLoaded) return;
+    try {
+      const { response, data } = await request('/apps');
+      if (!response.ok || !data || !Array.isArray(data.apps)) return;
+      const fragment = document.createDocumentFragment();
+      for (const app of data.apps) {
+        if (!app || typeof app.command !== 'string' || typeof app.name !== 'string') continue;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'app-key';
+        button.dataset.command = app.command;
+        const icon = new Image();
+        icon.src = app.icon;
+        icon.alt = '';
+        icon.width = 24; icon.height = 24;
+        button.append(icon, app.name);
+        fragment.append(button);
+      }
+      appGrid.replaceChildren(fragment);
+      appsLoaded = appGrid.childElementCount > 0;
+    } catch (_) {}
+  }
+
   function showRemote(data) {
     paired = true;
     live.classList.remove('away');
@@ -266,6 +283,7 @@
     remote.hidden = false;
     pcName.textContent = data.pcName || 'Luma PC';
     applyState(data.state);
+    void loadApps();
   }
 
   function showPairing(message = '') {
@@ -275,7 +293,6 @@
     pairing.hidden = false;
     if (message) pairNotice.textContent = message;
   }
-
   async function refresh() {
     if (refreshing) return;
     refreshing = true;

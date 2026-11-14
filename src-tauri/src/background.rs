@@ -23,7 +23,8 @@ pub fn show(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn restore_input(app: &tauri::AppHandle) {
-    if let Some(webview) = app.get_webview("main") {
+    if let Some(window) = app.get_webview_window("main") {
+        let webview = window.as_ref();
         let _ = webview.show();
         let _ = webview.set_focus();
     }

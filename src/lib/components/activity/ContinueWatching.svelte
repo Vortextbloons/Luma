@@ -26,6 +26,8 @@
 </script>
 
 <section id="continue-watching" class="content-row activity-row" aria-label={heading}>
+  {#key heading}
+  <div class="provider-preview">
   <div class="row-heading">
     <div><h2>{heading}</h2><p>Only verified playback positions from your providers</p></div>
   </div>
@@ -40,4 +42,17 @@
       {/each}
     </div>
   {/if}
+  </div>
+  {/key}
 </section>
+
+<style>
+  .provider-preview { animation: provider-preview-in 220ms cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes provider-preview-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .provider-preview { animation: none; }
+  }
+</style>

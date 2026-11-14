@@ -161,6 +161,12 @@ fn phone_authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), S
     }
     Ok(())
 }
+fn remote_authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), StatusCode> {
+    if phone_authorized(app, headers).is_ok() {
+        return Ok(());
+    }
+    authorized(app, headers)
+}
 fn rotate_display(saved: &Saved) -> Result<Saved, String> {
     Ok(Saved {
         enabled: saved.enabled,
@@ -251,13 +257,15 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
         return Some(Ok(()));
     }
     let result = match command {
-        "youtube" => youtube::open_youtube(app.clone(), true).await,
-        "stremio" => apps::launch_app("Stremio".into(), app.state::<apps::Apps>(), app.clone()).await,
-        "custom" => apps::launch_app("Custom".into(), app.state::<apps::Apps>(), app.clone()).await,
-        "spotify" => apps::launch_app("Spotify".into(), app.state::<apps::Apps>(), app.clone()).await,
         "toggle" | "previous" | "next" => media::control(app, command).await,
         "volumeup" | "volumedown" | "mute" => volume(command),
-        _ => return None,
+        "youtube" => youtube::open_youtube(app.clone(), true).await,
+        _ => match apps::app_command(command) {
+            Some(name) => {
+                apps::launch_app(name.into(), app.state::<apps::Apps>(), app.clone()).await
+            }
+            None => return None,
+        },
     };
     Some(result)
 }
@@ -336,6 +344,40 @@ async fn phone_state(
         serde_json::json!({"pcName": pc_name(), "state": state}),
     ))
 }
+async fn apps_list(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    remote_authorized(&app, &headers)?;
+    let apps: Vec<serde_json::Value> = apps::catalog()
+        .into_iter()
+        .map(|entry| {
+            serde_json::json!({
+                "command": entry.command,
+                "name": entry.name,
+                "icon": format!("/apps/{}/icon", entry.command),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "apps": apps })))
+}
+async fn app_icon(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    axum::extract::Path(command): axum::extract::Path<String>,
+) -> Result<Response, StatusCode> {
+    remote_authorized(&app, &headers)?;
+    let entry = apps::catalog()
+        .into_iter()
+        .find(|entry| entry.command == command)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Response::builder()
+        .header("content-type", "image/png")
+        .header("cache-control", "private, max-age=86400")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(entry.icon))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
 async fn phone_command(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -386,6 +428,8 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/pair", post(phone_pair))
         .route("/phone/state", get(phone_state))
         .route("/phone/command", post(phone_command))
+        .route("/apps", get(apps_list))
+        .route("/apps/{command}/icon", get(app_icon))
         .layer(DefaultBodyLimit::max(512))
         .with_state(app.clone());
     let task = tauri::async_runtime::spawn(async move {

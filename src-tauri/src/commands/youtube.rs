@@ -335,22 +335,19 @@ fn create(
         .min_inner_size(720.0, 405.0)
         .fullscreen(fullscreen)
         .visible(visible)
+        .focused(visible)
         .user_agent(USER_AGENT)
         .initialization_script(script(bridge)?)
         .on_navigation(|url| url.scheme() == "about" || allowed(url.host_str()))
         .build()
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
-    let pause = window.clone();
-    window.on_window_event(move |event| match event {
-        tauri::WindowEvent::Focused(false) => {
-            let _ = pause.eval("document.querySelector('video')?.pause();");
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let app = restore.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::background::show(&app);
+            });
         }
-        tauri::WindowEvent::Destroyed => {
-            let _ = restore.show();
-            let _ = restore.unminimize();
-            let _ = restore.set_focus();
-        }
-        _ => {}
     });
     Ok(window)
 }
