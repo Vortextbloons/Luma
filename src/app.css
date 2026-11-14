@@ -205,3 +205,5 @@ body:has(.mini-player) .footer{padding-bottom:110px}
 .app-icon .provider-icon img{padding:0;object-fit:cover}
 .now-playing input[type=range]{background:transparent;border:0;padding:0}
 @media(min-width:2400px){.music-page-header h1{font-size:96px}.now-playing-copy h1{font-size:112px}.now-playing-layout{max-width:2000px}}
+
+.app-track{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:clamp(180px,24%,420px);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}

@@ -1,14 +1,14 @@
 <script lang="ts">
-  import spotify from '../../../assets/spotify.png';
+  import spotify from '../../../assets/spotify.jpg';
   import netflix from '../../../assets/netflix.png';
   import disneyplus from '../../../assets/disneyplus.png';
   import primevideo from '../../../assets/primevideo.png';
   import appletv from '../../../assets/appletv.png';
   import hulu from '../../../assets/hulu.png';
-  import max from '../../../assets/max.png';
+  import max from '../../../assets/max.jpg';
   import peacock from '../../../assets/peacock.png';
   import stremio from '../../../assets/stremio.svg';
-  import youtube from '../../../assets/youtube.png';
+  import youtube from '../../../assets/youtube.jpg';
 
   let { provider }: { provider: string } = $props();
   const source = $derived(provider === 'spotify' ? spotify : provider === 'stremio' ? stremio : provider === 'youtube' ? youtube : ({ netflix, disneyplus, primevideo, appletv, hulu, max, peacock } as Record<string, string>)[provider] ?? '');

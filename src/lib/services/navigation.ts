@@ -22,7 +22,10 @@ export function createNavigation(back: () => void, home: () => void) {
     }
     const candidates = elements();
     if (!candidates.includes(current)) { focus(candidates[0]); return; }
-    if (command === 'activate') { current.click(); return; }
+    if (command === 'activate') {
+      if (!(current instanceof HTMLInputElement && current.type === 'range')) current.click();
+      return;
+    }
     const a = current.getBoundingClientRect();
     const vertical = command === 'up' || command === 'down';
     const sign = command === 'down' || command === 'right' ? 1 : -1;

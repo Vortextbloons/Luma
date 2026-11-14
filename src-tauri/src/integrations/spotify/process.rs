@@ -39,13 +39,28 @@ pub fn running() -> bool {
     false
 }
 
-pub fn installed() -> bool {
-    crate::commands::apps::detect("Spotify").is_some()
+fn configured_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    if let Some(apps) = app.try_state::<crate::commands::apps::Apps>() {
+        if let Ok(paths) = apps.0.lock() {
+            if let Some(path) = paths.get("Spotify").filter(|path| !path.is_empty()) {
+                let path = std::path::PathBuf::from(path);
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    crate::commands::apps::detect("Spotify")
 }
 
-pub fn launch_minimized() -> Result<(), String> {
-    let executable = crate::commands::apps::detect("Spotify")
-        .ok_or("Spotify is not installed or its path is unknown.")?;
+pub fn installed(app: &tauri::AppHandle) -> bool {
+    configured_path(app).is_some()
+}
+
+pub fn launch_minimized(app: &tauri::AppHandle) -> Result<(), String> {
+    let executable =
+        configured_path(app).ok_or("Spotify is not installed or its path is unknown.")?;
     launch_path_minimized(&executable)
 }
 

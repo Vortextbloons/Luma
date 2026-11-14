@@ -435,7 +435,7 @@ pub fn connection(app: &tauri::AppHandle, auth: &Auth) -> ConnectionState {
     ConnectionState {
         authenticated: auth.authenticated(),
         process_running: running,
-        installed: process::installed() || running,
+        installed: process::installed(app) || running,
         player_available: live || api_active,
         starting: player.starting.load(Ordering::SeqCst),
         client_id_configured: auth.client_id_configured(),
@@ -482,12 +482,12 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
         emit_connection(&app);
         return Ok(());
     }
-    if !process::installed() {
+    if !process::installed(&app) {
         return Err(
             "Spotify is not installed. Install the Spotify desktop app on this PC first.".into(),
         );
     }
-    process::launch_minimized()?;
+    process::launch_minimized(&app)?;
     let player = app.state::<Player>();
     player.starting.store(true, Ordering::SeqCst);
     set_error(&app, None);
