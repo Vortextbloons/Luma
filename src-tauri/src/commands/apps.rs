@@ -321,7 +321,14 @@ pub fn app_paths(apps: State<Apps>) -> Result<BTreeMap<String, String>, String> 
     let paths = apps.0.lock().map_err(|e| e.to_string())?;
     Ok(SERVICES
         .iter()
-        .map(|service| (service.id.into(), paths.get(service.id).cloned().unwrap_or_default()))
+        .map(|service| {
+            let path = if service.id == "Stremio" {
+                String::new()
+            } else {
+                paths.get(service.id).cloned().unwrap_or_default()
+            };
+            (service.id.into(), path)
+        })
         .collect())
 }
 

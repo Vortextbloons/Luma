@@ -653,6 +653,7 @@ fn create(app: &AppHandle, target: Option<&str>) -> Result<WebviewWindow, String
     let pending = Arc::new(Mutex::new(target.map(str::to_owned)));
     let load_pending = pending.clone();
     let handle = app.clone();
+    let new_window = app.clone();
     let url = WEB_URL
         .parse()
         .map_err(|error| format!("Invalid Stremio URL: {error}"))?;
@@ -665,8 +666,14 @@ fn create(app: &AppHandle, target: Option<&str>) -> Result<WebviewWindow, String
         .visible(false)
         .initialization_script(SCRIPT)
         .on_navigation(move |url| permitted(&handle, url))
-        .on_new_window(|url, _| {
-            external(&url);
+        .on_new_window(move |url, _| {
+            if web_host(url.host_str()) {
+                if let Some(window) = new_window.get_webview_window("stremio") {
+                    let _ = window.navigate(url);
+                }
+            } else {
+                external(&url);
+            }
             NewWindowResponse::Deny
         })
         .on_page_load(move |window, payload| {
