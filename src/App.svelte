@@ -7,7 +7,7 @@
   import TopNav from './lib/components/TopNav.svelte';
   import UpdateNotice from './lib/components/UpdateNotice.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
-  import MovieHero from './lib/components/MovieHero.svelte';
+  import MovieHero, { type HeroSlide } from './lib/components/MovieHero.svelte';
   import BackdropRow from './lib/components/BackdropRow.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import VideoRow from './lib/components/VideoRow.svelte';
@@ -30,10 +30,11 @@
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
-  import { appProviders } from './lib/services/activity';
+  import { appProviders, actionLabel, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from './lib/services/activity';
   import { native, launchApp, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog, searchMovies } from './lib/services/catalog';
-  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioStatus, YouTubeFeedItem } from './lib/types';
+  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
+  import type { MusicCardItem } from './lib/types/spotify';
 
   const preferences = createSettings();
   const settings = preferences.value;
@@ -70,6 +71,7 @@
   let stremioPairing = $state(false);
   let stremio = $state.raw<StremioStatus | null>(null);
   let previewApp = $state<AppId | null>(null);
+  let heroPick = $state<HeroSlide | null>(null);
   let youTubeFeed = $state.raw<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
@@ -80,9 +82,128 @@
   const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
   const previewActivity = $derived(previewProvider ? activityItems.filter(item => item.provider === previewProvider && item.type !== 'application').slice(0, 8) : []);
   const previewMusic = $derived(spotify.home.recentlyPlayed.map((item, index) => ({ id: `${item.id ?? item.title}-${index}`, title: item.title, uri: item.uri, artworkUrl: item.artworkUrl, subtitle: item.artist })));
+  const continueItems = $derived(settings.sections.continue ? sortRecent(activityItems.filter(item => item.type !== 'application' && isContinueWatching(item))) : []);
+  const appHeroItems = $derived.by(() => {
+    const app = previewApp;
+    if (!app) return [];
+    const own = sortRecent(activityItems.filter(item => item.provider === appProviders[app] && item.type !== 'application'));
+    const resumable = own.filter(isContinueWatching);
+    return resumable.length ? resumable : own;
+  });
+  const spotifyHero = $derived(previewApp === 'Spotify' && !appHeroItems.length ? previewMusic.slice(0, 5) : []);
+  const stremioHero = $derived(previewApp === 'Stremio' ? (stremioRecent.length ? stremioRecent : stremio?.items ?? []).slice(0, 5) : []);
+  function formatRuntime(value: string) {
+    const minutes = Number.parseInt(value, 10);
+    if (!Number.isFinite(minutes) || minutes <= 0) return value;
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+  }
+  function activitySlide(item: ActivityItem, eyebrow: string): HeroSlide {
+    const progress = progressLabel(item);
+    const label = actionLabel(item);
+    return {
+      key: `activity:${item.id}`,
+      eyebrow,
+      title: item.title,
+      chips: [
+        { label: providerName(item.provider) },
+        { label: typeLabel(item) },
+        ...(progress ? [{ label: progress }] : []),
+      ],
+      description: item.subtitle ?? '',
+      art: item.artwork ?? '',
+      primaryLabel: label,
+      primaryIcon: label === 'Resume' ? 'play' : 'open',
+      primary: () => { void openItem(item); },
+    };
+  }
+  function activityEyebrow(item: ActivityItem) {
+    const provider = providerName(item.provider).toUpperCase();
+    if (previewApp && appProviders[previewApp] === item.provider) return `FROM ${provider}`;
+    return isContinueWatching(item) ? 'CONTINUE WATCHING' : `FROM ${provider}`;
+  }
+  function movieSlide(item: MediaItem, eyebrow = 'FEATURED MOVIE'): HeroSlide {
+    const genres = item.subtitle.split(' · ').filter(part => part !== item.year).slice(0, 2);
+    return {
+      key: `movie:${item.id}`,
+      eyebrow,
+      title: item.title,
+      chips: [
+        ...genres.map(label => ({ label })),
+        ...(item.rating ? [{ label: `★ ${item.rating}`, tone: 'rating' as const }] : []),
+        ...(item.runtime ? [{ label: formatRuntime(item.runtime) }] : []),
+        ...(item.year ? [{ label: item.year }] : []),
+      ],
+      description: item.description,
+      art: item.backdrop || item.poster,
+      primaryLabel: 'Play',
+      primary: () => { void openStremioDetail('movie', item.id); },
+      details: () => select(item),
+    };
+  }
+  function musicSlide(track: { id: string; title: string; uri?: string; artworkUrl?: string; subtitle?: string }): HeroSlide {
+    return {
+      key: `music:${track.id}`,
+      eyebrow: 'FROM SPOTIFY',
+      title: track.title,
+      chips: [...(track.subtitle ? [{ label: track.subtitle }] : []), { label: 'Music' }],
+      description: '',
+      art: track.artworkUrl ?? '',
+      artShape: 'square',
+      primaryLabel: 'Play',
+      primary: () => { if (track.uri) void spotify.playUri(track.uri).then(played => { if (played) openPlayer(); }); },
+    };
+  }
+  function stremioSlide(item: StremioItem): HeroSlide {
+    const label = item.kind === 'series' ? 'Series' : item.kind === 'movie' ? 'Movie' : 'Video';
+    const remaining = item.duration > item.timeOffset ? `${Math.max(1, Math.round((item.duration - item.timeOffset) / 60_000))}m left` : '';
+    return {
+      key: `stremio:${item.id}`,
+      eyebrow: 'FROM STREMIO',
+      title: item.name,
+      chips: [{ label: 'Stremio' }, { label }, ...(remaining ? [{ label: remaining }] : [])],
+      description: '',
+      art: item.poster,
+      artShape: 'portrait',
+      primaryLabel: 'Open Stremio',
+      primaryIcon: 'open',
+      primary: () => { void openStremio(item.id); },
+    };
+  }
+  function videoSlide(item: YouTubeFeedItem): HeroSlide {
+    return {
+      key: `youtube:${item.id}`,
+      eyebrow: 'FROM YOUTUBE',
+      title: item.title,
+      chips: [{ label: 'YouTube' }, { label: 'Video' }],
+      description: '',
+      art: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+      primaryLabel: 'Open video',
+      primaryIcon: 'open',
+      primary: () => { void openYouTubeItem(item.id); },
+    };
+  }
+  function previewActivityItem(item: ActivityItem | null) { heroPick = item ? activitySlide(item, activityEyebrow(item)) : null; }
+  function previewMovie(item: MediaItem | null, eyebrow?: string) { heroPick = item ? movieSlide(item, eyebrow) : null; }
+  function previewStremio(item: StremioItem | null) { heroPick = item ? stremioSlide(item) : null; }
+  function previewVideo(item: YouTubeFeedItem | null) { heroPick = item ? videoSlide(item) : null; }
+  function previewMusicItem(item: MusicCardItem | null) { heroPick = item ? musicSlide(item) : null; }
+  const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : previewApp && (appHeroItems.length || spotifyHero.length || stremioHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
+  const heroSlides = $derived.by<HeroSlide[]>(() => {
+    if (heroPick) return [heroPick];
+    if (previewApp) {
+      const eyebrow = `FROM ${providerName(appProviders[previewApp]).toUpperCase()}`;
+      if (appHeroItems.length) return appHeroItems.slice(0, 5).map(item => activitySlide(item, eyebrow));
+      if (spotifyHero.length) return spotifyHero.map(musicSlide);
+      if (stremioHero.length) return stremioHero.map(stremioSlide);
+    }
+    if (continueItems.length) return continueItems.slice(0, 5).map(item => activitySlide(item, 'CONTINUE WATCHING'));
+    if (settings.sections.featured) return featured.slice(0, 5).map(item => movieSlide(item));
+    return [];
+  });
   function preview(id: AppId) {
     const changed = previewApp !== id;
     previewApp = id;
+    if (changed) heroPick = null;
     if (id === 'Spotify') void spotify.loadHome();
     if (id === 'Stremio' && changed && Date.now() - stremioPreviewSyncedAt > 60_000) {
       stremioPreviewSyncedAt = Date.now();
@@ -108,7 +229,7 @@
     document.documentElement.dataset.accent = settings.accent;
     document.documentElement.dataset.density = settings.density;
     document.documentElement.dataset.appTileShape = settings.appTileShape;
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, sections: settings.sections, order: settings.order })); }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, sections: settings.sections, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
   });
   $effect(() => {
@@ -183,7 +304,7 @@
     else { home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
-  function home() { remotePairing = false; previewApp = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function home() { remotePairing = false; previewApp = null; heroPick = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
@@ -229,10 +350,11 @@
       return () => animation.cancel();
     };
   }
-  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } previewApp = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   async function openMusic() {
     while (musicHome?.closeDetail()) {}
     previewApp = null;
+    heroPick = null;
     panel = false;
     details = null;
     playerOpen = false;
@@ -346,15 +468,15 @@
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
-  {#if showHome && settings.sections.featured && featured.length}
-    <MovieHero items={featured.slice(0, 5)} onplay={item => void openStremioDetail('movie', item.id)} ondetails={select} />
+  {#if showHome && heroSlides.length}
+    <MovieHero slides={heroSlides} sourceKey={heroSource} />
   {/if}
   <div {@attach smoothHeight}><div class="resizing-content">
   {#if showHome && settings.sections.continue}
     {#if previewApp === 'Stremio'}
-      <StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} />
+      <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} onpreview={previewStremio} cinematic /></div>
     {:else}
-    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} />
+    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} onpreview={previewActivityItem} />
     {/if}
   {/if}
   </div></div>
@@ -365,7 +487,7 @@
       <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
     </header>
   {/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} showHeading={tab !== 'Apps'} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />{/if}
   {#if tab === 'Watch'}
     <header class="page-head">
       <div><span class="eyebrow">STREMIO CATALOG</span><h1>Watch</h1><p>Search for a title or browse what is popular right now.</p></div>
@@ -389,20 +511,20 @@
     <div class="view-swap">
     {#if showHome && previewApp && (settings.sections.popular || settings.sections.featured)}
       {#if previewApp === 'YouTube' && youTubeFeed.length}
-        <VideoRow items={youTubeFeed} open={openYouTubeItem} />
+        <VideoRow items={youTubeFeed} open={openYouTubeItem} onpreview={previewVideo} />
       {:else if previewApp === 'Spotify' && previewMusic.length}
-        <PlaylistRow title="Recently played on Spotify" items={previewMusic} empty="" kind="Track" onselect={async item => { if (await spotify.playUri(item.uri)) openPlayer(); }} />
+        <PlaylistRow title="Recently played on Spotify" items={previewMusic} empty="" kind="Track" onselect={async item => { if (await spotify.playUri(item.uri)) openPlayer(); }} onpreview={previewMusicItem} />
       {:else if previewApp === 'Stremio' && stremio?.items.length}
-        <StremioRow title="Your Stremio library" items={stremio.items.slice(0, 10)} open={openStremio} />
+        <StremioRow title="Your Stremio library" items={stremio.items.slice(0, 10)} open={openStremio} onpreview={previewStremio} />
       {:else if previewActivity.length}
-        <section class="content-row"><div class="row-heading"><h2>From {previewApp}</h2></div><div class="activity-track">{#each previewActivity as item (item.id)}<ActivityCard {item} onopen={openItem} onremove={removeItem} />{/each}</div></section>
+        <section class="content-row"><div class="row-heading"><h2>From {previewApp}</h2></div><div class="activity-track">{#each previewActivity as item (item.id)}<ActivityCard {item} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />{/each}</div></section>
       {:else}
         <section class="content-row" aria-label={`${previewApp} recommendations`}><div class="row-heading"><h2>From {previewApp === 'Custom' ? 'your custom app' : previewApp}</h2></div><div class="activity-empty"><strong>{previewApp === 'Spotify' && spotify.homeLoading ? 'Loading your music...' : 'No recommendations available yet'}</strong><span>{previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => previewApp && launch(previewApp)}>Open {previewApp === 'Custom' ? 'custom app' : previewApp}</button></div></section>
       {/if}
     {:else}
       {#if showHome}
-        {#if settings.sections.popular}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
-        {#if settings.sections.featured}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} />{/if}
+        {#if settings.sections.popular}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} onpreview={item => previewMovie(item, 'POPULAR MOVIE')} />{/if}
+        {#if settings.sections.featured}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} onpreview={item => previewMovie(item, 'TOP-RATED MOVIE')} />{/if}
       {:else if tab === 'Watch'}
         <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
         <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
@@ -416,10 +538,10 @@
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} />
   {/if}
   {#if (showHome && settings.sections.recent) || tab === 'Watch'}
-    <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
+    <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
   {/if}
   {#if (showHome && settings.sections.recentApps) || tab === 'Apps'}
-    <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
+    <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
   {/if}
   </div>
   <div class="notice-stack">

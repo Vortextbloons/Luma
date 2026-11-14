@@ -111,10 +111,10 @@ test('text editing retains arrow and Backspace behavior while Escape still goes 
   assert.equal(f.counts().homed, 1);
 });
 
-test('home shortcut defaults to Ctrl+H and works while editing without repeats', () => {
+test('home shortcut defaults to Ctrl+W and works while editing without repeats', () => {
   const f = fixture();
   let prevented = 0;
-  const event = { target: new Input(), key: 'h', ctrlKey: true, preventDefault() { prevented++; } };
+  const event = { target: new Input(), key: 'w', ctrlKey: true, preventDefault() { prevented++; } };
   f.navigation.keydown(event);
   f.navigation.keydown({ ...event, repeat: true });
   f.navigation.keydown({ ...event, altKey: true });

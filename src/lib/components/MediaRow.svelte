@@ -8,8 +8,12 @@
   <div class="card-track">
     {#each items as item (item.id)}
       <button class="media-card" onclick={() => onselect(item)}>
-        <span class="poster"><img src={item.poster} alt="" loading="lazy" decoding="async" /></span>
-        <span class="card-name">{item.title}</span><span class="card-meta">{item.subtitle}</span>
+        <span class="poster">
+          <img src={item.poster} alt="" loading="lazy" decoding="async" />
+          <span class="poster-copy">
+            <span class="card-name">{item.title}</span><span class="card-meta">{item.subtitle}</span>
+          </span>
+        </span>
       </button>
     {/each}
   </div>

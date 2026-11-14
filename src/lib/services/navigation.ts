@@ -5,7 +5,7 @@ export function homeShortcut(event: KeyboardEvent) {
   return `${event.ctrlKey ? 'Ctrl+' : ''}${event.altKey ? 'Alt+' : ''}${event.shiftKey ? 'Shift+' : ''}${event.key.length === 1 ? event.key.toUpperCase() : event.key}`;
 }
 
-export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+H') {
+export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+W') {
   let cached: HTMLElement[] | undefined;
   let cachedRoot: Element | Document | undefined;
   let observer: MutationObserver | undefined;

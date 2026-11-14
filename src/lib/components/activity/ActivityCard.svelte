@@ -3,10 +3,11 @@
   import { actionLabel, formatRelative, progressLabel, progressPercent, providerName, typeLabel } from '../../services/activity';
   import ProviderIcon from './ProviderIcon.svelte';
 
-  let { item, onopen, onremove, cinematic = false }: {
+  let { item, onopen, onremove, onpreview, cinematic = false }: {
     item: ActivityItem;
     onopen: (item: ActivityItem) => void;
     onremove?: (item: ActivityItem) => void;
+    onpreview?: (item: ActivityItem | null) => void;
     cinematic?: boolean;
   } = $props();
 
@@ -31,9 +32,10 @@
       </span>
     </span>
   {/snippet}
-  <button class="activity-main" onclick={() => onopen(item)} aria-label={`${actionLabel(item)} ${item.title}`}>
+  <button class="activity-main" onclick={() => onopen(item)} aria-label={`${actionLabel(item)} ${item.title}`} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
     {#if isApp}
       <span class="activity-app-art"><ProviderIcon provider={item.provider} /></span>
+      {@render copy()}
     {:else}
       <span class="activity-art">
         {#if item.artwork}
@@ -42,12 +44,12 @@
           <span class="activity-art-fallback"><ProviderIcon provider={item.provider} /></span>
         {/if}
         <span class="activity-provider"><ProviderIcon provider={item.provider} /><span>{providerName(item.provider)}</span></span>
+        {@render copy()}
         {#if percent !== null && !finished}
           <span class="progress" aria-label={progressLabel(item)}><i style:width={`${percent}%`}></i></span>
         {/if}
       </span>
     {/if}
-    {@render copy()}
   </button>
   {#if onremove}
     <div class="activity-actions">

@@ -226,7 +226,7 @@
           <div class="settings-row">
             <div class="settings-row-copy"><strong>Return home</strong><span>Current shortcut: {settings.homeShortcut}. Works while Luma has focus.</span></div>
             <button class="panel-secondary" onkeydown={recordShortcut} onblur={() => recordingShortcut = false} onclick={() => { recordingShortcut = true; shortcutFeedback = ''; }}>{recordingShortcut ? 'Press a shortcut? Escape cancels' : 'Change shortcut'}</button>
-            <button class="panel-secondary" disabled={settings.homeShortcut === 'Ctrl+H'} onclick={() => { settings.homeShortcut = 'Ctrl+H'; shortcutFeedback = 'Home shortcut reset to Ctrl+H.'; }}>Reset to Ctrl+H</button>
+            <button class="panel-secondary" disabled={settings.homeShortcut === 'Ctrl+W'} onclick={() => { settings.homeShortcut = 'Ctrl+W'; shortcutFeedback = 'Home shortcut reset to Ctrl+W.'; }}>Reset to Ctrl+W</button>
           </div>
           {#if shortcutFeedback}<p role="status" class="panel-description">{shortcutFeedback}</p>{/if}
         </section>

@@ -3,10 +3,11 @@
   import { isContinueWatching, providerName, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
 
-  let { items, trackingEnabled, onopen, focusProvider = null }: {
+  let { items, trackingEnabled, onopen, onpreview, focusProvider = null }: {
     items: ActivityItem[];
     trackingEnabled: boolean;
     onopen: (item: ActivityItem) => void;
+    onpreview?: (item: ActivityItem | null) => void;
     focusProvider?: string | null;
   } = $props();
 
@@ -37,7 +38,7 @@
   {:else}
     <div class="activity-track is-cinematic">
       {#each watching as item (item.id)}
-        <ActivityCard {item} {onopen} cinematic />
+        <ActivityCard {item} {onopen} {onpreview} cinematic />
       {/each}
     </div>
   {/if}

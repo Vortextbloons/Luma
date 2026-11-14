@@ -2,7 +2,7 @@ import type { AppId, Settings } from '../types';
 
 const executable = ['Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
 const defaults: Settings = {
-  homeShortcut: 'Ctrl+H', accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false,
+  homeShortcut: 'Ctrl+W', accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false,
   sections: { popular: true, apps: true, featured: true, continue: true, recent: true, recentApps: true },
   paths: { Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
   order: ['YouTube', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
@@ -14,11 +14,13 @@ export function createSettings() {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem('luma-v1') ?? 'null');
     if (saved && typeof saved === 'object') {
-      const data = saved as Partial<Settings>;
+      const data = saved as Partial<Settings> & { shortcutVersion?: number };
       if (['violet', 'blue', 'mint', 'peach'].includes(data.accent ?? '')) value.accent = data.accent!;
       if (data.density === 'compact') value.density = data.density;
       if (data.appTileShape === 'square') value.appTileShape = 'square';
-      if (typeof data.homeShortcut === 'string' && /^(?:Ctrl\+(?:Alt\+)?|Alt\+)(?:Shift\+)?(?:[A-Z0-9]|Home|F(?:[1-9]|1[0-2]))$/.test(data.homeShortcut) && !data.homeShortcut.endsWith('+F11')) value.homeShortcut = data.homeShortcut;
+      if (typeof data.homeShortcut === 'string' && /^(?:Ctrl\+(?:Alt\+)?|Alt\+)(?:Shift\+)?(?:[A-Z0-9]|Home|F(?:[1-9]|1[0-2]))$/.test(data.homeShortcut) && !data.homeShortcut.endsWith('+F11')) {
+        value.homeShortcut = data.homeShortcut === 'Ctrl+H' && data.shortcutVersion !== 1 ? 'Ctrl+W' : data.homeShortcut;
+      }
       value.fullscreen = data.fullscreen === true;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) {

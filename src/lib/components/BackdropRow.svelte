@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { MediaItem } from '../types';
-  let { title, items, id, onselect }: {
+  let { title, items, id, onselect, onpreview }: {
     title: string;
     items: MediaItem[];
     id: string;
     onselect: (item: MediaItem) => void;
+    onpreview?: (item: MediaItem | null) => void;
   } = $props();
 </script>
 
@@ -12,7 +13,7 @@
   <div class="row-heading"><div><h2>{title}</h2></div></div>
   <div class="backdrop-track">
     {#each items as item (item.id)}
-      <button class="backdrop-card" aria-label={`${item.title}, ${item.subtitle}`} onclick={() => onselect(item)}>
+      <button class="backdrop-card" aria-label={`${item.title}, ${item.subtitle}`} onclick={() => onselect(item)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
         <span class="backdrop-art">
           <img src={item.backdrop || item.poster} alt="" loading="lazy" decoding="async" />
           <span class="backdrop-fade" aria-hidden="true"></span>
@@ -74,6 +75,7 @@
     transform: scale(1.04);
     filter: saturate(1.03);
   }
+  .backdrop-card:hover { transform: translateY(-2px); }
   .backdrop-card:focus-visible {
     outline: 3px solid var(--accent);
     outline-offset: 4px;
@@ -97,6 +99,7 @@
     text-shadow: 0 2px 12px #000c;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

@@ -3,11 +3,12 @@
   import { isApplication, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
 
-  let { items, trackingEnabled, onopen, onremove }: {
+  let { items, trackingEnabled, onopen, onremove, onpreview }: {
     items: ActivityItem[];
     trackingEnabled: boolean;
     onopen: (item: ActivityItem) => void;
     onremove: (item: ActivityItem) => void;
+    onpreview?: (item: ActivityItem | null) => void;
   } = $props();
 
   const apps = $derived(sortRecent(items.filter(isApplication)).slice(0, 8));
@@ -24,7 +25,7 @@
   {:else}
     <div class="activity-track app-activity-track">
       {#each apps as item (item.id)}
-        <ActivityCard {item} {onopen} {onremove} />
+        <ActivityCard {item} {onopen} {onremove} {onpreview} />
       {/each}
     </div>
   {/if}

@@ -68,6 +68,12 @@
 
   function action(name: string) { void spotify.action(name); }
 
+  function time(value?: number) {
+    if (value == null) return '0:00';
+    const seconds = Math.max(0, Math.floor(value / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+
   function animateSection(_section: string) {
     return (element: HTMLElement) => {
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -130,15 +136,18 @@
       {#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" size={72} /></span>{/if}
     </div>
     <div class="music-now-copy">
-      <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
+      <div class="music-now-head">
+        <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
+        <button class="btn btn-glass" onclick={onopen}>Now playing</button>
+      </div>
       <h2>{playback.title ?? 'Find your next favorite'}</h2>
       <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || 'Explore your library or search for something new.'}</p>
       <div class="music-progress" aria-hidden="true"><span style:transform={`scaleX(${spotify.progress})`}></span></div>
+      <div class="music-now-time" aria-hidden="true"><span>{time(spotify.positionMs)}</span><span>{time(playback.durationMs)}</span></div>
       <div class="music-now-actions">
         <PlaybackControls {playback} busy={spotify.busy} onaction={action} />
-        <button class="btn btn-glass" onclick={onopen}>Now playing</button>
+        {#if playback.deviceName}<p class="music-device-label">Playing on {playback.deviceName}</p>{/if}
       </div>
-      {#if playback.deviceName}<p class="music-device-label">Playing on {playback.deviceName}</p>{/if}
     </div>
   </section>
   {/if}
@@ -194,7 +203,7 @@
   .music-sections button:focus-visible,.library-more:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
   .music-home .btn { min-height: 56px; font-size: 18px; padding: 14px 24px; }
   .music-now-card { background: linear-gradient(125deg,#263954,#151c2a 75%); border-radius: 24px; }
-  .music-now-art img { object-fit: contain; } .music-now-art { border-radius: 10px; }
+  .music-now-art img { object-fit: contain; }
   .music-page-header { align-items: center; margin-bottom: 28px; }
   .music-page-header h1 { font-size: clamp(34px, 3.6vw, 60px); }
   .music-menu { position: relative; flex: none; z-index: 2; }
@@ -206,12 +215,10 @@
   .music-menu-panel button { display: block; width: 100%; min-height: 48px; padding: 12px 16px; text-align: left; border-radius: 10px; font-size: 16px; }
   .music-menu-panel button:hover { background: #ffffff0c; }
   .music-menu summary:focus-visible,.music-menu-panel button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-  .music-now-card { grid-template-columns: clamp(200px, 18vw, 290px) minmax(0, 1fr); padding: clamp(24px, 2.4vw, 36px); }
-  .music-now-copy h2 { font-size: clamp(32px, 3vw, 56px); }
   .library-more { margin: -8px 0 36px; background: transparent; border-color: #ffffff24; }
   .music-home :global(.music-row .row-heading h2) { font-size: clamp(26px,2vw,38px); }
   .music-home :global(.music-row .row-heading p) { font-size: 18px; color: var(--music-muted); }
   .music-home :global(.music-inline-error),.music-home :global(.music-empty-line) { font-size: 18px; }
   .music-account p,.music-starting p { font-size: 19px; }
-  @media(max-width:900px) { .music-page-header { align-items: flex-start; flex-direction: column; } .music-menu-panel { left: 0; right: auto; } .music-now-card { grid-template-columns: 1fr; } }
+  @media(max-width:900px) { .music-page-header { align-items: flex-start; flex-direction: column; } .music-menu-panel { left: 0; right: auto; } }
 </style>

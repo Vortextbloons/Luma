@@ -20,7 +20,7 @@
 </div>
 
 <style>
-  .playback-button { width: 64px; height: 64px; } .playback-button.primary { width: 82px; height: 82px; }
+  .playback-button { width: clamp(64px, 4.8vw, 84px); height: clamp(64px, 4.8vw, 84px); } .playback-button.primary { width: clamp(82px, 6.2vw, 104px); height: clamp(82px, 6.2vw, 104px); }
   .playback-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
   .playback-controls.compact .playback-button { width: 48px; height: 48px; } .playback-controls.compact .playback-button.primary { width: 56px; height: 56px; }
 </style>

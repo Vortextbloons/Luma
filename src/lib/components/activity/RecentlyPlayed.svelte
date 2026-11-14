@@ -3,11 +3,12 @@
   import { isRecentlyPlayed, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
 
-  let { items, trackingEnabled, onopen, onremove }: {
+  let { items, trackingEnabled, onopen, onremove, onpreview }: {
     items: ActivityItem[];
     trackingEnabled: boolean;
     onopen: (item: ActivityItem) => void;
     onremove: (item: ActivityItem) => void;
+    onpreview?: (item: ActivityItem | null) => void;
   } = $props();
 
   const played = $derived(sortRecent(items.filter(isRecentlyPlayed)).slice(0, 10));
@@ -24,7 +25,7 @@
   {:else}
     <div class="activity-track">
       {#each played as item (item.id)}
-        <ActivityCard {item} {onopen} {onremove} />
+        <ActivityCard {item} {onopen} {onremove} {onpreview} />
       {/each}
     </div>
   {/if}
