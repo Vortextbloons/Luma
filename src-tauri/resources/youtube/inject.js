@@ -675,9 +675,25 @@
   const axisButtons = [[19, 20], [17, 18], [23, 24], [21, 22]];
   const pressed = {};
   let focused = document.hasFocus();
-  window.addEventListener('focus', () => { focused = true; });
-  window.addEventListener('blur', () => { focused = false; });
+  window.addEventListener('focus', () => {
+    if (focused) return;
+    focused = true;
+    pollGamepads();
+  });
+  window.addEventListener('blur', () => {
+    focused = false;
+    cancelAnimationFrame(gamepadFrame);
+    clearTimeout(gamepadTimer);
+    for (const timer of timers.values()) {
+      clearTimeout(timer);
+      clearInterval(timer);
+    }
+    timers.clear();
+    for (const index in pressed) delete pressed[index];
+  });
   const timers = new Map();
+  let gamepadFrame;
+  let gamepadTimer;
 
   function press(code) {
     if (focused) keyEvent('keydown', code, '');
@@ -697,6 +713,7 @@
   }
 
   function pollGamepads() {
+    if (!focused) return;
     const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const index in pressed) {
       if (!gamepads[index] && pressed[index]) {
@@ -734,8 +751,8 @@
         break;
       }
     }
-    if (connected) requestAnimationFrame(pollGamepads);
-    else setTimeout(pollGamepads, 500);
+    if (connected) gamepadFrame = requestAnimationFrame(pollGamepads);
+    else gamepadTimer = setTimeout(pollGamepads, 500);
   }
 
   pollGamepads();

@@ -430,7 +430,7 @@ pub fn close(app: &AppHandle) {
         let _ = window.eval("document.querySelector('video')?.pause();");
     }
     crate::background::show(app);
-    crate::background::unload_when_idle(app, "youtube");
+    crate::background::unload(app, "youtube");
 }
 
 pub fn navigate(window: &WebviewWindow, command: &str) {

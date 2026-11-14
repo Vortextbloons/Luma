@@ -370,6 +370,7 @@
             else void playStartupSound();
           }).catch(() => {});
           navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+          if (native) await invoke('launcher_ready');
         }
       }
     }

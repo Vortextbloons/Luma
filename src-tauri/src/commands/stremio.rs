@@ -698,7 +698,7 @@ pub(crate) fn close(app: &AppHandle) {
         pause(&window);
     }
     restore_main(app);
-    crate::background::unload_when_idle(app, "stremio");
+    crate::background::unload(app, "stremio");
 }
 
 pub(crate) fn forward(app: &AppHandle, command: &str) {
@@ -780,7 +780,7 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
             tauri::async_runtime::spawn(async move {
                 pause(&close);
                 restore_main(&restore);
-                crate::background::unload_when_idle(&restore, "stremio");
+                crate::background::unload(&restore, "stremio");
             });
         }
     });

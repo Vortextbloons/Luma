@@ -76,6 +76,7 @@ pub fn run() {
             tv::restore_tv_audio,
             network::network_status,
             sound::play_startup_sound,
+            background::launcher_ready,
             background::startup_enabled,
             background::open_setup_link,
             background::quit_app,
@@ -139,6 +140,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Luma");
     app.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested { api, code: None, .. } = &event {
+            api.prevent_exit();
+        }
         if matches!(event, tauri::RunEvent::Exit) {
             commands::session::close_steam(app);
             media::stop(app);

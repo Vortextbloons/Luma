@@ -111,9 +111,15 @@ export function playSound(name: SoundName): Promise<void> {
     source.connect(gain).connect(master!);
     source.start();
     return new Promise(resolve => {
-      const done = () => resolve();
+      const done = () => {
+        clearTimeout(timeout);
+        source.removeEventListener('ended', done);
+        source.disconnect();
+        gain.disconnect();
+        resolve();
+      };
+      const timeout = setTimeout(done, buffer.duration * 1000 + 60);
       source.addEventListener('ended', done, { once: true });
-      setTimeout(done, buffer.duration * 1000 + 60);
     });
   } catch {
     return Promise.resolve();

@@ -26,6 +26,7 @@ pub struct SteamGame {
     name: String,
     icon: String,
     hero: String,
+    header: String,
     playtime_minutes: u64,
 }
 
@@ -129,6 +130,7 @@ pub async fn steam_recommendations(appid: u32) -> Result<Vec<SteamGame>, String>
                 name,
                 icon,
                 hero: artwork(id, "library_hero.jpg"),
+                header: artwork(id, "header.jpg"),
                 playtime_minutes: 0,
             })
         })
@@ -231,7 +233,11 @@ fn recent_games() -> Result<Vec<SteamGame>, String> {
                 appid,
                 name,
                 icon: local_icon(&icons, appid).unwrap_or_default(),
-                hero: artwork(appid, "library_hero.jpg"),
+                hero: local_artwork(&icons, appid, "library_hero.jpg")
+                    .or_else(|| local_artwork(&icons, appid, "library_header.jpg"))
+                    .unwrap_or_else(|| artwork(appid, "library_hero.jpg")),
+                header: local_artwork(&icons, appid, "library_header.jpg")
+                    .unwrap_or_else(|| artwork(appid, "header.jpg")),
                 playtime_minutes,
             })
         })
@@ -247,8 +253,27 @@ fn artwork(appid: u32, file: &str) -> String {
     format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/{file}")
 }
 
+fn local_artwork(cache: &Path, appid: u32, file: &str) -> Option<String> {
+    let directory = cache.join(appid.to_string());
+    if let Some(image) = data_uri(&directory.join(file)) {
+        return Some(image);
+    }
+    let mut candidates: Vec<_> = std::fs::read_dir(directory).ok()?.flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.path().join(file))
+        .filter(|path| path.is_file())
+        .collect();
+    candidates.sort_by_key(|path| std::cmp::Reverse(
+        std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+    ));
+    candidates.iter().find_map(|path| data_uri(path))
+}
+
 fn local_icon(cache: &Path, appid: u32) -> Option<String> {
-    for entry in std::fs::read_dir(cache.join(appid.to_string())).ok()?.flatten() {
+    for entry in std::fs::read_dir(cache.join(appid.to_string()))
+        .ok()?
+        .flatten()
+    {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;

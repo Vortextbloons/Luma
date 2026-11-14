@@ -199,7 +199,7 @@ pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
     let visible = ["main", "youtube", "stremio"].iter().any(|label|
         app.get_webview_window(label).is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)));
     if should_wake(visible, crate::commands::session::active(app)) {
-        let window = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+        let window = crate::background::main_window(app).await?;
         crate::background::present(window, None).await?;
     }
     Ok(())
@@ -215,6 +215,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
             window.hide().map_err(|error| error.to_string())?;
         }
     }
+    crate::background::unload(app, "main");
     crate::background::unload(app, "youtube");
     crate::background::unload(app, "stremio");
     let _ = crate::tv::restore_audio_sync();

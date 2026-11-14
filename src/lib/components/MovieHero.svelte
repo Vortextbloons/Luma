@@ -28,12 +28,13 @@
   let loadedShape = $state<HeroSlide['artShape']>();
   $effect(() => {
     const slide = item;
+    loadedArt = '';
     let cancelled = false;
     if (!slide?.art) { loadedArt = ''; return; }
     const candidates = [slide.art];
     if (slide.key.startsWith('steam:')) {
       const id = slide.key.split(':')[1];
-      candidates.push(`https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/library_hero.jpg`, `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`);
+      candidates.push(`https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/library_hero.jpg`, `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`, `https://cdn.akamai.steamstatic.com/steam/apps/${id}/header.jpg`);
     }
     const image = new Image();
     let attempt = 0;
