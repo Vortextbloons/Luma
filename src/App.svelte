@@ -12,7 +12,7 @@
   import { createSettings } from './lib/state/settings.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote, openYouTube } from './lib/services/tauri';
-  import { continueWatching, featured, heroArtwork } from './lib/demo';
+  import { loadCatalog } from './lib/services/catalog';
   import type { AppId, ExecutableAppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
 
   const preferences = createSettings();
@@ -21,6 +21,9 @@
   let panel = $state(false);
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
+  let hero = $state<MediaItem | null>(null);
+  let popular = $state<MediaItem[]>([]);
+  let featured = $state<MediaItem[]>([]);
   let media = $state<MediaState>({ available: false, title: '', artist: '', playing: false, canToggle: false, canNext: false, canPrevious: false, error: null });
   let remote = $state<RemoteStatus>({ running: false, lan: false, address: '', token: '', origin: '', error: null });
   let mediaBusy = $state(false);
@@ -40,6 +43,9 @@
   });
   onMount(() => {
     navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
+    loadCatalog()
+      .then(data => { popular = data.popular; featured = data.featured; hero = data.hero; })
+      .catch(() => message = 'Movie catalog could not be loaded. Check your internet connection.');
     let disposed = false;
     const cleanup: (() => void)[] = [];
     async function start() {
@@ -117,9 +123,9 @@
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} />
   {#if showHome}
-    <Hero wallpaper={settings.wallpaper} launch={() => launch('Stremio')} details={() => select({ title: 'Killers of the Flower Moon', subtitle: 'Crime drama · 2023 · 3h 26m', artwork: heroArtwork })} />
+    <Hero wallpaper={settings.wallpaper} item={hero} launch={() => launch('Stremio')} details={() => hero && select(hero)} />
   {:else}<div class="h-32" aria-hidden="true"></div>{/if}
-  {#if (showHome && settings.sections.continue) || tab === 'Watch'}<MediaRow id="continue" title="Continue watching" items={continueWatching} onselect={select} />{/if}
+  {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
   {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
   {#if tab === 'Music'}<MediaControls state={media} busy={mediaBusy} {control} launch={() => launch('Spotify')} refresh={refreshMedia} />{/if}
   {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}

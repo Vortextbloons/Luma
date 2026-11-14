@@ -24,7 +24,11 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 server::initialize(handle.clone()).await;
-                if let Err(error) = frame::initialize(handle).await { eprintln!("Display Box: {error}"); }
+                if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
+                if !std::env::args().any(|arg| arg == "--background") {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    youtube::prepare(handle).await;
+                }
             });
             Ok(())
         })

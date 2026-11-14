@@ -71,6 +71,8 @@
   const nativeResponseText = Object.getOwnPropertyDescriptor(OriginalXHR.prototype, 'responseText').get;
   const nativeResponse = Object.getOwnPropertyDescriptor(OriginalXHR.prototype, 'response').get;
   const responseEvents = ['readystatechange', 'load', 'loadend'];
+  const isYouTubeApi = url => typeof url === 'string'
+    && (url.startsWith('/youtubei/v1/browse') || url.startsWith('/youtubei/v1/search') || url.startsWith('/youtubei/v1/next'));
 
   function LumaXHR() {
     const xhr = new OriginalXHR();
@@ -80,6 +82,7 @@
     const originalRemoveEventListener = xhr.removeEventListener;
 
     let url = null;
+    let relevant = false;
     let modification = null;
     let modifiedText = null;
     let request = 0;
@@ -106,14 +109,16 @@
     }
 
     function createWrapper(listener) {
-      return async function (event) {
-        if (xhr.readyState === 4) {
-          const current = request;
-          await modifyResponse();
-          if (current !== request) return;
-        }
+      const invoke = event => {
         if (typeof listener === 'function') listener.call(xhr, event);
         else listener.handleEvent(event);
+      };
+      return function (event) {
+        if (!relevant || xhr.readyState !== 4) { invoke(event); return; }
+        const current = request;
+        modifyResponse().then(() => {
+          if (current === request) invoke(event);
+        });
       };
     }
 
@@ -161,6 +166,7 @@
 
     xhr.open = function (method, requestUrl) {
       url = String(requestUrl);
+      relevant = isYouTubeApi(url);
       modification = null;
       modifiedText = null;
       request++;
@@ -177,30 +183,6 @@
   LumaXHR.prototype = OriginalXHR.prototype;
   for (const key of ['UNSENT', 'OPENED', 'HEADERS_RECEIVED', 'LOADING', 'DONE']) LumaXHR[key] = OriginalXHR[key];
   window.XMLHttpRequest = LumaXHR;
-
-  addResponseModifier((url, text) => {
-    if (!url.startsWith('/youtubei/v1/browse') && !url.startsWith('/youtubei/v1/search')) return;
-    const json = JSON.parse(text);
-    if (url.startsWith('/youtubei/v1/browse')) {
-      const feed = json.contents?.tvBrowseRenderer?.content?.tvSurfaceContentRenderer?.content?.sectionListRenderer;
-      if (!feed?.contents) return;
-      feed.contents = feed.contents.filter(row => !row.adSlotRenderer && !row.promoShelfRenderer && !row.shelfRenderer?.tvhtml5Metadata?.hideLogo);
-      for (const row of feed.contents) {
-        const items = row?.shelfRenderer?.content?.horizontalListRenderer?.items;
-        if (items) row.shelfRenderer.content.horizontalListRenderer.items = items.filter(item => !item.adSlotRenderer);
-      }
-    } else {
-      const feed = json.contents?.sectionListRenderer;
-      if (!feed?.contents) return;
-      for (const row of feed.contents) {
-        const items = row?.shelfRenderer?.content?.horizontalListRenderer?.items;
-        if (items) row.shelfRenderer.content.horizontalListRenderer.items = items.filter(item => !item.adSlotRenderer);
-      }
-    }
-    return JSON.stringify(json);
-  });
-
-  const brandingCache = new Map();
 
   async function bridgeJSON(path, params) {
     if (!BRIDGE) return null;
@@ -224,11 +206,38 @@
     });
   }
 
-  async function branding(videoId) {
-    if (brandingCache.has(videoId)) return brandingCache.get(videoId);
-    const value = await bridgeJSON('dearrow', { videoID: videoId });
-    brandingCache.set(videoId, value);
-    return value;
+  const brandingCache = new Map();
+  const titleCache = new Map();
+  const thumbnailCache = new Map();
+  const prefetching = new Set();
+
+  function remember(cache, key, value, limit) {
+    cache.set(key, value);
+    if (cache.size > limit) cache.delete(cache.keys().next().value);
+  }
+
+  function cleanTitle(title) {
+    return title.split(' ').map(word => (word.startsWith('>') ? word.slice(1) : word)).join(' ');
+  }
+
+  function prefetch(videoId) {
+    if (!BRIDGE || brandingCache.has(videoId) || prefetching.has(videoId)) return;
+    prefetching.add(videoId);
+    bridgeJSON('dearrow', { videoID: videoId })
+      .then(value => {
+        if (!value?.videoDuration) {
+          remember(brandingCache, videoId, null, 400);
+          return;
+        }
+        remember(brandingCache, videoId, value, 400);
+        const title = value.titles?.find(entry => entry.locked || entry.votes >= 0)?.title;
+        if (title) remember(titleCache, videoId, cleanTitle(title), 400);
+        return bridgeImage(videoId).then(image => {
+          if (image) remember(thumbnailCache, videoId, image, 100);
+        });
+      })
+      .catch(error => console.error('[Luma] DeArrow failed', error))
+      .finally(() => prefetching.delete(videoId));
   }
 
   function collectTiles(url, json) {
@@ -265,31 +274,51 @@
     return items;
   }
 
-  addResponseModifier(async (url, text) => {
-    if (!url.startsWith('/youtubei/v1/browse') && !url.startsWith('/youtubei/v1/search') && !url.startsWith('/youtubei/v1/next')) return;
+  addResponseModifier((url, text) => {
+    if (!isYouTubeApi(url)) return;
     const json = JSON.parse(text);
-    const items = collectTiles(url, json).filter(item => item?.tileRenderer?.contentType === 'TILE_CONTENT_TYPE_VIDEO');
-    if (items.length === 0) return;
-    await Promise.all(items.map(async item => {
-      try {
-        const id = item.tileRenderer.contentId;
-        if (!id || !item.tileRenderer.metadata) return;
-        const value = await branding(id);
-        if (!value?.videoDuration) return;
-        const title = value.titles?.find(entry => entry.locked || entry.votes >= 0);
-        if (title?.title) {
-          item.tileRenderer.metadata.tileMetadataRenderer.title.simpleText = title.title
-            .split(' ')
-            .map(word => (word.startsWith('>') ? word.slice(1) : word))
-            .join(' ');
+    let modified = false;
+    if (url.startsWith('/youtubei/v1/browse')) {
+      const feed = json.contents?.tvBrowseRenderer?.content?.tvSurfaceContentRenderer?.content?.sectionListRenderer;
+      if (feed?.contents) {
+        feed.contents = feed.contents.filter(row => !row.adSlotRenderer && !row.promoShelfRenderer && !row.shelfRenderer?.tvhtml5Metadata?.hideLogo);
+        for (const row of feed.contents) {
+          const items = row?.shelfRenderer?.content?.horizontalListRenderer?.items;
+          if (items) row.shelfRenderer.content.horizontalListRenderer.items = items.filter(item => !item.adSlotRenderer);
         }
-        const image = await bridgeImage(id);
-        if (image) item.tileRenderer.header.tileHeaderRenderer.thumbnail.thumbnails[0].url = image;
-      } catch (error) {
-        console.error('[Luma] DeArrow failed', error);
+        modified = true;
       }
-    }));
-    return JSON.stringify(json);
+    } else if (url.startsWith('/youtubei/v1/search')) {
+      const feed = json.contents?.sectionListRenderer;
+      if (feed?.contents) {
+        for (const row of feed.contents) {
+          const items = row?.shelfRenderer?.content?.horizontalListRenderer?.items;
+          if (items) row.shelfRenderer.content.horizontalListRenderer.items = items.filter(item => !item.adSlotRenderer);
+        }
+        modified = true;
+      }
+    }
+    for (const item of collectTiles(url, json)) {
+      const tile = item?.tileRenderer;
+      if (tile?.contentType !== 'TILE_CONTENT_TYPE_VIDEO' || !tile.contentId || !tile.metadata) continue;
+      if (!brandingCache.has(tile.contentId)) {
+        prefetch(tile.contentId);
+        continue;
+      }
+      const title = titleCache.get(tile.contentId);
+      const label = tile.metadata.tileMetadataRenderer?.title;
+      if (title && label) {
+        label.simpleText = title;
+        modified = true;
+      }
+      const image = thumbnailCache.get(tile.contentId);
+      const thumbnail = tile.header?.tileHeaderRenderer?.thumbnail?.thumbnails?.[0];
+      if (image && thumbnail) {
+        thumbnail.url = image;
+        modified = true;
+      }
+    }
+    if (modified) return JSON.stringify(json);
   });
 
   let sheet = null;
@@ -524,8 +553,16 @@
         if (code) press(code);
       });
     }
-    requestAnimationFrame(pollGamepads);
+    let connected = false;
+    for (const gamepad of gamepads) {
+      if (gamepad?.connected) {
+        connected = true;
+        break;
+      }
+    }
+    if (connected) requestAnimationFrame(pollGamepads);
+    else setTimeout(pollGamepads, 500);
   }
 
-  requestAnimationFrame(pollGamepads);
+  pollGamepads();
 })();

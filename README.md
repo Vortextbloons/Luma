@@ -1,6 +1,6 @@
 # Luma TV
 
-A Windows TV launcher built with Tauri 2, Svelte 5, TypeScript, Tailwind CSS 4, and Rust. Artwork comes from the supplied UI prototype and is bundled locally. Movie rows and progress bars are clearly labeled demo content; Luma launches installed applications rather than streaming movies itself.
+A Windows TV launcher built with Tauri 2, Svelte 5, TypeScript, Tailwind CSS 4, and Rust. Movie rows and the hero feature load real titles from Stremio's public Cinemeta catalog, with artwork from MetaHub. Luma launches installed applications rather than streaming movies itself.
 
 Use current Node.js LTS, npm, Rust stable, and the Windows Tauri prerequisites (MSVC build tools and WebView2).
 
@@ -24,6 +24,10 @@ Settings provide fullscreen, accent colors, wallpaper, density, section visibili
 Spotify and Stremio are automatically detected at startup and whenever launched with an empty configured path. Detection checks standard per-user/system installation locations and Windows App Paths registrations. **Find installed apps** fills empty path fields without replacing manual overrides. Nonstandard installations or Store packages without an executable alias may need a manual path. The custom tile always requires a path.
 
 The Music view controls only a Spotify Windows media session, using GlobalSystemMediaTransportControlsSessionManager. Track information and playback changes arrive through Windows events. Spotify must be running and have exposed a compatible media session; unsupported actions are disabled and missing sessions are reported. No Spotify OAuth or streaming engine is included.
+
+## Movie catalog
+
+Home and Watch load two public Cinemeta catalogs at startup: Popular movies and Featured for you. Titles, descriptions, artwork, year, runtime, and IMDb rating come from Cinemeta and MetaHub, so the rows stay current without an API key or Stremio account. An internet connection is required; when the catalog is unreachable, Luma reports the error and leaves the rows empty. Luma does not track playback, so there is no Continue watching row.
 
 ## Remote protocol
 

@@ -16,7 +16,10 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Cobalt/27.lt
 const SCRIPT: &str = include_str!("../../resources/youtube/inject.js");
 
 #[derive(Default)]
-pub struct Bridge(tokio::sync::OnceCell<String>);
+pub struct Bridge {
+    url: tokio::sync::OnceCell<String>,
+    window: tokio::sync::Mutex<()>,
+}
 
 #[derive(Deserialize)]
 struct VideoQuery {
@@ -210,7 +213,7 @@ async fn start_bridge(app: AppHandle) -> Result<String, String> {
 
 async fn bridge(app: &AppHandle) -> Result<String, String> {
     app.state::<Bridge>()
-        .0
+        .url
         .get_or_try_init(|| start_bridge(app.clone()))
         .await
         .cloned()
@@ -232,44 +235,70 @@ fn allowed(host: Option<&str>) -> bool {
     .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
 }
 
-#[tauri::command]
-pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("youtube") {
-        window.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-    let bridge = bridge(&app).await?;
-    let url: tauri::Url = URL.parse().map_err(|e| format!("Invalid YouTube URL: {e}"))?;
-    let script = format!(
+fn script(bridge: &str) -> Result<String, String> {
+    Ok(format!(
         "window.__LUMA_UA = {}; window.__LUMA_BRIDGE = {};\n{SCRIPT}",
         serde_json::to_string(USER_AGENT).map_err(|e| e.to_string())?,
-        serde_json::to_string(&bridge).map_err(|e| e.to_string())?,
-    );
+        serde_json::to_string(bridge).map_err(|e| e.to_string())?,
+    ))
+}
+
+fn create(app: &AppHandle, bridge: &str, fullscreen: bool, visible: bool) -> Result<WebviewWindow, String> {
+    let url: tauri::Url = URL.parse().map_err(|e| format!("Invalid YouTube URL: {e}"))?;
     let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|e| e.to_string())?;
     let position = main.outer_position().map_err(|e| e.to_string())?;
     let scale = main.scale_factor().map_err(|e| e.to_string())?;
     let restore = main.clone();
-    let window = WebviewWindowBuilder::new(&app, "youtube", WebviewUrl::External(url))
+    let window = WebviewWindowBuilder::new(app, "youtube", WebviewUrl::External(url))
         .title("Luma TV")
         .inner_size(size.width as f64 / scale, size.height as f64 / scale)
         .position(position.x as f64 / scale, position.y as f64 / scale)
         .min_inner_size(720.0, 405.0)
         .fullscreen(fullscreen)
+        .visible(visible)
         .user_agent(USER_AGENT)
-        .initialization_script(script)
+        .initialization_script(script(bridge)?)
         .on_navigation(|url| url.scheme() == "about" || allowed(url.host_str()))
         .build()
         .map_err(|e| format!("Could not open YouTube TV: {e}"))?;
     window.on_window_event(move |event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                let _ = restore.show();
-                let _ = restore.unminimize();
-                let _ = restore.set_focus();
-            }
-        });
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = restore.show();
+            let _ = restore.unminimize();
+            let _ = restore.set_focus();
+        }
+    });
+    Ok(window)
+}
+
+pub async fn prepare(app: AppHandle) {
+    let Ok(bridge) = bridge(&app).await else { return };
+    let state = app.state::<Bridge>();
+    let _guard = state.window.lock().await;
+    if app.get_webview_window("youtube").is_some() {
+        return;
+    }
+    if let Err(error) = create(&app, &bridge, false, false) {
+        eprintln!("YouTube preload skipped: {error}");
+    }
+}
+
+#[tauri::command]
+pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String> {
+    let state = app.state::<Bridge>();
+    let _guard = state.window.lock().await;
+    let window = match app.get_webview_window("youtube") {
+        Some(window) => window,
+        None => create(&app, &bridge(&app).await?, fullscreen, true)?,
+    };
+    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
-    main.hide().map_err(|e| e.to_string())?;
+    if let Some(main) = app.get_webview_window("main") {
+        main.hide().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

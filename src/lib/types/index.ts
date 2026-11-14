@@ -6,11 +6,14 @@ export interface Settings {
   density: 'comfortable' | 'compact';
   fullscreen: boolean;
   wallpaper: string;
-  sections: { continue: boolean; apps: boolean; featured: boolean };
+  sections: { popular: boolean; apps: boolean; featured: boolean };
   paths: Record<ExecutableAppId, string>;
   order: AppId[];
 }
-export interface MediaItem { title: string; subtitle: string; artwork: string; progress?: number }
+export interface MediaItem {
+  id: string; title: string; subtitle: string; artwork: string; description: string;
+  year: string; runtime: string; rating: string;
+}
 export interface MediaState {
   available: boolean; title: string; artist: string; playing: boolean;
   canToggle: boolean; canPrevious: boolean; canNext: boolean; error: string | null;

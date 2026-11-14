@@ -9,7 +9,8 @@
   <img src={item.artwork} alt="" />
   <h2 id="details-title">{item.title}</h2>
   <p>{item.subtitle}</p>
-  <p>This is a demo collection. Luma does not stream this title or track its playback. Browse available content in Stremio on your PC.</p>
+  {#if item.description}<p>{item.description}</p>{/if}
+  <p>Luma does not stream this title. Open Stremio on your PC to watch it.</p>
   {#if message}<p role="status">{message}</p>{/if}
   <button class="btn btn-primary" onclick={launch}>Open Stremio</button>
 </dialog>
