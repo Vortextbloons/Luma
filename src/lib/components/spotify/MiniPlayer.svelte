@@ -11,7 +11,7 @@
 {#if visible}
   <aside class="mini-player" aria-label="Mini player">
     <button class="mini-player-open" onclick={onopen} aria-label="Open now playing">
-      <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>
+      <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>
       <span class="mini-player-copy">
         <b>{playback.title ?? 'Spotify'}</b>
         <small>{playback.artist ?? (playback.playerAvailable ? 'Ready to play' : 'Spotify')}</small>

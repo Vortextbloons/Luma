@@ -6,6 +6,8 @@
   } = $props();
   let busy = $state(false);
   let error = $state('');
+  let limit = $state(60);
+  const visible = $derived(status?.items.slice(0, limit) ?? []);
   const kind = (value: string) => value === 'series' ? 'Series' : value === 'movie' ? 'Movie' : 'Video';
   const when = (value: number | null) => value ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never';
 
@@ -30,10 +32,10 @@
     <div class="library-empty"><h2>No library titles yet</h2><p>{status.lastSync ? 'Your synchronized Stremio library is empty.' : 'Synchronize your Stremio library to load it here.'}</p><button class="btn btn-primary" disabled={busy} onclick={synchronize}>{busy ? 'Synchronizing…' : 'Sync Now'}</button></div>
   {:else}
     <div class="library-grid">
-      {#each status.items as item (item.id)}
+      {#each visible as item (item.id)}
         <button class="media-card" aria-label={`${item.name}, ${item.progress > 0 ? `${Math.round(item.progress)} percent watched` : kind(item.kind)}`} onclick={() => open(item.id)}>
           <span class="poster">
-            {#if item.poster}<img src={item.poster} alt="" loading="lazy" />{/if}
+            {#if item.poster}<img src={item.poster} alt="" loading="lazy" decoding="async" />{/if}
             {#if item.progress > 0}<span class="watch-progress" aria-hidden="true"><span style:width={`${Math.min(item.progress, 100)}%`}></span></span>{/if}
           </span>
           <span class="card-name">{item.name}</span>
@@ -41,6 +43,12 @@
         </button>
       {/each}
     </div>
+    {#if status.items.length > limit}<button class="library-more-titles" onclick={() => limit += 60}>Show more titles</button>{/if}
   {/if}
   {#if error}<p class="stremio-error library-error" role="alert">{error}</p>{/if}
 </section>
+
+<style>
+  .library-more-titles { display: block; margin: 26px auto 0; padding: 12px 22px; border: 1px solid #ffffff24; border-radius: 99px; background: #ffffff08; color: #d6dbe8; font-size: clamp(13px, .9vw, 16px); font-weight: 600; }
+  .library-more-titles:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+</style>

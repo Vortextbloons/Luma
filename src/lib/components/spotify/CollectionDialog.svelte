@@ -32,7 +32,7 @@
 <dialog class="collection-dialog" aria-labelledby="collection-title" oncancel={(event) => { event.preventDefault(); onclose(); }} {@attach mountDialog}>
   <header><button class="collection-back" onclick={onclose}><MusicIcon name="arrow-left" /> Back</button><span>YOUR MUSIC - SPOTIFY</span></header>
   <div class="collection-hero">
-    <div class="cover">{#if collection.artworkUrl}<img src={collection.artworkUrl} alt="" />{:else}<MusicIcon name={collection.kind === 'tracks' ? 'heart' : 'library'} size={80} />{/if}</div>
+    <div class="cover">{#if collection.artworkUrl}<img src={collection.artworkUrl} alt="" decoding="async" />{:else}<MusicIcon name={collection.kind === 'tracks' ? 'heart' : 'library'} size={80} />{/if}</div>
     <div><p class="kind">{collection.kind === 'playlist' ? 'Playlist' : collection.kind === 'album' ? 'Album' : 'Your library'}</p><h1 id="collection-title">{collection.title}</h1>{#if collection.subtitle && collection.subtitle !== `${page?.total} tracks`}<p>{collection.subtitle}</p>{/if}{#if page}<p>{page.total} {collection.kind === 'playlists' ? 'playlists' : collection.kind === 'albums' ? 'albums' : 'tracks'}</p>{/if}
     {#if collection.uri}<button class="play" disabled={spotify.busy} onclick={() => onplay(collection.uri)}><MusicIcon name="play" /> Play {collection.kind}</button>{/if}</div>
   </div>

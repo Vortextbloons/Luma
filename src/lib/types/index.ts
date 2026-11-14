@@ -31,7 +31,3 @@ export interface StremioStatus {
   connected: boolean; email: string | null; lastSync: number | null;
   linking: StremioLink | null; items: StremioItem[]; continueWatching: StremioItem[];
 }
-export interface MediaState {
-  available: boolean; title: string; artist: string; playing: boolean;
-  canToggle: boolean; canPrevious: boolean; canNext: boolean; error: string | null;
-}

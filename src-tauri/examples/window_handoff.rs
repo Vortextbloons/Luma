@@ -2,6 +2,20 @@
 #[allow(dead_code)]
 mod background;
 
+mod tv {
+    use tauri::{AppHandle, WebviewWindow};
+
+    pub fn place(_: &WebviewWindow) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub async fn apply_audio(_: &AppHandle) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn report_audio(_: &AppHandle, _: Option<String>) {}
+}
+
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},

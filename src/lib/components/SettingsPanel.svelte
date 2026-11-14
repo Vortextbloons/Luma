@@ -159,7 +159,7 @@
         <section class="settings-group">
           <h3>Background image</h3>
           <p class="panel-description">Use your own image behind the home screen. PNG, JPEG, WebP, or GIF up to 3 MB.</p>
-          {#if settings.wallpaper}<img class="wallpaper-preview" src={settings.wallpaper} alt="Current home screen background" />{/if}
+          {#if settings.wallpaper}<img class="wallpaper-preview" src={settings.wallpaper} alt="Current home screen background" decoding="async" />{/if}
           <label class="field">Choose an image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={wallpaper} /></label>
           <div class="settings-actions"><button class="text-link" disabled={!settings.wallpaper} onclick={() => settings.wallpaper = ''}>Reset background</button></div>
         </section>

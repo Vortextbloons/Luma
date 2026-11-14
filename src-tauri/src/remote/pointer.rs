@@ -179,10 +179,13 @@ pub fn show_cursor(app: &tauri::AppHandle) {
     watch(app);
 }
 
+pub(crate) fn hides_cursor(command: &str) -> bool {
+    !matches!(command, "stop" | "click" | "fullscreen")
+}
+
 pub fn click(app: &tauri::AppHandle) -> Result<(), String> {
-    let result = platform::click();
-    hide_cursor(app);
-    result
+    show_cursor(app);
+    platform::click()
 }
 
 async fn run(app: tauri::AppHandle) {
@@ -349,7 +352,7 @@ mod physical {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp, velocity, DEAD_ZONE};
+    use super::{clamp, hides_cursor, velocity, DEAD_ZONE};
 
     #[test]
     fn joystick_dead_zone_suppresses_drift() {
@@ -368,6 +371,19 @@ mod tests {
         assert!(y > 1000.0);
         let (slow_x, _) = velocity(0.2, 0.0);
         assert!(slow_x < 100.0);
+    }
+
+    #[test]
+    fn remote_clicks_and_fullscreen_keep_the_pointer_visible() {
+        for command in ["stop", "click", "fullscreen"] {
+            assert!(!hides_cursor(command), "{command}");
+        }
+        for command in [
+            "up", "down", "left", "right", "activate", "back", "home", "toggle", "previous",
+            "next", "volumeup", "volumedown", "mute", "youtube", "netflix",
+        ] {
+            assert!(hides_cursor(command), "{command}");
+        }
     }
 
     #[test]

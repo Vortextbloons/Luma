@@ -127,7 +127,7 @@
   {#if section === 'Listen now' && (connection.processRunning || playback.playerAvailable || playback.title)}
   <section class="music-now-card" aria-label="Currently playing">
     <div class="music-now-art">
-      {#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" />{:else}<span aria-hidden="true"><MusicIcon name="music" size={72} /></span>{/if}
+      {#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" size={72} /></span>{/if}
     </div>
     <div class="music-now-copy">
       <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>

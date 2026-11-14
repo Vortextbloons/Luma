@@ -43,7 +43,7 @@ impl Activity {
             .collect();
         let items = self
             .storage
-            .list(200)?
+            .list(50)?
             .into_iter()
             .filter(|item| !hidden.contains(&item.provider))
             .collect::<Vec<_>>();

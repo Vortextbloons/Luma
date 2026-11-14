@@ -4,6 +4,7 @@ mod tv;
 mod frame;
 mod network;
 mod commands;
+mod credentials;
 mod integrations;
 mod remote;
 
@@ -33,7 +34,6 @@ pub fn run() {
         .manage(apps::Apps::default())
         .manage(services::Services::default())
         .manage(session::Session::default())
-        .manage(media::Media::default())
         .manage(server::Remote::default())
         .manage(remote::pointer::Pointer::default())
         .manage(frame::Frame::default())
@@ -83,8 +83,6 @@ pub fn run() {
             apps::app_paths,
             apps::save_app_paths,
             apps::detect_apps,
-            media::media_state,
-            media::media_control,
             spotify::spotify_status,
             spotify::spotify_playback,
             spotify::spotify_control,

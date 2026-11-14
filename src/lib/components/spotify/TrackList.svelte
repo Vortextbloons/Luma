@@ -9,7 +9,7 @@
   {#each tracks as track, index (`${track.uri}-${index}`)}
     <button class={{ "current": Boolean(track.id && track.id === spotify.playback.trackId) }} disabled={spotify.busy || !track.uri?.startsWith('spotify:track:')} onclick={() => onplay(track.uri)} aria-label={`Play ${track.title} by ${track.artist}`}>
       <span class="number">{index + 1}</span>
-      <span class="art">{#if track.artworkUrl || artworkUrl}<img src={track.artworkUrl ?? artworkUrl} alt="" loading="lazy" />{:else}<MusicIcon />{/if}</span>
+      <span class="art">{#if track.artworkUrl || artworkUrl}<img src={track.artworkUrl ?? artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<MusicIcon />{/if}</span>
       <span class="copy"><b>{track.title}</b><small>{track.artist || 'Unknown artist'}{!track.uri?.startsWith('spotify:track:') ? ' - Unavailable' : ''}</small></span>
       <span class="album">{track.album || album || ''}</span>
       <span class="duration">{duration(track.durationMs)}</span>

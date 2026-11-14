@@ -83,7 +83,7 @@
 
   <div class="now-playing-layout">
     <div class="now-playing-art">
-      {#if playback.artworkUrl}<img src={playback.artworkUrl} alt={`${playback.album ?? 'Album'} artwork`} />{:else}<span aria-hidden="true"><MusicIcon name="music" size={96} /></span>{/if}
+      {#if playback.artworkUrl}<img src={playback.artworkUrl} alt={`${playback.album ?? 'Album'} artwork`} decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" size={96} /></span>{/if}
     </div>
 
     <div class="now-playing-copy">

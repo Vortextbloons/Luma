@@ -10,6 +10,23 @@
   let device = $state<Device>('phone');
   let connecting = $state(false);
   let qr = $state('');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let checking = false;
+  let disposed = false;
+  function delay() { return status?.code || status?.phoneCode ? 3000 : 15000; }
+  function schedule() {
+    if (!native || disposed) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (!busy && !checking) {
+        checking = true;
+        try { status = await invoke<Status>('frame_status'); }
+        catch (reason) { error = String(reason); }
+        finally { checking = false; }
+      }
+      schedule();
+    }, delay());
+  }
   async function connect(selected: Device = device) {
     device = selected;
     busy = true;
@@ -21,7 +38,7 @@
       connecting = true;
       if (selected === 'phone' && status.addresses.length) qr = await invoke<string>('phone_remote_qr');
     } catch (reason) { error = String(reason); }
-    finally { busy = false; }
+    finally { busy = false; schedule(); }
   }
   const badge = $derived(status?.enabled
     ? status.paired && status.phonePaired
@@ -53,16 +70,10 @@
     finally { busy = false; }
   }
   onMount(() => {
-    if (native) void (autoConnect ? connect() : run('frame_status'));
-    let checking = false;
-    const timer = setInterval(async () => {
-      if (!native || busy || checking) return;
-      checking = true;
-      try { status = await invoke<Status>('frame_status'); }
-      catch (reason) { error = String(reason); }
-      finally { checking = false; }
-    }, 3000);
-    return () => clearInterval(timer);
+    if (!native) return;
+    void (autoConnect ? connect() : run('frame_status'));
+    schedule();
+    return () => { disposed = true; if (timer) clearTimeout(timer); };
   });
 </script>
 
@@ -102,7 +113,7 @@
               <p class="panel-description">Enter this code in the web remote. Valid for five minutes; you can pair multiple browsers.</p>
             </div>
           {/if}
-          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote in your browser" /><p class="remote-note">Scan with a camera to open the web remote. Keep both devices on the same Wi-Fi.</p>{/if}
+          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote in your browser" decoding="async" /><p class="remote-note">Scan with a camera to open the web remote. Keep both devices on the same Wi-Fi.</p>{/if}
           <ol class="remote-steps">
             <li>Scan the QR code, or type this address in a browser on your device.</li>
             <li>Enter the pairing code shown below.</li>

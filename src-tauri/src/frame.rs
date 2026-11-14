@@ -289,7 +289,7 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
     if !["stop", "click", "fullscreen"].contains(&command) {
         if let Err(error) = server::wake(app).await { return Some(Err(error)); }
     }
-    if !["stop", "click"].contains(&command) {
+    if crate::remote::pointer::hides_cursor(command) {
         crate::remote::pointer::hide_cursor(app);
     }
     if command == "fullscreen" {

@@ -62,7 +62,7 @@
             <h3>Tracks</h3>
             {#each results.tracks as track, index (track.id ?? `${track.title}-${index}`)}
               <button class="music-result" disabled={spotify.busy || !track.uri} onclick={() => play(track.uri)}>
-                {#if track.artworkUrl}<img src={track.artworkUrl} alt="" loading="lazy" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="music" /></span>{/if}
+                {#if track.artworkUrl}<img src={track.artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="music" /></span>{/if}
                 <span><b>{track.title}</b><small>{track.artist}{track.album ? ` · ${track.album}` : ''}</small></span>
               </button>
             {/each}
@@ -73,7 +73,7 @@
             <h3>Playlists</h3>
             {#each results.playlists as playlist (playlist.id)}
               <button class="music-result" onclick={() => onbrowse({ id: playlist.id, title: playlist.name, uri: playlist.uri, artworkUrl: playlist.artworkUrl, subtitle: playlist.owner, kind: 'playlist' })}>
-                {#if playlist.artworkUrl}<img src={playlist.artworkUrl} alt="" loading="lazy" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="list-music" /></span>{/if}
+                {#if playlist.artworkUrl}<img src={playlist.artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="list-music" /></span>{/if}
                 <span><b>{playlist.name}</b><small>{playlist.owner ? `By ${playlist.owner}` : 'Playlist'}</small></span>
               </button>
             {/each}
@@ -84,7 +84,7 @@
             <h3>Albums</h3>
             {#each results.albums as album (album.id)}
               <button class="music-result" onclick={() => onbrowse({ id: album.id, title: album.name, uri: album.uri, artworkUrl: album.artworkUrl, subtitle: album.artist, kind: 'album' })}>
-                {#if album.artworkUrl}<img src={album.artworkUrl} alt="" loading="lazy" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="disc-3" /></span>{/if}
+                {#if album.artworkUrl}<img src={album.artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<span class="music-result-art" aria-hidden="true"><MusicIcon name="disc-3" /></span>{/if}
                 <span><b>{album.name}</b><small>{album.artist}{album.year ? ` · ${album.year}` : ''}</small></span>
               </button>
             {/each}

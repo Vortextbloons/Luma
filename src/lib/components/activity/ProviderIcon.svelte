@@ -18,7 +18,7 @@
 </script>
 
 <span class={`provider-icon provider-${provider}`} class:has-image={source !== ''} aria-hidden="true">
-  {#if source}<img src={source} alt="" loading="lazy" />{:else}<span>{monogram}</span>{/if}
+  {#if source}<img src={source} alt="" loading="lazy" decoding="async" />{:else}<span>{monogram}</span>{/if}
 </span>
 
 <style>

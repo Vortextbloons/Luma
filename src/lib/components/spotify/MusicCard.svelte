@@ -11,7 +11,7 @@
 
 <button class="music-card" onclick={onselect} aria-label={`${kind}: ${title}`}>
   <span class="music-card-art">
-    {#if artworkUrl}<img src={artworkUrl} alt="" loading="lazy" />{:else}<span class="music-card-placeholder" aria-hidden="true"><MusicIcon name="music" /></span>{/if}
+    {#if artworkUrl}<img src={artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<span class="music-card-placeholder" aria-hidden="true"><MusicIcon name="music" /></span>{/if}
   </span>
   <span class="music-card-name">{title}</span>
   {#if subtitle}<span class="music-card-subtitle">{subtitle}</span>{/if}

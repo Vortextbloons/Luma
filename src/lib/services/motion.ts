@@ -16,7 +16,7 @@ export function smoothHeight(element: HTMLElement) {
     const previous = animation ? element.getBoundingClientRect().height : height;
     height = next;
     cancel();
-    if (preference.matches) return;
+    if (preference.matches || Math.abs(next - previous) > 320) return;
     element.style.overflow = 'clip';
     animation = element.animate([{ height: `${previous}px` }, { height: `${next}px` }], {
       duration: 180,

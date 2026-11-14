@@ -129,7 +129,7 @@
     <div class="stremio-link">
       <p class="panel-description">On your phone or another device, open the link below and sign in to Stremio, or scan the QR code. Luma will connect automatically. The code expires after five minutes.</p>
       <span class="stremio-code" aria-label={`Stremio link code ${waiting.code}`}>{waiting.code}</span>
-      <img class="stremio-qr" src={waiting.qr} alt="QR code for the Stremio device link" />
+      <img class="stremio-qr" src={waiting.qr} alt="QR code for the Stremio device link" decoding="async" />
       <p class="stremio-link-url">{waiting.link}</p>
       <div class="settings-actions">
         <button class="panel-secondary is-primary" disabled={busy} onclick={openLink}>Open link.stremio.com</button>

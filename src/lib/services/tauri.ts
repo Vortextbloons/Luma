@@ -1,13 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, ExecutableAppId, MediaState, NavigationCommand, OpenOutcome, StremioStatus, YouTubeFeedItem } from '../types';
+import type { ActivitySnapshot, ExecutableAppId, NavigationCommand, OpenOutcome, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
 export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', { name });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
-export const mediaState = () => invoke<MediaState>('media_state');
-export const mediaControl = (action: 'toggle' | 'previous' | 'next') => invoke<void>('media_control', { action });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
 export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');
 export const openYouTubeVideo = (videoId: string, fullscreen: boolean) => invoke<void>('youtube_open_video', { videoId, fullscreen });
@@ -26,4 +24,3 @@ export const stremioOpenDetail = (kind: string, id: string) => invoke<void>('str
 export const onActivity = (callback: (snapshot: ActivitySnapshot) => void) => listen<ActivitySnapshot>('activity-updated', event => callback(event.payload));
 export const onNavigation = (callback: (command: NavigationCommand) => void) => listen<NavigationCommand>('remote-navigation', event => callback(event.payload));
 export const onOpenMusic = (callback: () => void) => listen('open-music', callback);
-export const onMedia = (callback: (state: MediaState) => void) => listen<MediaState>('spotify-state', event => callback(event.payload));

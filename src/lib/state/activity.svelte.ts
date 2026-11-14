@@ -10,7 +10,7 @@ import { activitySnapshot, onActivity } from '../services/tauri';
 const empty: ActivitySnapshot = { items: [], providers: [], trackingEnabled: true, generatedAt: '' };
 
 class ActivityStore {
-  snapshot = $state<ActivitySnapshot>(empty);
+  snapshot = $state.raw<ActivitySnapshot>(empty);
   loading = $state(false);
   error = $state('');
   private started = false;

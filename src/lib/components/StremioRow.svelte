@@ -16,7 +16,7 @@
     {#each items as item (item.id)}
       <button class="media-card" aria-label={label(item)} onclick={() => open(item.id)}>
         <span class="poster">
-          {#if item.poster}<img src={item.poster} alt="" loading="lazy" />{/if}
+          {#if item.poster}<img src={item.poster} alt="" loading="lazy" decoding="async" />{/if}
           {#if item.progress > 0}<span class="watch-progress" aria-hidden="true"><span style:width={`${Math.min(item.progress, 100)}%`}></span></span>{/if}
         </span>
         <span class="card-name">{item.name}</span>

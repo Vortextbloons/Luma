@@ -6,7 +6,7 @@
 
 <dialog {@attach mountDialog} class="details-dialog" aria-labelledby="details-title" oncancel={(event) => { event.preventDefault(); close(); }}>
   <button class="close-btn float-right mb-4" onclick={close} aria-label="Close details">×</button>
-  <img src={item.backdrop} alt="" />
+  <img src={item.backdrop} alt="" decoding="async" />
   <h2 id="details-title">{item.title}</h2>
   <p>{item.subtitle}</p>
   {#if item.description}<p>{item.description}</p>{/if}

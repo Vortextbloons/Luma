@@ -44,7 +44,7 @@
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
   let movieQuery = $state('');
-  let movieResults = $state<MediaItem[]>([]);
+  let movieResults = $state.raw<MediaItem[]>([]);
   let searching = $state(false);
   let searchStatus = $state('');
   let searchRequest = 0;
@@ -59,18 +59,19 @@
     } catch { if (request === searchRequest) searchStatus = 'Search could not load. Check your connection and try again.'; }
     finally { if (request === searchRequest) searching = false; }
   }
-  let popular = $state<MediaItem[]>([]);
-  let featured = $state<MediaItem[]>([]);
+  let popular = $state.raw<MediaItem[]>([]);
+  let featured = $state.raw<MediaItem[]>([]);
   let playerOpen = $state(false);
   let musicHome = $state<MusicHome>();
   let player = $state<NowPlaying>();
   let launching = $state<AppId | null>(null);
   let stremioPairing = $state(false);
-  let stremio = $state<StremioStatus | null>(null);
+  let stremio = $state.raw<StremioStatus | null>(null);
   let previewApp = $state<AppId | null>(null);
-  let youTubeFeed = $state<YouTubeFeedItem[]>([]);
+  let youTubeFeed = $state.raw<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
+  let stremioPreviewSyncedAt = 0;
   const navigation = createNavigation(back, home, () => settings.homeShortcut);
   const showHome = $derived(tab === 'Home');
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
@@ -81,7 +82,10 @@
     const changed = previewApp !== id;
     previewApp = id;
     if (id === 'Spotify') void spotify.loadHome();
-    if (id === 'Stremio' && changed) void refreshStremio(true);
+    if (id === 'Stremio' && changed && Date.now() - stremioPreviewSyncedAt > 60_000) {
+      stremioPreviewSyncedAt = Date.now();
+      void refreshStremio(true);
+    }
   }
 
   function horizontalWheel(node: HTMLElement) {
@@ -118,33 +122,41 @@
       .catch(() => message = 'Movie catalog could not be loaded. Check your internet connection.');
     let disposed = false;
     const cleanup: (() => void)[] = [];
+    function track(stop: () => void) { if (disposed) stop(); else cleanup.push(stop); }
     async function start() {
       if (!native) { message = 'Browser preview. Native app launching, fullscreen, web remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
-        cleanup.push(stopMusic);
-        cleanup.push(await listen<string>('tv-setup-error', event => message = event.payload));
-        cleanup.push(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
-        const tvWarning = await invoke<string | null>('tv_setup_warning');
-        if (tvWarning) message = tvWarning;
+        track(stopMusic);
+        track(await listen<string>('tv-setup-error', event => message = event.payload));
+        track(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
         const stopNavigation = await onNavigation(navigation.dispatch);
         if (disposed) { stopNavigation(); return; }
-        cleanup.push(stopNavigation);
-        await onYouTubeFeed(items => youTubeFeed = items).then(stop => cleanup.push(stop)).catch(() => {});
-        youtubeFeed().then(items => youTubeFeed = items).catch(() => {});
-        cleanup.push(await activity.start());
-        await spotify.initialize();
-        if (spotify.connection.installed && await getCurrentWindow().isVisible()) void spotify.start();
-        cleanup.push(() => spotify.dispose());
-        stremio = await stremioStatus();
-        const paths = await invoke<Record<ExecutableAppId, string>>('app_paths');
-        settings.paths = paths;
-        await detect(false);
+        track(stopNavigation);
+        const [stopActivity] = await Promise.all([
+          activity.start(),
+          stremioStatus().then(value => { if (!disposed) stremio = value; }).catch(error => { if (!disposed) message = String(error); }),
+          invoke<Record<ExecutableAppId, string>>('app_paths').then(paths => { if (!disposed) settings.paths = paths; }).catch(error => { if (!disposed) message = String(error); }),
+        ]);
+        track(stopActivity);
         await getCurrentWindow().setFullscreen(settings.fullscreen);
-        cleanup.push(await getCurrentWindow().onResized(async () => { const value = await getCurrentWindow().isFullscreen(); if (value !== settings.fullscreen) settings.fullscreen = value; }));
+        track(await getCurrentWindow().onResized(async () => { const value = await getCurrentWindow().isFullscreen(); if (value !== settings.fullscreen) settings.fullscreen = value; }));
+        if (!disposed) void hydrate();
       } catch (error) { message = String(error); }
       finally { if (disposed) cleanup.splice(0).forEach(stop => stop()); }
+    }
+    async function hydrate() {
+      try {
+        track(await onYouTubeFeed(items => { if (!disposed) youTubeFeed = items; }));
+        youtubeFeed().then(items => { if (!disposed) youTubeFeed = items; }).catch(() => {});
+        await spotify.initialize();
+        track(() => spotify.dispose());
+        if (spotify.connection.installed && await getCurrentWindow().isVisible()) void spotify.start();
+        const tvWarning = await invoke<string | null>('tv_setup_warning');
+        if (tvWarning && !disposed) message = tvWarning;
+        await detect(false);
+      } catch (error) { if (!disposed) message = String(error); }
     }
     async function reveal() {
       try { await start(); }
@@ -421,7 +433,7 @@
 <style>
   .resizing-content { display: flow-root; }
   .remote-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: clamp(24px, 3vw, 40px); overflow-y: auto; border: 1px solid #ffffff26; border-radius: 24px; background: #15171e; color: var(--text); box-shadow: 0 24px 90px #0008; }
-  .remote-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(8px); }
+  .remote-dialog::backdrop { background: #05060aaa; backdrop-filter: blur(6px); }
   .remote-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
   .remote-dialog-heading h2 { margin: 8px 0 0; font-size: clamp(26px, 2.4vw, 36px); }
 </style>

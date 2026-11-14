@@ -6,7 +6,22 @@ export function homeShortcut(event: KeyboardEvent) {
 }
 
 export function createNavigation(back: () => void, home: () => void, shortcut: () => string = () => 'Ctrl+H') {
-  const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
+  let cached: HTMLElement[] | undefined;
+  let cachedRoot: Element | Document | undefined;
+  let observer: MutationObserver | undefined;
+  const invalidate = () => { cached = undefined; cachedRoot = undefined; };
+  const elements = () => {
+    const root = document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document;
+    if (cached && cachedRoot === root && cached[0]?.isConnected) return cached;
+    if (!observer && typeof MutationObserver !== 'undefined') {
+      observer = new MutationObserver(invalidate);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'disabled', 'hidden', 'open', 'inert', 'style', 'tabindex'] });
+      window.addEventListener('resize', invalidate, { passive: true });
+    }
+    cachedRoot = root;
+    cached = [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
+    return cached;
+  };
   function focus(el?: HTMLElement) {
     const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
     target?.focus({ preventScroll: true });

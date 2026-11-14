@@ -25,7 +25,7 @@ fn snapshot() -> Result<Status, String> {
     let profiles = NetworkInformation::GetConnectionProfiles().map_err(|error| error.to_string())?;
     let mut vpn_names = Vec::new();
     for profile in profiles {
-        if profile.GetNetworkConnectivityLevel().map_err(|error| error.to_string())? == NetworkConnectivityLevel::None { continue; }
+        if profile.GetNetworkConnectivityLevel().map_err(|error| error.to_string())? != NetworkConnectivityLevel::InternetAccess { continue; }
         let name = profile.ProfileName().map_err(|error| error.to_string())?.to_string();
         let kind = profile.NetworkAdapter().and_then(|adapter| adapter.IanaInterfaceType()).map_err(|error| error.to_string())?;
         if vpn_interface(kind, &name) { vpn_names.push(name); }

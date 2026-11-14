@@ -47,7 +47,7 @@ impl Auth {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok())
             .unwrap_or_default();
-        let tokens = credential_read()
+        let tokens = crate::credentials::read(CREDENTIAL_TARGET)
             .ok()
             .flatten()
             .and_then(|bytes| serde_json::from_slice::<Tokens>(&bytes).ok());
@@ -196,7 +196,7 @@ impl Auth {
             tokens.expires_at = now_ms() / 1000 + expires_in;
             tokens.clone()
         };
-        let _ = credential_write(&serde_json::to_vec(&stored).map_err(|error| error.to_string())?);
+        let _ = crate::credentials::save(CREDENTIAL_TARGET, &serde_json::to_vec(&stored).map_err(|error| error.to_string())?);
         Ok(access_token)
     }
 
@@ -209,7 +209,7 @@ impl Auth {
         if let Ok(mut tokens) = self.tokens.lock() {
             *tokens = None;
         }
-        let _ = credential_delete();
+        let _ = crate::credentials::delete(CREDENTIAL_TARGET);
     }
 
     pub async fn connect(&self) -> Result<(), String> {
@@ -316,7 +316,7 @@ impl Auth {
             refresh_token,
             expires_at: now_ms() / 1000 + expires_in,
         };
-        credential_write(&serde_json::to_vec(&tokens).map_err(|error| error.to_string())?)?;
+        crate::credentials::save(CREDENTIAL_TARGET, &serde_json::to_vec(&tokens).map_err(|error| error.to_string())?)?;
         {
             let mut stored = self.tokens.lock().map_err(|error| error.to_string())?;
             *stored = Some(tokens);
@@ -325,10 +325,12 @@ impl Auth {
     }
 }
 
+type CallbackSender = std::sync::Arc<Mutex<Option<oneshot::Sender<Result<String, String>>>>>;
+
 #[derive(Clone)]
 struct CallbackState {
     state: String,
-    sender: std::sync::Arc<Mutex<Option<oneshot::Sender<Result<String, String>>>>>,
+    sender: CallbackSender,
 }
 
 async fn callback(
@@ -474,96 +476,6 @@ fn open_browser(url: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn open_browser(_: &str) -> Result<(), String> {
     Err("Spotify sign-in requires Windows.".into())
-}
-
-#[cfg(windows)]
-fn credential_write(value: &[u8]) -> Result<(), String> {
-    use windows::{
-        core::PWSTR,
-        Win32::Security::Credentials::{
-            CredWriteW, CREDENTIALW, CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
-        },
-    };
-    let mut target = wide(CREDENTIAL_TARGET);
-    let mut secret = value.to_vec();
-    let credential = CREDENTIALW {
-        Flags: CRED_FLAGS(0),
-        Type: CRED_TYPE_GENERIC,
-        TargetName: PWSTR(target.as_mut_ptr()),
-        Comment: PWSTR::null(),
-        LastWritten: Default::default(),
-        CredentialBlobSize: secret.len() as u32,
-        CredentialBlob: secret.as_mut_ptr(),
-        Persist: CRED_PERSIST_LOCAL_MACHINE,
-        AttributeCount: 0,
-        Attributes: std::ptr::null_mut(),
-        TargetAlias: PWSTR::null(),
-        UserName: PWSTR::null(),
-    };
-    unsafe { CredWriteW(&credential, 0) }
-        .map_err(|error| format!("Windows Credential Manager rejected the Spotify token: {error}"))
-}
-
-#[cfg(windows)]
-fn credential_read() -> Result<Option<Vec<u8>>, String> {
-    use windows::{
-        core::PCWSTR,
-        Win32::Security::Credentials::{CredFree, CredReadW, CRED_TYPE_GENERIC},
-    };
-    let target = wide(CREDENTIAL_TARGET);
-    let mut credential = std::ptr::null_mut();
-    let result = unsafe {
-        CredReadW(
-            PCWSTR(target.as_ptr()),
-            CRED_TYPE_GENERIC,
-            None,
-            &mut credential,
-        )
-    };
-    if result.is_err() {
-        return Ok(None);
-    }
-    let value = unsafe {
-        let credential = &*credential;
-        std::slice::from_raw_parts(
-            credential.CredentialBlob,
-            credential.CredentialBlobSize as usize,
-        )
-        .to_vec()
-    };
-    unsafe { CredFree(credential as *const core::ffi::c_void) };
-    Ok(Some(value))
-}
-
-#[cfg(windows)]
-fn credential_delete() -> Result<(), String> {
-    use windows::{
-        core::PCWSTR,
-        Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC},
-    };
-    let target = wide(CREDENTIAL_TARGET);
-    match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
-        Ok(()) => Ok(()),
-        Err(error) if error.code().0 as u32 == 0x8007_0490 => Ok(()),
-        Err(error) => Err(format!(
-            "Windows Credential Manager could not remove the Spotify token: {error}"
-        )),
-    }
-}
-
-#[cfg(not(windows))]
-fn credential_write(_: &[u8]) -> Result<(), String> {
-    Err("Secure Spotify token storage requires Windows.".into())
-}
-
-#[cfg(not(windows))]
-fn credential_read() -> Result<Option<Vec<u8>>, String> {
-    Ok(None)
-}
-
-#[cfg(not(windows))]
-fn credential_delete() -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(windows)]

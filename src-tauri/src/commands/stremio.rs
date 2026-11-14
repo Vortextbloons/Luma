@@ -389,7 +389,7 @@ pub fn load(app: &tauri::AppHandle) {
         Ok(inner) => inner,
         Err(_) => return,
     };
-    let auth_key = credential_read().ok().flatten();
+    let auth_key = crate::credentials::read_text(CREDENTIAL_TARGET).ok().flatten();
     if auth_key.is_none() {
         inner.cache = Cache::default();
         return;
@@ -421,7 +421,7 @@ async fn synchronize(
                 .ok()
                 .is_some_and(|inner| inner.auth_key.as_deref() == Some(auth_key));
             if current {
-                let _ = credential_delete();
+                let _ = crate::credentials::delete(CREDENTIAL_TARGET);
                 remove_cache(app);
                 if let Ok(mut inner) = state.inner.lock() {
                     if inner.auth_key.as_deref() == Some(auth_key) {
@@ -515,7 +515,7 @@ pub async fn stremio_link_poll(
         }
         Err(error) => return Err(error.message()),
     };
-    credential_write(&session.auth_key)?;
+    crate::credentials::save_text(CREDENTIAL_TARGET, &session.auth_key)?;
     {
         let mut inner = lock(&state)?;
         inner.auth_key = Some(session.auth_key.clone());
@@ -575,7 +575,7 @@ pub async fn stremio_disconnect(
         restore_main(&app);
     }
     let mut inner = lock(&state)?;
-    credential_delete()?;
+    crate::credentials::delete(CREDENTIAL_TARGET)?;
     remove_cache(&app);
     inner.auth_key = None;
     inner.pending = None;
@@ -817,83 +817,6 @@ fn wide(value: &str) -> Vec<u16> {
 }
 
 #[cfg(windows)]
-fn credential_read() -> Result<Option<String>, String> {
-    use windows::{
-        core::PCWSTR,
-        Win32::Foundation::ERROR_NOT_FOUND,
-        Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC},
-    };
-    let target = wide(CREDENTIAL_TARGET);
-    let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
-    if let Err(error) = unsafe {
-        CredReadW(
-            PCWSTR(target.as_ptr()),
-            CRED_TYPE_GENERIC,
-            None,
-            &mut credential,
-        )
-    } {
-        if error.code() == ERROR_NOT_FOUND.to_hresult() {
-            return Ok(None);
-        }
-        return Err(format!("Windows Credential Manager: {error}"));
-    }
-    let value = unsafe {
-        let credential = &*credential;
-        if credential.CredentialBlobSize == 0 {
-            Ok(String::new())
-        } else {
-            let bytes = std::slice::from_raw_parts(
-                credential.CredentialBlob,
-                credential.CredentialBlobSize as usize,
-            );
-            String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
-        }
-    };
-    unsafe { CredFree(credential.cast()) };
-    value.map(Some)
-}
-
-#[cfg(windows)]
-fn credential_write(value: &str) -> Result<(), String> {
-    use windows::{
-        core::PWSTR,
-        Win32::Security::Credentials::{
-            CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
-        },
-    };
-    let mut target = wide(CREDENTIAL_TARGET);
-    let mut user = wide("Stremio");
-    let mut secret = value.as_bytes().to_vec();
-    let credential = CREDENTIALW {
-        Type: CRED_TYPE_GENERIC,
-        TargetName: PWSTR(target.as_mut_ptr()),
-        CredentialBlobSize: secret.len() as u32,
-        CredentialBlob: secret.as_mut_ptr(),
-        Persist: CRED_PERSIST_LOCAL_MACHINE,
-        UserName: PWSTR(user.as_mut_ptr()),
-        ..Default::default()
-    };
-    unsafe { CredWriteW(&credential, 0) }
-        .map_err(|error| format!("Windows Credential Manager: {error}"))
-}
-
-#[cfg(windows)]
-fn credential_delete() -> Result<(), String> {
-    use windows::{
-        core::PCWSTR,
-        Win32::Foundation::ERROR_NOT_FOUND,
-        Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC},
-    };
-    let target = wide(CREDENTIAL_TARGET);
-    match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
-        Ok(()) => Ok(()),
-        Err(error) if error.code() == ERROR_NOT_FOUND.to_hresult() => Ok(()),
-        Err(error) => Err(format!("Windows Credential Manager: {error}")),
-    }
-}
-
-#[cfg(windows)]
 fn open_url(target: &str) -> Result<(), String> {
     use windows::{
         core::PCWSTR, Win32::UI::Shell::ShellExecuteW,
@@ -917,21 +840,6 @@ fn open_url(target: &str) -> Result<(), String> {
                 .into(),
         );
     }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn credential_read() -> Result<Option<String>, String> {
-    Ok(None)
-}
-
-#[cfg(not(windows))]
-fn credential_write(_: &str) -> Result<(), String> {
-    Err("Secure Stremio credential storage is available on Windows only.".into())
-}
-
-#[cfg(not(windows))]
-fn credential_delete() -> Result<(), String> {
     Ok(())
 }
 
