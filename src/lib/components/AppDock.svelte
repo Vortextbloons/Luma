@@ -3,14 +3,14 @@
   import spotify from '../../assets/spotify.svg';
   import stremio from '../../assets/stremio.svg';
   import youtube from '../../assets/youtube.png';
-  let { order, launch, customize }: { order: AppId[]; launch: (id: AppId) => void; customize: () => void } = $props();
+  let { order, launch, customize, onhover }: { order: AppId[]; launch: (id: AppId) => void; customize: () => void; onhover: (id: AppId | null) => void } = $props();
 </script>
 
 <section id="apps" class="content-row apps-row">
   <div class="row-heading"><div><h2>Your apps</h2><p>Running on your Windows PC</p></div><button class="text-link" onclick={customize}>Rearrange apps <span>→</span></button></div>
   <div class="app-track">
     {#each order as id (id)}
-      <button class={`app-card ${id.toLowerCase()}`} onclick={() => launch(id)}>
+      <button class={`app-card ${id.toLowerCase()}`} onclick={() => launch(id)} onmouseenter={() => onhover(id)} onmouseleave={() => onhover(null)} onfocus={() => onhover(id)} onblur={() => onhover(null)}>
         {#if id === 'YouTube'}
           <img class="app-icon" src={youtube} alt="" />
         {:else if id !== 'Custom'}<img class="app-icon" src={id === 'Spotify' ? spotify : stremio} alt="" />{:else}<span class="plus-logo" aria-hidden="true">＋</span>{/if}

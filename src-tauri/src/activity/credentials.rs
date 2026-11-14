@@ -72,7 +72,7 @@ pub fn delete(provider: &str) -> Result<(), String> {
     let target = wide(&target(provider));
     match unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) } {
         Ok(()) => Ok(()),
-        Err(error) if error.code().0 as u32 == 0x8007_04B0 => Ok(()),
+        Err(error) if error.code().0 as u32 == 0x8007_0490 => Ok(()),
         Err(error) => Err(format!("Windows Credential Manager could not remove the token: {error}")),
     }
 }

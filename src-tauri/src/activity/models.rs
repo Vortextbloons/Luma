@@ -117,14 +117,6 @@ pub struct ActivityItem {
     pub launch_count: Option<u32>,
 }
 
-impl ActivityItem {
-    pub fn can_show_progress(&self) -> bool {
-        !matches!(self.progress_source, ProgressSource::Unknown)
-            && self.progress_seconds.is_some_and(|value| value > 0.0)
-            && self.duration_seconds.is_some_and(|value| value > 0.0)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderState {
@@ -134,19 +126,6 @@ pub enum ProviderState {
     Connected,
     Disabled,
     Error,
-}
-
-impl ProviderState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Available => "available",
-            Self::NeedsSetup => "needsSetup",
-            Self::NotValidated => "notValidated",
-            Self::Connected => "connected",
-            Self::Disabled => "disabled",
-            Self::Error => "error",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -210,6 +189,13 @@ pub struct RefreshResult {
     pub snapshot: ActivitySnapshot,
     pub updated: usize,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenOutcome {
+    pub kind: ResumeKind,
+    pub message: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

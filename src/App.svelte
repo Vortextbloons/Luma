@@ -11,9 +11,9 @@
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
   import { createSettings } from './lib/state/settings.svelte';
   import { createNavigation } from './lib/services/navigation';
-  import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote, openYouTube } from './lib/services/tauri';
+  import { native, launchApp, saveAppPaths, mediaState, mediaControl, remoteStatus, configureRemote, onNavigation, onMedia, onRemote, openYouTube, activitySnapshot, openActivity, onActivity } from './lib/services/tauri';
   import { loadCatalog } from './lib/services/catalog';
-  import type { AppId, ExecutableAppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
+  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, MediaState, RemoteStatus } from './lib/types';
 
   const preferences = createSettings();
   const settings = preferences.value;
@@ -28,9 +28,14 @@
   let remote = $state<RemoteStatus>({ running: false, lan: false, address: '', token: '', origin: '', error: null });
   let mediaBusy = $state(false);
   let launching = $state<AppId | null>(null);
+  let activity = $state<ActivityItem[]>([]);
+  let hovered = $state<AppId | null>(null);
   let previous: HTMLElement | null = null;
   const navigation = createNavigation(back, home);
   const showHome = $derived(tab === 'Home');
+  const appProviders: Record<AppId, string> = { YouTube: 'youtube', Spotify: 'spotify', Stremio: 'stremio', Custom: 'local' };
+  const latest = (provider?: string) => activity.find(item => item.type !== 'application' && item.completed !== true && (!provider || item.provider === provider)) ?? null;
+  const heroActivity = $derived(hovered ? latest(appProviders[hovered]) ?? latest() : latest());
 
   $effect(() => {
     document.documentElement.dataset.accent = settings.accent;
@@ -54,8 +59,10 @@
         cleanup.push(await onNavigation(navigation.dispatch));
         cleanup.push(await onMedia(state => media = state));
         cleanup.push(await onRemote(state => remote = state));
+        cleanup.push(await onActivity(snapshot => activity = snapshot.items));
         media = await mediaState();
         remote = await remoteStatus();
+        activity = (await activitySnapshot()).items;
         const paths = await invoke<Record<ExecutableAppId, string>>('app_paths');
         settings.paths = paths;
         await detect(false);
@@ -86,6 +93,12 @@
       else { await launchApp(id); message = `${id} launch requested.`; }
     } catch (error) { message = String(error); }
     finally { launching = null; }
+  }
+  async function resumeActivity() {
+    if (!heroActivity) return;
+    if (!native) { message = 'Resuming activity is available in the Luma desktop app.'; return; }
+    try { message = (await openActivity(heroActivity.id, settings.fullscreen)).message; }
+    catch (error) { message = String(error); }
   }
   async function fullscreen() {
     try { const value = !await getCurrentWindow().isFullscreen(); await getCurrentWindow().setFullscreen(value); settings.fullscreen = value; }
@@ -123,11 +136,11 @@
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} />
   {#if showHome}
-    <Hero wallpaper={settings.wallpaper} item={hero} launch={() => launch('Stremio')} details={() => hero && select(hero)} />
+    <Hero wallpaper={settings.wallpaper} item={hero} activity={heroActivity} launch={() => launch('Stremio')} resume={resumeActivity} details={() => hero && select(hero)} />
   {:else}<div class="h-32" aria-hidden="true"></div>{/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} onhover={id => hovered = id} />{/if}
   {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
-  {#if tab === 'Music'}<MediaControls state={media} busy={mediaBusy} {control} launch={() => launch('Spotify')} refresh={refreshMedia} />{/if}
+  {#if tab === 'Music'}<MediaControls state={media} busy={mediaBusy} {control} launch={() => launch('Spotify')} refresh={refreshMedia} lastPlayed={latest('spotify')} />{/if}
   {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
 {#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
   <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back</span></footer>

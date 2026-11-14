@@ -389,6 +389,57 @@
   let activeVideoId = null;
   let activeVideo = null;
   let attachTimer = null;
+  let lastPlaybackReport = 0;
+
+  function playbackDetails() {
+    const metadata = navigator.mediaSession?.metadata;
+    const metadataTitle = metadata?.title?.trim();
+    let title = metadataTitle || '';
+    let channel = metadata?.artist?.trim() || null;
+    let artwork = metadata?.artwork?.at(-1)?.src || null;
+    if (!title) {
+      const data = document.querySelector('.html5-video-player')?.getVideoData?.();
+      title = data?.title?.trim() || '';
+      channel = channel || data?.author?.trim() || null;
+    }
+    if (!title) {
+      title = document.title.replace(/\s*-\s*YouTube(?:\s+TV)?$/i, '').trim();
+      if (/^YouTube/i.test(title)) title = '';
+    }
+    return { title, channel, artwork };
+  }
+
+  function reportPlayback(force = false, completed = false) {
+    if (!BRIDGE || !activeVideoId || !activeVideo) return;
+    if (document.querySelector('.html5-video-player')?.classList.contains('ad-showing')) return;
+    const elapsed = Date.now() - lastPlaybackReport;
+    if (!force && elapsed < 10000) return;
+    const total = activeVideo.duration || duration();
+    const position = activeVideo.currentTime;
+    if (!(total > 0) || !Number.isFinite(total) || !Number.isFinite(position)) return;
+    const details = playbackDetails();
+    if (!details.title) return;
+    lastPlaybackReport = Date.now();
+    fetch(`${BRIDGE}/playback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        videoId: activeVideoId,
+        title: details.title,
+        channel: details.channel,
+        artwork: details.artwork,
+        positionSeconds: position,
+        durationSeconds: total,
+        completed,
+      }),
+    }).catch(() => {});
+  }
+
+  const onPlaybackPause = () => reportPlayback(true, false);
+  const onPlaybackEnded = () => reportPlayback(true, true);
+  const onPlaybackLoaded = () => reportPlayback(true, false);
+  const onPlaybackTime = () => reportPlayback(false, false);
 
   const duration = () => {
     const player = document.querySelector('.html5-video-player');
@@ -417,7 +468,11 @@
     attachTimer = null;
     if (activeVideo) {
       activeVideo.removeEventListener('timeupdate', checkForSkip);
+      activeVideo.removeEventListener('timeupdate', onPlaybackTime);
       activeVideo.removeEventListener('durationchange', drawSegments);
+      activeVideo.removeEventListener('pause', onPlaybackPause);
+      activeVideo.removeEventListener('ended', onPlaybackEnded);
+      activeVideo.removeEventListener('loadedmetadata', onPlaybackLoaded);
     }
     activeVideo = null;
   }
@@ -431,8 +486,13 @@
     }
     activeVideo = video;
     activeVideo.addEventListener('timeupdate', checkForSkip);
+    activeVideo.addEventListener('timeupdate', onPlaybackTime);
     activeVideo.addEventListener('durationchange', drawSegments);
+    activeVideo.addEventListener('pause', onPlaybackPause);
+    activeVideo.addEventListener('ended', onPlaybackEnded);
+    activeVideo.addEventListener('loadedmetadata', onPlaybackLoaded);
     drawSegments();
+    reportPlayback(true, false);
   }
 
   function checkForSkip() {
@@ -452,7 +512,9 @@
   function onNavigate() {
     const id = currentVideoId();
     if (id === activeVideoId) return;
+    reportPlayback(true, false);
     activeVideoId = id;
+    lastPlaybackReport = 0;
     segments = [];
     segmentChapters = null;
     detachVideo();

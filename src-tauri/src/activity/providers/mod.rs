@@ -1,4 +1,6 @@
-use super::models::{ActivityItem, ProviderConfig};
+pub use super::models::{
+    ActivityItem, ActivityType, PlaybackReport, ProgressSource, ProviderConfig, ResumeKind,
+};
 use std::sync::OnceLock;
 
 pub mod jellyfin;

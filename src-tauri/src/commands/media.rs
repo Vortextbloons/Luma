@@ -173,7 +173,7 @@ mod platform {
             .map_err(|e| e.to_string())?;
         let playback = session.GetPlaybackInfo().map_err(|e| e.to_string())?;
         let controls = playback.Controls().map_err(|e| e.to_string())?;
-        Ok(MediaState {
+        let state = MediaState {
             available: true,
             title: properties.Title().map_err(|e| e.to_string())?.to_string(),
             artist: properties.Artist().map_err(|e| e.to_string())?.to_string(),
@@ -183,7 +183,11 @@ mod platform {
             can_previous: controls.IsPreviousEnabled().unwrap_or(false),
             can_next: controls.IsNextEnabled().unwrap_or(false),
             error: None,
-        })
+        };
+        if !state.title.trim().is_empty() {
+            crate::activity::record_spotify(app, &state.title, &state.artist);
+        }
+        Ok(state)
     }
 
     pub fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {

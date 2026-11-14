@@ -103,7 +103,7 @@ fn item(value: &Value, user: &str, base: &str, fallback: &str) -> Option<Activit
         let episode = number(value, "IndexNumber").unwrap_or(0.0) as u32;
         Some(format!("S{season} E{episode} · {name}"))
     } else {
-        text(value, "ProductionYear")
+        number(value, "ProductionYear").map(|year| (year as u32).to_string())
     };
     let user_data = value.get("UserData").unwrap_or(&Value::Null);
     let played = user_data

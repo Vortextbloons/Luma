@@ -1,10 +1,10 @@
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
-    Router,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::OnceLock;
@@ -161,6 +161,18 @@ async fn youtube_exit(State(app): State<AppHandle>, headers: HeaderMap) -> Respo
     reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
 }
 
+async fn playback(
+    State(app): State<AppHandle>,
+    headers: HeaderMap,
+    Json(report): Json<crate::activity::models::PlaybackReport>,
+) -> Response {
+    if !origin_allowed(&headers) {
+        return reply(StatusCode::FORBIDDEN, "text/plain", Vec::new());
+    }
+    crate::activity::record_youtube(&app, &report);
+    reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
+}
+
 async fn preflight(headers: HeaderMap) -> Response {
     let mut response = StatusCode::NO_CONTENT.into_response();
     if origin_allowed(&headers) {
@@ -171,7 +183,11 @@ async fn preflight(headers: HeaderMap) -> Response {
         );
         headers.insert(
             "access-control-allow-methods",
-            HeaderValue::from_static("GET, OPTIONS"),
+            HeaderValue::from_static("GET, POST, OPTIONS"),
+        );
+        headers.insert(
+            "access-control-allow-headers",
+            HeaderValue::from_static("content-type"),
         );
         headers.insert(
             "access-control-allow-private-network",
@@ -201,7 +217,9 @@ async fn start_bridge(app: AppHandle) -> Result<String, String> {
             get(dearrow_thumbnail),
         )
         .route(&format!("/{token}/exit"), get(youtube_exit))
+        .route(&format!("/{token}/playback"), post(playback))
         .fallback(preflight)
+        .layer(DefaultBodyLimit::max(8192))
         .with_state(app);
     tauri::async_runtime::spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
@@ -248,8 +266,15 @@ fn create(
     bridge: &str,
     fullscreen: bool,
     visible: bool,
+    video_id: Option<&str>,
 ) -> Result<WebviewWindow, String> {
-    let url: tauri::Url = URL.parse().map_err(|e| format!("Invalid YouTube URL: {e}"))?;
+    let address = match video_id {
+        Some(video_id) => format!("{URL}#/watch?v={video_id}"),
+        None => URL.to_string(),
+    };
+    let url: tauri::Url = address
+        .parse()
+        .map_err(|e| format!("Invalid YouTube URL: {e}"))?;
     let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|e| e.to_string())?;
     let position = main.outer_position().map_err(|e| e.to_string())?;
@@ -284,7 +309,7 @@ pub async fn prepare(app: AppHandle) {
     if app.get_webview_window("youtube").is_some() {
         return;
     }
-    if let Err(error) = create(&app, &bridge, false, false) {
+    if let Err(error) = create(&app, &bridge, false, false, None) {
         eprintln!("YouTube preload skipped: {error}");
     }
 }
@@ -295,7 +320,7 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
     let _guard = state.window.lock().await;
     let window = match app.get_webview_window("youtube") {
         Some(window) => window,
-        None => create(&app, &bridge(&app).await?, fullscreen, true)?,
+        None => create(&app, &bridge(&app).await?, fullscreen, true, None)?,
     };
     window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
@@ -304,6 +329,35 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
     if let Some(main) = app.get_webview_window("main") {
         main.hide().map_err(|e| e.to_string())?;
     }
+    crate::activity::record_launch(&app, "YouTube");
+    Ok(())
+}
+
+pub async fn open_video(
+    app: AppHandle,
+    video_id: &str,
+    fullscreen: bool,
+) -> Result<(), String> {
+    let id = checked_id(video_id).map_err(|_| "That YouTube video identifier is invalid.".to_string())?;
+    let state = app.state::<Bridge>();
+    let _guard = state.window.lock().await;
+    let window = match app.get_webview_window("youtube") {
+        Some(window) => {
+            let hash = serde_json::to_string(&format!("#/watch?v={id}"))
+                .map_err(|error| error.to_string())?;
+            let _ = window.eval(format!("location.hash = {hash};"));
+            window
+        }
+        None => create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?,
+    };
+    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    if let Some(main) = app.get_webview_window("main") {
+        main.hide().map_err(|e| e.to_string())?;
+    }
+    crate::activity::record_launch(&app, "YouTube");
     Ok(())
 }
 

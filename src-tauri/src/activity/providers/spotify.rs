@@ -17,7 +17,10 @@ pub fn activity(title: &str, artist: &str, now: &str) -> ActivityItem {
         profile_id: None,
         item_type: ActivityType::Track,
         title: title.trim().into(),
-        subtitle: Some(artist.trim().into()).filter(|value| !value.is_empty()),
+        subtitle: {
+            let artist = artist.trim();
+            (!artist.is_empty()).then(|| artist.to_string())
+        },
         artwork: None,
         last_activity_at: now.into(),
         progress_seconds: None,

@@ -86,7 +86,7 @@ fn item(value: &Value, machine: &str, base: &str, fallback_time: &str) -> Option
         id: format!("plex:{}:{rating_key}", if machine.is_empty() { "server" } else { machine }),
         provider: "plex".into(),
         provider_item_id: Some(rating_key),
-        profile_id: machine.is_empty().then(|| base.to_string()),
+        profile_id: Some(if machine.is_empty() { base.to_string() } else { machine.to_string() }),
         item_type,
         title,
         subtitle,
@@ -171,6 +171,9 @@ mod tests {
         assert_eq!(item.duration_seconds, Some(3000.0));
         assert_eq!(item.resume_kind, ResumeKind::Content);
         assert!(!item.can_resume);
-        assert!(item.launch_target.unwrap().contains("/library%2Fmetadata%2F42") == false);
+        assert!(item
+            .launch_target
+            .unwrap()
+            .contains("%2Flibrary%2Fmetadata%2F42"));
     }
 }

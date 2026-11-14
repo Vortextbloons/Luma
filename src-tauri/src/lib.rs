@@ -1,11 +1,12 @@
+mod activity;
 mod background;
 mod frame;
 mod commands;
 mod remote;
 
-use commands::{apps, media, youtube};
+use commands::{apps, media, stremio, youtube};
 use remote::server;
-
+use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -13,14 +14,18 @@ pub fn run() {
             if !args.iter().any(|arg| arg == "--background") { background::show(app); }
         }))
         .plugin(tauri_plugin_autostart::Builder::new().args(["--background"]).build())
+        .plugin(tauri_plugin_opener::init())
         .manage(apps::Apps::default())
         .manage(media::Media::default())
         .manage(server::Remote::default())
         .manage(frame::Frame::default())
         .manage(youtube::Bridge::default())
+        .manage(stremio::Stremio::default())
         .setup(|app| {
             background::setup(app)?;
+            app.manage(activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?);
             apps::load(app.handle()).map_err(std::io::Error::other)?;
+            stremio::load(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 server::initialize(handle.clone()).await;
@@ -55,7 +60,24 @@ pub fn run() {
             server::remote_status,
             server::configure_remote,
             server::update_app_state,
-            youtube::open_youtube
+            youtube::open_youtube,
+            activity::manager::activity_snapshot,
+            activity::manager::refresh_provider,
+            activity::manager::open_activity,
+            activity::manager::clear_activity,
+            activity::manager::set_activity_tracking,
+            activity::manager::set_provider_enabled,
+            activity::manager::set_provider_hidden,
+            activity::manager::save_provider_config,
+            activity::manager::disconnect_provider,
+            stremio::stremio_status,
+            stremio::stremio_link_start,
+            stremio::stremio_link_poll,
+            stremio::stremio_link_cancel,
+            stremio::stremio_open_link,
+            stremio::stremio_sync,
+            stremio::stremio_disconnect,
+            stremio::stremio_open
         ])
         .build(tauri::generate_context!())
         .expect("error while running Luma");

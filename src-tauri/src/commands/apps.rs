@@ -6,7 +6,7 @@ use std::{
 };
 use tauri::{Manager, State};
 
-const IDS: [&str; 3] = ["Spotify", "Stremio", "Custom"];
+const IDS: [&str; 6] = ["Spotify", "Stremio", "Netflix", "Disney+", "Prime Video", "Custom"];
 
 #[derive(Default)]
 pub struct Apps(pub Mutex<BTreeMap<String, String>>);
@@ -62,6 +62,18 @@ fn known_paths(name: &str) -> Vec<PathBuf> {
             ("LOCALAPPDATA", r"Programs\LNV\Stremio-4\stremio.exe"),
             ("ProgramFiles", r"Stremio\Stremio.exe"),
             ("ProgramFiles(x86)", r"Stremio\Stremio.exe"),
+        ],
+        "Netflix" => &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Netflix.exe"),
+            ("LOCALAPPDATA", r"Programs\Netflix\Netflix.exe"),
+        ],
+        "Disney+" => &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Disney+.exe"),
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\DisneyPlus.exe"),
+        ],
+        "Prime Video" => &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\AmazonPrimeVideo.exe"),
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\PrimeVideo.exe"),
         ],
         _ => return Vec::new(),
     };
@@ -266,10 +278,10 @@ pub fn app_paths(apps: State<Apps>) -> Result<BTreeMap<String, String>, String> 
 
 #[tauri::command]
 pub fn detect_apps() -> Vec<DetectedApp> {
-    ["Spotify", "Stremio"]
-        .into_iter()
+    IDS.iter()
+        .filter(|id| **id != "Custom")
         .map(|name| DetectedApp {
-            name: name.into(),
+            name: (*name).into(),
             path: detect(name).map(|p| p.to_string_lossy().into_owned()),
         })
         .collect()
@@ -324,6 +336,7 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
     command
         .spawn()
         .map_err(|e| format!("Could not start {name}: {e}"))?;
+    crate::activity::record_launch(&app, &name);
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|e| e.to_string())?;
     }
