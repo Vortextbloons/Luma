@@ -125,8 +125,8 @@
   {#if showHome}
     <Hero wallpaper={settings.wallpaper} item={hero} launch={() => launch('Stremio')} details={() => hero && select(hero)} />
   {:else}<div class="h-32" aria-hidden="true"></div>{/if}
-  {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
   {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
+  {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
   {#if tab === 'Music'}<MediaControls state={media} busy={mediaBusy} {control} launch={() => launch('Spotify')} refresh={refreshMedia} />{/if}
   {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
 {#if message && !panel && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}

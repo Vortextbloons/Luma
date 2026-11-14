@@ -11,7 +11,7 @@ export interface Settings {
   order: AppId[];
 }
 export interface MediaItem {
-  id: string; title: string; subtitle: string; artwork: string; description: string;
+  id: string; title: string; subtitle: string; poster: string; backdrop: string; description: string;
   year: string; runtime: string; rating: string;
 }
 export interface MediaState {

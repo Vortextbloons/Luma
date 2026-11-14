@@ -243,7 +243,12 @@ fn script(bridge: &str) -> Result<String, String> {
     ))
 }
 
-fn create(app: &AppHandle, bridge: &str, fullscreen: bool, visible: bool) -> Result<WebviewWindow, String> {
+fn create(
+    app: &AppHandle,
+    bridge: &str,
+    fullscreen: bool,
+    visible: bool,
+) -> Result<WebviewWindow, String> {
     let url: tauri::Url = URL.parse().map_err(|e| format!("Invalid YouTube URL: {e}"))?;
     let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|e| e.to_string())?;
@@ -304,7 +309,13 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
 
 pub fn close(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("youtube") {
-        let _ = window.close();
+        let _ = window.eval("document.querySelector('video')?.pause();");
+        let _ = window.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
     }
 }
 
@@ -318,9 +329,6 @@ pub fn navigate(window: &WebviewWindow, command: &str) {
 pub fn forward(app: &AppHandle, command: &str) {
     if command == "home" {
         close(app);
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.set_focus();
-        }
         return;
     }
     if let Some(window) = app.get_webview_window("youtube") {

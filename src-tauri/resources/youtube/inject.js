@@ -210,6 +210,8 @@
   const titleCache = new Map();
   const thumbnailCache = new Map();
   const prefetching = new Set();
+  const prefetchQueue = [];
+  let prefetchingCount = 0;
 
   function remember(cache, key, value, limit) {
     cache.set(key, value);
@@ -223,21 +225,34 @@
   function prefetch(videoId) {
     if (!BRIDGE || brandingCache.has(videoId) || prefetching.has(videoId)) return;
     prefetching.add(videoId);
-    bridgeJSON('dearrow', { videoID: videoId })
-      .then(value => {
-        if (!value?.videoDuration) {
-          remember(brandingCache, videoId, null, 400);
-          return;
-        }
-        remember(brandingCache, videoId, value, 400);
-        const title = value.titles?.find(entry => entry.locked || entry.votes >= 0)?.title;
-        if (title) remember(titleCache, videoId, cleanTitle(title), 400);
-        return bridgeImage(videoId).then(image => {
-          if (image) remember(thumbnailCache, videoId, image, 100);
+    prefetchQueue.push(videoId);
+    drainPrefetch();
+  }
+
+  function drainPrefetch() {
+    while (prefetchingCount < 4 && prefetchQueue.length > 0) {
+      const videoId = prefetchQueue.shift();
+      prefetchingCount++;
+      bridgeJSON('dearrow', { videoID: videoId })
+        .then(value => {
+          if (!value?.videoDuration) {
+            remember(brandingCache, videoId, null, 400);
+            return;
+          }
+          remember(brandingCache, videoId, value, 400);
+          const title = value.titles?.find(entry => entry.locked || entry.votes >= 0)?.title;
+          if (title) remember(titleCache, videoId, cleanTitle(title), 400);
+          return bridgeImage(videoId).then(image => {
+            if (image) remember(thumbnailCache, videoId, image, 100);
+          });
+        })
+        .catch(error => console.error('[Luma] DeArrow failed', error))
+        .finally(() => {
+          prefetching.delete(videoId);
+          prefetchingCount--;
+          drainPrefetch();
         });
-      })
-      .catch(error => console.error('[Luma] DeArrow failed', error))
-      .finally(() => prefetching.delete(videoId));
+    }
   }
 
   function collectTiles(url, json) {

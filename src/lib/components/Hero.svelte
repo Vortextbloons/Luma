@@ -4,7 +4,7 @@
 </script>
 
 <section class="hero" aria-labelledby={item ? 'hero-title' : undefined}>
-  <div class="hero-art" style:background-image={wallpaper || item?.artwork ? `url("${wallpaper || item?.artwork}")` : undefined}></div>
+  <div class="hero-art" style:background-image={wallpaper || item?.backdrop ? `url("${wallpaper || item?.backdrop}")` : undefined}></div>
   <div class="hero-vignette"></div>
   {#if item}
   <div class="hero-copy">
