@@ -46,13 +46,18 @@
 
   async function save(provider: ProviderStatus) {
     const form = forms[provider.id];
+    const values = {
+      serverUrl: form.serverUrl.trim() || undefined,
+      userId: form.userId.trim() || undefined,
+      clientId: form.clientId.trim() || undefined,
+      token: form.token.trim() || undefined,
+    };
+    if (!values.serverUrl && !values.userId && !values.clientId && !values.token) {
+      note = 'Enter a server URL, user ID, client ID, or token before saving.';
+      return;
+    }
     await run(provider.id, async () => {
-      await activity.saveConfig(provider.id, {
-        serverUrl: form.serverUrl.trim() || undefined,
-        userId: form.userId.trim() || undefined,
-        clientId: form.clientId.trim() || undefined,
-        token: form.token.trim() || undefined,
-      });
+      await activity.saveConfig(provider.id, values);
       form.token = '';
       note = `${provider.name} credentials saved to Windows Credential Manager. Run Refresh to validate.`;
     });

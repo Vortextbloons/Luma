@@ -130,8 +130,5 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
             items.insert(item.id.clone(), item);
         }
     }
-    if items.is_empty() {
-        return Err("Trakt returned no watched movies or episodes.".into());
-    }
     Ok(items.into_values().collect())
 }

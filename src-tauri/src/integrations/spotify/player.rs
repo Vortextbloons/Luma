@@ -488,6 +488,7 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
         );
     }
     process::launch_minimized(&app)?;
+    crate::activity::record_launch(&app, "Spotify");
     let player = app.state::<Player>();
     player.starting.store(true, Ordering::SeqCst);
     set_error(&app, None);

@@ -349,14 +349,14 @@ pub async fn open_video(
     let id = checked_id(video_id).map_err(|_| "That YouTube video identifier is invalid.".to_string())?;
     let state = app.state::<Bridge>();
     let _guard = state.window.lock().await;
-    let window = match app.get_webview_window("youtube") {
+    let (window, created) = match app.get_webview_window("youtube") {
         Some(window) => {
             let hash = serde_json::to_string(&format!("#/watch?v={id}"))
                 .map_err(|error| error.to_string())?;
             let _ = window.eval(format!("location.hash = {hash};"));
-            window
+            (window, false)
         }
-        None => create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?,
+        None => (create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?, true),
     };
     window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
@@ -365,7 +365,9 @@ pub async fn open_video(
     if let Some(main) = app.get_webview_window("main") {
         main.hide().map_err(|e| e.to_string())?;
     }
-    crate::activity::record_launch(&app, "YouTube");
+    if created {
+        crate::activity::record_launch(&app, "YouTube");
+    }
     Ok(())
 }
 

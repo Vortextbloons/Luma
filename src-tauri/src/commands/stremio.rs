@@ -3,15 +3,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Manager, State};
+use tauri::{
+    webview::{NewWindowResponse, PageLoadEvent},
+    AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 const API_URL: &str = "https://api.strem.io/api";
 const LINK_URL: &str = "https://link.stremio.com";
+const WEB_URL: &str = "https://web.stremio.com/";
 const CREDENTIAL_TARGET: &str = "Luma/Stremio";
 const LINK_TIMEOUT: Duration = Duration::from_secs(300);
+const SCRIPT: &str = include_str!("../../resources/stremio/inject.js");
 const URI_COMPONENT_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -570,37 +575,174 @@ pub fn stremio_disconnect(
 
 #[tauri::command]
 pub fn stremio_open(
-    app: tauri::AppHandle,
+    app: AppHandle,
     state: State<Stremio>,
-    id: String,
+    id: Option<String>,
+    kind: Option<String>,
 ) -> Result<(), String> {
-    let item = lock(&state)?
-        .cache
-        .items
-        .iter()
-        .find(|item| item.id == id)
-        .cloned()
-        .ok_or("This title is not in your synchronized Stremio library.")?;
-    open_url(&deep_link(&item))?;
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.minimize();
+    let target = match id {
+        Some(id) => match kind {
+            Some(kind) => Some(web_path(&kind, &id, None)),
+            None => {
+                let item = lock(&state)?
+                    .cache
+                    .items
+                    .iter()
+                    .find(|item| item.id == id)
+                    .cloned()
+                    .ok_or("This title is not in your synchronized Stremio library.")?;
+                Some(web_path(&item.kind, &item.id, item.video_id.as_deref()))
+            }
+        },
+        None => None,
+    };
+    show(app, target.as_deref())
+}
+
+pub(crate) fn show(app: AppHandle, target: Option<&str>) -> Result<(), String> {
+    let window = match app.get_webview_window("stremio") {
+        Some(window) => {
+            if let Some(target) = target {
+                let target = serde_json::to_string(target).map_err(|error| error.to_string())?;
+                let _ = window.eval(format!("location.hash = {target};"));
+            }
+            window
+        }
+        None => create(&app, target)?,
+    };
+    window.show().map_err(|error| error.to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    if let Some(main) = app.get_webview_window("main") {
+        main.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
-fn deep_link(item: &StremioItem) -> String {
-    let kind = utf8_percent_encode(&item.kind, URI_COMPONENT_ENCODE_SET);
-    let id = utf8_percent_encode(&item.id, URI_COMPONENT_ENCODE_SET);
-    match item
-        .video_id
-        .as_deref()
-        .filter(|value| !value.is_empty() && *value != item.id)
+pub(crate) fn close(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("stremio") {
+        pause(&window);
+        let _ = window.hide();
+    }
+    restore_main(app);
+}
+
+pub(crate) fn forward(app: &AppHandle, command: &str) {
+    if command == "home" {
+        close(app);
+        return;
+    }
+    let Some(window) = app
+        .get_webview_window("stremio")
+        .filter(|window| window.is_visible().unwrap_or(false))
+    else {
+        return;
+    };
+    let command = serde_json::to_string(command).unwrap_or_default();
+    let _ = window.eval(format!(
+        "window.__lumaNavigate && window.__lumaNavigate({command});"
+    ));
+}
+
+fn create(app: &AppHandle, target: Option<&str>) -> Result<WebviewWindow, String> {
+    let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+    let size = main.inner_size().map_err(|error| error.to_string())?;
+    let position = main.outer_position().map_err(|error| error.to_string())?;
+    let scale = main.scale_factor().map_err(|error| error.to_string())?;
+    let fullscreen = main.is_fullscreen().unwrap_or(false);
+    let pending = Arc::new(Mutex::new(target.map(str::to_owned)));
+    let load_pending = pending.clone();
+    let handle = app.clone();
+    let url = WEB_URL
+        .parse()
+        .map_err(|error| format!("Invalid Stremio URL: {error}"))?;
+    let window = WebviewWindowBuilder::new(app, "stremio", WebviewUrl::External(url))
+        .title("Stremio")
+        .inner_size(size.width as f64 / scale, size.height as f64 / scale)
+        .position(position.x as f64 / scale, position.y as f64 / scale)
+        .min_inner_size(720.0, 405.0)
+        .fullscreen(fullscreen)
+        .visible(false)
+        .initialization_script(SCRIPT)
+        .on_navigation(move |url| permitted(&handle, url))
+        .on_new_window(|url, _| {
+            external(&url);
+            NewWindowResponse::Deny
+        })
+        .on_page_load(move |window, payload| {
+            if payload.event() != PageLoadEvent::Finished {
+                return;
+            }
+            let Some(target) = load_pending.lock().ok().and_then(|mut target| target.take()) else {
+                return;
+            };
+            let Ok(target) = serde_json::to_string(&target) else {
+                return;
+            };
+            let _ = window.eval(format!("location.hash = {target};"));
+        })
+        .build()
+        .map_err(|error| format!("Could not open Stremio: {error}"))?;
+    let close = window.clone();
+    let restore = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            pause(&close);
+            let _ = close.hide();
+            restore_main(&restore);
+        }
+    });
+    Ok(window)
+}
+
+fn permitted(app: &AppHandle, url: &tauri::Url) -> bool {
+    if url.scheme() == "https"
+        && url.host_str() == Some("web.stremio.com")
+        && url.path() == "/__luma_close__"
     {
+        close(app);
+        return false;
+    }
+    url.scheme() == "about" || (url.scheme() == "https" && web_host(url.host_str()))
+}
+
+fn web_host(host: Option<&str>) -> bool {
+    host.is_some_and(|host| {
+        ["stremio.com", "strem.io"]
+            .iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    })
+}
+
+fn external(url: &tauri::Url) {
+    if matches!(url.scheme(), "http" | "https") {
+        let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+    }
+}
+
+fn pause(window: &WebviewWindow) {
+    let _ = window.eval("document.querySelectorAll('video').forEach(video => video.pause());");
+}
+
+fn restore_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn web_path(kind: &str, id: &str, video_id: Option<&str>) -> String {
+    let raw_id = id;
+    let kind = utf8_percent_encode(kind, URI_COMPONENT_ENCODE_SET);
+    let id = utf8_percent_encode(raw_id, URI_COMPONENT_ENCODE_SET);
+    match video_id.filter(|value| !value.is_empty() && *value != raw_id) {
         Some(video_id) => format!(
-            "stremio:///detail/{kind}/{id}/{}",
+            "#/detail/{kind}/{id}/{}",
             utf8_percent_encode(video_id, URI_COMPONENT_ENCODE_SET)
         ),
-        None => format!("stremio:///detail/{kind}/{id}"),
+        None => format!("#/detail/{kind}/{id}"),
     }
 }
 
@@ -819,16 +961,41 @@ mod tests {
     }
 
     #[test]
-    fn deep_links_keep_the_current_episode() {
+    fn web_links_keep_the_current_episode() {
         let mut series = item("tt123", "series", 1);
         series.video_id = Some("tt123:1:2".into());
         assert_eq!(
-            deep_link(&series),
-            "stremio:///detail/series/tt123/tt123%3A1%3A2"
+            web_path(&series.kind, &series.id, series.video_id.as_deref()),
+            "#/detail/series/tt123/tt123%3A1%3A2"
         );
         assert_eq!(
-            deep_link(&item("tt456", "movie", 1)),
-            "stremio:///detail/movie/tt456"
+            web_path(&item("tt456", "movie", 1).kind, "tt456", None),
+            "#/detail/movie/tt456"
         );
+        assert_eq!(
+            web_path("movie", "tt456", Some("tt456")),
+            "#/detail/movie/tt456"
+        );
+    }
+
+    #[test]
+    fn only_stremio_hosts_can_navigate_the_embedded_window() {
+        for host in [
+            "web.stremio.com",
+            "stremio.com",
+            "www.strem.io",
+            "api.strem.io",
+        ] {
+            assert!(web_host(Some(host)), "{host}");
+        }
+        for host in [
+            "example.com",
+            "stremio.com.example.com",
+            "notstremio.com",
+            "strem.io.evil.test",
+        ] {
+            assert!(!web_host(Some(host)), "{host}");
+        }
+        assert!(!web_host(None));
     }
 }

@@ -1,6 +1,6 @@
 # Luma TV
 
-A Windows TV launcher built with Tauri 2, Svelte 5, TypeScript, Tailwind CSS 4, and Rust. Movie rows and the hero feature load real titles from Stremio's public Cinemeta catalog, with artwork from MetaHub. Luma launches installed applications rather than streaming movies itself. An optional Stremio account connection adds Continue Watching, a synchronized library, and deep links into the installed Stremio desktop app.
+A Windows TV launcher built with Tauri 2, Svelte 5, TypeScript, Tailwind CSS 4, and Rust. Movie rows and the hero feature load real titles from Stremio's public Cinemeta catalog, with artwork from MetaHub. Luma launches installed applications rather than streaming movies itself. An optional Stremio account connection adds Continue Watching and a synchronized library, and Stremio Web opens inside Luma instead of the Stremio desktop app.
 
 Use current Node.js LTS, npm, Rust stable, and the Windows Tauri prerequisites (MSVC build tools and WebView2).
 
@@ -21,7 +21,7 @@ Arrow keys move visible focus, Enter activates, Escape or Backspace returns, and
 
 Settings provide fullscreen, accent colors, wallpaper, density, section visibility, tile ordering, and executable paths. Appearance preferences are stored in the WebView's local storage. Approved app paths are saved separately in `apps.json` under Tauri's application configuration directory. Choose **Save approved app paths** after editing paths. Luma validates local absolute `.exe` paths and launches them directly without shell commands. Services are described by one registry in `apps.rs` — id, executable locations, and streaming URL — so adding a service is a data change rather than a new launch path.
 
-Spotify, Stremio, Netflix, Disney+, and Prime Video are automatically detected at startup and whenever launched with an empty configured path. Detection checks standard per-user/system installation locations and Windows App Paths registrations. **Find installed apps** fills empty path fields without replacing manual overrides. The custom tile always requires a path.
+Spotify, Netflix, Disney+, and Prime Video are automatically detected at startup and whenever launched with an empty configured path. Detection checks standard per-user/system installation locations and Windows App Paths registrations. **Find installed apps** fills empty path fields without replacing manual overrides. Stremio opens inside Luma and has no executable path. The custom tile always requires a path.
 
 A configured or detected executable always wins over the browser. When a service has no local application — Apple TV+, Hulu, Max, and Peacock, or any detected app that has been uninstalled — Luma opens its streaming URL in a Microsoft Edge app window:
 
@@ -43,7 +43,7 @@ Luma keeps a local-first activity history in `activity.sqlite3` under Tauri's ap
 
 Real sources in this build:
 
-- **This PC / launchers** — app launches through Luma, including Spotify, Stremio, Netflix, Disney+, Prime Video, YouTube, and a configured custom app. Only the launch is recorded, never what was watched.
+- **This PC / launchers** — app launches through Luma, including Spotify, Stremio, Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, YouTube, and a configured custom app. Only the launch is recorded, never what was watched.
 - **YouTube inside Luma** — the injected player reports the current video ID, title, channel, position, and duration at a throttled rate while playback is visible. The thumbnail is derived from the video ID.
 - **Spotify on Windows** — the current Spotify playback session observed by Luma, using the desktop media session or the connected Spotify integration. This is not a full Spotify listening history.
 - **Plex** — authenticated `library/onDeck` and `library/recentlyViewed` requests.
@@ -62,9 +62,13 @@ Settings → Integrations → Stremio links an account through Stremio's device-
 
 After pairing, Luma calls `https://api.strem.io/api/getUser` and `https://api.strem.io/api/datastoreGet` with collection `libraryItem` and `all: true` to load the account email and synchronized library. These requests run only in the Rust backend. The auth key is stored in Windows Credential Manager under `Luma/Stremio` and is never returned by a Tauri command, emitted to the WebView, or exposed by the remote HTTP/WebSocket server. `stremio.json` under Tauri's application configuration directory holds the non-secret email, last synchronization time, and library metadata so Continue Watching can render immediately at startup. Disconnecting deletes only that credential and cache; it does not call Stremio's logout endpoint or modify the user's account.
 
-Continue Watching uses Stremio's library state: titles with a positive `timeOffset`, excluding type `other`; progress is `timeOffset / duration`. Selecting a title opens `stremio:///detail/{type}/{id}/{videoId}` through the installed Stremio protocol handler. Luma does not bundle Stremio Web, a streaming engine, or a video player.
+Continue Watching uses Stremio's library state: titles with a positive `timeOffset`, excluding type `other`; progress is `timeOffset / duration`. Selecting a title opens the official Stremio Web app (`https://web.stremio.com/`) in a dedicated Luma window at `#/detail/{type}/{id}/{videoId}`. The Stremio tile, the catalog details dialog, and the hero title action use the same window. External links from Stremio open in the default browser; the embedded window only navigates Stremio hosts. `Ctrl+W`, Escape at the Stremio home screen, or the remote Home command closes the window and returns to Luma.
 
-These endpoints, payload shapes, and deep-link format are implementation-specific. The integration follows Stremio's upstream `stremio-core` commit `2c89236b47dfcd5e844c1dfae5737164cb616fbf` (`src/models/link.rs`, `src/types/api/request.rs`, `src/deep_links/mod.rs`) and was verified against the live link service. Re-check these interfaces when updating the integration; `stremio-core` itself is not bundled because its runtime, add-on system, and player dependencies are much larger than this adapter needs.
+The embedded window runs Stremio Web's own login and stores its session in WebView2's application profile, so it is separate from Luma's device-linked account. Luma's account connection still supplies Continue Watching and the library, but does not sign in Stremio Web automatically. Luma does not bundle a streaming engine, Stremio Service, or a video player.
+
+Stremio Web plays streams that its HTML5 player can handle directly, including HLS. Torrent, local-file, and transcoded playback require Stremio Service (or a running Stremio desktop installation, which provides the same service) at the default `http://127.0.0.1:11470/`; without it those streams are unavailable. Subscription services are not played by Stremio and its links to them leave the embedded window. WebView2 does not include Widevine, so DRM-protected playback from services such as Netflix or Disney+ is not available inside this window.
+
+These endpoints, payload shapes, and web routes are implementation-specific. The integration follows Stremio's upstream `stremio-core` commit `2c89236b47dfcd5e844c1dfae5737164cb616fbf` (`src/models/link.rs`, `src/types/api/request.rs`, `src/deep_links/mod.rs`) and the current `stremio-web` hash routes (`/detail/:type?/:id?/:videoId?`). Re-check these interfaces when updating the integration; `stremio-core` itself is not bundled because its runtime, add-on system, and player dependencies are much larger than this adapter needs.
 
 ## Remote protocol
 
@@ -98,7 +102,7 @@ Spotify's local icon comes from its [official design asset download](https://dev
 
 ## Validation limits
 
-Automated checks cover frontend types/build, directional focus/modal navigation, activity progress/capability selection and filtering, executable-path rejection, remote authentication/origin/command validation, Stremio library/deep-link mapping, and pointer clamping to the tracked window. Visual 1080p/4K behavior and playback against a live Spotify installation should also be checked on the target TV/PC. Window matching and pointer control should be checked against each installed service, since foreground behavior differs between desktop and Store-packaged applications. Stremio device linking, account synchronization, and deep-link launching require a live Stremio account and an installed desktop app. Plex, Jellyfin, and Trakt imports require a reachable server or account and were not validated in this checkout; they remain **Not validated** until a real refresh succeeds. YouTube progress reporting and direct app launches need a live Luma desktop session. Packaged Store applications depend on Windows exposing a usable executable alias or manually configured executable.
+Automated checks cover frontend types/build, directional focus/modal navigation, activity progress/capability selection and filtering, executable-path rejection, remote authentication/origin/command validation, Stremio library/deep-link mapping, and pointer clamping to the tracked window. Visual 1080p/4K behavior and playback against a live Spotify installation should also be checked on the target TV/PC. Window matching and pointer control should be checked against each installed service, since foreground behavior differs between desktop and Store-packaged applications. Stremio device linking and account synchronization require a live Stremio account. Embedded Stremio Web loading, its sign-in, external-link handling, and playback were not validated in this checkout; playback additionally requires a reachable Stremio Service for torrent or transcoded streams and is subject to WebView2 codec and Widevine limits. Plex, Jellyfin, and Trakt imports require a reachable server or account and were not validated in this checkout; they remain **Not validated** until a real refresh succeeds. YouTube progress reporting and direct app launches need a live Luma desktop session. Packaged Store applications depend on Windows exposing a usable executable alias or manually configured executable.
 
 ## System tray and Windows startup
 

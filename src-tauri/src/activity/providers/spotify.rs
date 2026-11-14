@@ -10,13 +10,8 @@ fn fingerprint(title: &str, artist: &str) -> u64 {
 }
 
 pub fn activity(title: &str, artist: &str, track_id: Option<&str>, now: &str) -> ActivityItem {
-    let stable = track_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| format!("spotify:track:{value}"))
-        .unwrap_or_else(|| format!("spotify:track:{:016x}", fingerprint(title, artist)));
     ActivityItem {
-        id: stable,
+        id: format!("spotify:track:{:016x}", fingerprint(title, artist)),
         provider: "spotify".into(),
         provider_item_id: track_id.map(str::to_string),
         profile_id: None,

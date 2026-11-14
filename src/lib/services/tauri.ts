@@ -20,6 +20,7 @@ export const stremioOpenLink = () => invoke<void>('stremio_open_link');
 export const stremioSync = () => invoke<StremioStatus>('stremio_sync');
 export const stremioDisconnect = () => invoke<StremioStatus>('stremio_disconnect');
 export const stremioOpen = (id: string) => invoke<void>('stremio_open', { id });
+export const stremioOpenDetail = (kind: string, id: string) => invoke<void>('stremio_open', { kind, id });
 export const onActivity = (callback: (snapshot: ActivitySnapshot) => void) => listen<ActivitySnapshot>('activity-updated', event => callback(event.payload));
 export const onNavigation = (callback: (command: NavigationCommand) => void) => listen<NavigationCommand>('remote-navigation', event => callback(event.payload));
 export const onMedia = (callback: (state: MediaState) => void) => listen<MediaState>('spotify-state', event => callback(event.payload));

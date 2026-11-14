@@ -10,7 +10,7 @@
   <h2 id="details-title">{item.title}</h2>
   <p>{item.subtitle}</p>
   {#if item.description}<p>{item.description}</p>{/if}
-  <p>Luma does not stream this title. Open Stremio on your PC to watch it.</p>
+  <p>Luma does not bundle a player. Open this title in Stremio inside Luma; playback depends on Stremio Web and its streaming service.</p>
   {#if message}<p role="status">{message}</p>{/if}
-  <button class="btn btn-primary" onclick={launch}>Open Stremio</button>
+  <button class="btn btn-primary" onclick={launch}>Open in Stremio</button>
 </dialog>

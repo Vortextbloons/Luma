@@ -62,7 +62,15 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
     if crate::commands::session::route(app, command.as_str()) {
         return;
     }
-    if app.get_webview_window("youtube").is_some() {
+    let stremio = app
+        .get_webview_window("stremio")
+        .filter(|window| window.is_visible().unwrap_or(false));
+    if stremio.is_some() {
+        crate::commands::stremio::forward(app, command.as_str());
+        if matches!(command, NavigationCommand::Home) {
+            let _ = app.emit("remote-navigation", command);
+        }
+    } else if app.get_webview_window("youtube").is_some() {
         youtube::forward(app, command.as_str());
         if matches!(command, NavigationCommand::Home) {
             let _ = app.emit("remote-navigation", command);

@@ -118,6 +118,9 @@ impl Activity {
             }
         };
         let detail = match (provider.kind, state) {
+            (_, ProviderState::Disabled) => {
+                "Disabled. Cached activity is still available to clear.".into()
+            }
             (ProviderKind::Local, _) => {
                 "Records launches made inside Luma. Stored only on this PC.".into()
             }
@@ -133,7 +136,6 @@ impl Activity {
             (ProviderKind::Launcher, _) => {
                 "Launcher only. Luma records the app open and does not claim watch-history access.".into()
             }
-            (_, ProviderState::Disabled) => "Disabled. Cached activity is still available to clear.".into(),
             (_, ProviderState::NeedsSetup) => match provider.kind {
                 ProviderKind::Trakt => "Add a Trakt client ID and authorized access token.".into(),
                 _ => format!("Add a {} server URL and token.", provider.name),
@@ -487,7 +489,16 @@ fn safe_target(activity: &Activity, provider: &str, target: &str) -> Result<Stri
     let host = url.host_str().unwrap_or_default();
     let allowed = match provider {
         "plex" => {
-            url.scheme() == "https" && (host == "app.plex.tv" || host.ends_with(".plex.tv"))
+            let configured = activity
+                .storage
+                .preference(&provider_url_key(provider))?
+                .and_then(|value| reqwest::Url::parse(&value).ok());
+            (url.scheme() == "https" && (host == "app.plex.tv" || host.ends_with(".plex.tv")))
+                || configured.is_some_and(|configured| {
+                    matches!(url.scheme(), "http" | "https")
+                        && configured.host_str() == url.host_str()
+                        && configured.port_or_known_default() == url.port_or_known_default()
+                })
         }
         "trakt" => {
             url.scheme() == "https" && (host == "trakt.tv" || host.ends_with(".trakt.tv"))
@@ -722,6 +733,10 @@ mod tests {
             .storage
             .set_preference("provider.jellyfin.url", "http://jellyfin.local:8096")
             .unwrap();
+        store
+            .storage
+            .set_preference("provider.plex.url", "http://plex.local:32400")
+            .unwrap();
         assert!(safe_target(
             &store,
             "trakt",
@@ -729,6 +744,13 @@ mod tests {
         )
         .is_ok());
         assert!(safe_target(&store, "trakt", "https://example.com/movie").is_err());
+        assert!(safe_target(
+            &store,
+            "plex",
+            "http://plex.local:32400/web/index.html"
+        )
+        .is_ok());
+        assert!(safe_target(&store, "plex", "http://other.local:32400/web").is_err());
         assert!(safe_target(
             &store,
             "jellyfin",

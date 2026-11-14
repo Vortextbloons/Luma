@@ -158,16 +158,6 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
             .query(&[("Limit", "50"), ("MediaTypes", "Video")]),
         token,
     );
-    if let Ok(value) = json(resume, "Jellyfin").await {
-        if let Some(entries) = value.get("Items").and_then(Value::as_array) {
-            for entry in entries {
-                if let Some(item) = item(entry, &user, &base, &now) {
-                    items.insert(item.id.clone(), item);
-                }
-            }
-        }
-    }
-
     let played = headers(
         client()
             .get(format!("{base}/Users/{user}/Items"))
@@ -181,21 +171,22 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
             ]),
         token,
     );
-    if let Ok(value) = json(played, "Jellyfin").await {
+    let resume = json(resume, "Jellyfin").await;
+    let played = json(played, "Jellyfin").await;
+
+    if let (Err(resume_error), Err(_)) = (&resume, &played) {
+        return Err(resume_error.clone());
+    }
+
+    for value in [resume.ok(), played.ok()].into_iter().flatten() {
         if let Some(entries) = value.get("Items").and_then(Value::as_array) {
             for entry in entries {
-                if let Some(mut item) = item(entry, &user, &base, &now) {
-                    item.progress_seconds = None;
-                    item.duration_seconds = None;
-                    item.completed = Some(true);
+                if let Some(item) = item(entry, &user, &base, &now) {
                     items.entry(item.id.clone()).or_insert(item);
                 }
             }
         }
     }
 
-    if items.is_empty() {
-        return Err("Jellyfin returned no resume or watched items for this user.".into());
-    }
     Ok(items.into_values().collect())
 }

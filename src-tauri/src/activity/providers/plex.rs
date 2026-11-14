@@ -73,7 +73,7 @@ fn item(value: &Value, machine: &str, base: &str, fallback_time: &str) -> Option
         .map(|value| from_unix(value as i64))
         .unwrap_or_else(|| fallback_time.to_string());
     let (launch_target, resume_kind) = if machine.is_empty() {
-        (Some(base.to_string()), ResumeKind::Service)
+        (Some(base.to_string()), ResumeKind::Content)
     } else {
         (
             Some(format!(
@@ -118,25 +118,17 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         .unwrap_or("")
         .to_string();
     let mut items = BTreeMap::new();
+    let on_deck = json(&format!("{base}/library/onDeck"), token).await;
+    let recently_viewed = json(&format!("{base}/library/recentlyViewed"), token).await;
 
-    if let Ok(value) = json(&format!("{base}/library/onDeck"), token).await {
+    if let (Err(deck_error), Err(_)) = (&on_deck, &recently_viewed) {
+        return Err(deck_error.clone());
+    }
+
+    for value in [on_deck.ok(), recently_viewed.ok()].into_iter().flatten() {
         if let Some(metadata) = value.pointer("/MediaContainer/Metadata").and_then(Value::as_array) {
             for entry in metadata {
                 if let Some(item) = item(entry, &machine, &base, &now) {
-                    items.insert(item.id.clone(), item);
-                }
-            }
-        }
-    }
-
-    if let Ok(value) = json(&format!("{base}/library/recentlyViewed"), token).await {
-        if let Some(metadata) = value.pointer("/MediaContainer/Metadata").and_then(Value::as_array) {
-            for entry in metadata {
-                if let Some(mut item) = item(entry, &machine, &base, &now) {
-                    item.progress_seconds = None;
-                    item.duration_seconds = None;
-                    item.progress_source = ProgressSource::Provider;
-                    item.completed = Some(true);
                     items.entry(item.id.clone()).or_insert(item);
                 }
             }
@@ -175,5 +167,22 @@ mod tests {
             .launch_target
             .unwrap()
             .contains("%2Flibrary%2Fmetadata%2F42"));
+    }
+
+    #[test]
+    fn recently_viewed_partial_item_keeps_progress_instead_of_claiming_finished() {
+        let value = json!({
+            "ratingKey": "43",
+            "type": "movie",
+            "title": "Partly watched",
+            "viewOffset": 120000,
+            "duration": 600000,
+            "viewCount": 1,
+            "lastViewedAt": 1767225600
+        });
+        let item = item(&value, "machine", "http://plex.local:32400", "2026-01-01T00:00:00.000Z").unwrap();
+        assert_eq!(item.progress_seconds, Some(120.0));
+        assert_eq!(item.duration_seconds, Some(600.0));
+        assert_eq!(item.completed, Some(false));
     }
 }

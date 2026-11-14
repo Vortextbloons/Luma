@@ -27,15 +27,7 @@ const SERVICES: &[Service] = &[
     Service {
         id: "Stremio",
         url: None,
-        executables: &[
-            ("LOCALAPPDATA", r"Programs\Stremio\stremio-shell-ng.exe"),
-            ("LOCALAPPDATA", r"Programs\Stremio\Stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\Stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-4\stremio.exe"),
-            ("ProgramFiles", r"Stremio\Stremio.exe"),
-            ("ProgramFiles(x86)", r"Stremio\Stremio.exe"),
-        ],
+        executables: &[],
     },
     Service {
         id: "Netflix",
@@ -378,6 +370,11 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
         .get(&name)
         .cloned()
         .unwrap_or_default();
+    if name == "Stremio" {
+        crate::commands::stremio::show(app.clone(), None)?;
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
     if name == "Spotify" {
         if !crate::integrations::spotify::process::running() {
             let detected = if configured.is_empty() {

@@ -49,10 +49,11 @@ class ActivityStore {
     this.started = true;
     try {
       this.stop = await onActivity(snapshot => this.apply(snapshot));
-      await this.load();
     } catch (cause) {
       this.error = String(cause);
+      this.started = false;
     }
+    await this.load();
     return () => {
       this.stop?.();
       this.stop = undefined;

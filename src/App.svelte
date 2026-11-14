@@ -21,7 +21,7 @@
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { appProviders } from './lib/services/activity';
-  import { native, launchApp, saveAppPaths, remoteStatus, configureRemote, onNavigation, onRemote, openYouTube, stremioStatus, stremioSync, stremioOpen } from './lib/services/tauri';
+  import { native, launchApp, saveAppPaths, remoteStatus, configureRemote, onNavigation, onRemote, openYouTube, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem, RemoteStatus, StremioStatus } from './lib/types';
 
@@ -56,6 +56,9 @@
   });
   $effect(() => {
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
+  });
+  $effect(() => {
+    if (activity.error) message = activity.error;
   });
   onMount(() => {
     navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
@@ -115,7 +118,7 @@
         return;
       }
     }
-    if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement)) {
+    if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement) && !(event.target instanceof HTMLButtonElement) && !(event.target instanceof HTMLAnchorElement)) {
       event.preventDefault();
       if (spotify.playback.canToggle) void spotify.action('toggle');
       return;
@@ -133,7 +136,7 @@
     launching = id;
     try {
       if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Press Ctrl+W there to return to Luma.'; }
-      else { await launchApp(id); message = `${id} launch requested.`; }
+      else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Press Ctrl+W there to return.' : `${id} launch requested.`; }
     } catch (error) { message = String(error); }
     finally { launching = null; }
   }
@@ -181,7 +184,12 @@
   }
   async function openStremio(id: string) {
     if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
-    try { await stremioOpen(id); message = 'Opening in Stremio.'; }
+    try { await stremioOpen(id); message = 'Opening in Stremio inside Luma. Press Ctrl+W there to return.'; }
+    catch (error) { message = String(error); }
+  }
+  async function openStremioDetail(kind: string, id: string) {
+    if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
+    try { await stremioOpenDetail(kind, id); message = 'Opening in Stremio inside Luma. Press Ctrl+W there to return.'; }
     catch (error) { message = String(error); }
   }
 </script>
@@ -192,7 +200,7 @@
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} fullscreen={settings.fullscreen} toggle={fullscreen} />
   {#if showHome}
-    <Hero wallpaper={settings.wallpaper} item={hero} activity={heroActivity} launch={() => launch('Stremio')} resume={resumeActivity} details={() => hero && select(hero)} />
+    <Hero wallpaper={settings.wallpaper} item={hero} activity={heroActivity} launch={() => hero ? openStremioDetail('movie', hero.id) : launch('Stremio')} resume={resumeActivity} details={() => hero && select(hero)} />
   {:else}<div class="h-32" aria-hidden="true"></div>{/if}
   {#if showHome && settings.sections.continue && stremio?.continueWatching.length}<StremioRow title="Continue watching on Stremio" items={stremio.continueWatching.slice(0, 10)} open={openStremio} />{/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openIntegrations} sync={syncStremio} />{/if}
@@ -215,4 +223,4 @@
   {#if playerOpen}<NowPlaying onclose={closePlayer} />{/if}
   {/if}
 </main>
-{#if details}<DetailsDialog {message} item={details} close={back} launch={() => launch('Stremio')} />{/if}
+{#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
