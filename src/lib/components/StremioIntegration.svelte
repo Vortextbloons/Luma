@@ -110,7 +110,7 @@
     <p class="panel-description" role="status">Checking Stremio connection…</p>
   {:else if status.connected}
     <div class="stremio-account"><span class="stremio-dot" aria-hidden="true"></span><div><strong>{status.email || 'Stremio account'}</strong><p>Connected</p></div></div>
-    <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library.</p>
+    <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library. Stremio Web opens inside Luma; sign in there once to watch.</p>
     <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync Now'}</button>
     <button class="text-link" disabled={busy} onclick={disconnect}>Disconnect account</button>
     <p class="panel-description">Disconnecting removes only Luma's saved credential. Your Stremio account and its library are not modified.</p>

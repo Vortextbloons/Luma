@@ -3,7 +3,6 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
-  import Hero from './lib/components/Hero.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import AppDock from './lib/components/AppDock.svelte';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
@@ -20,7 +19,6 @@
   import { createSettings } from './lib/state/settings.svelte';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
-  import { appProviders } from './lib/services/activity';
   import { native, launchApp, saveAppPaths, remoteStatus, configureRemote, onNavigation, onRemote, openYouTube, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem, RemoteStatus, StremioStatus } from './lib/types';
@@ -34,19 +32,15 @@
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
-  let hero = $state<MediaItem | null>(null);
   let popular = $state<MediaItem[]>([]);
   let featured = $state<MediaItem[]>([]);
   let remote = $state<RemoteStatus>({ running: false, lan: false, address: '', token: '', origin: '', error: null });
   let playerOpen = $state(false);
   let launching = $state<AppId | null>(null);
   let stremio = $state<StremioStatus | null>(null);
-  let hovered = $state<AppId | null>(null);
   let previous: HTMLElement | null = null;
   const navigation = createNavigation(back, home);
   const showHome = $derived(tab === 'Home');
-  const latest = (provider?: string) => activityItems.find(item => item.type !== 'application' && item.completed !== true && (!provider || item.provider === provider)) ?? null;
-  const heroActivity = $derived(hovered ? latest(appProviders[hovered]) ?? latest() : latest());
 
   $effect(() => {
     document.documentElement.dataset.accent = settings.accent;
@@ -63,7 +57,7 @@
   onMount(() => {
     navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
     loadCatalog()
-      .then(data => { popular = data.popular; featured = data.featured; hero = data.hero; })
+      .then(data => { popular = data.popular; featured = data.featured; })
       .catch(() => message = 'Movie catalog could not be loaded. Check your internet connection.');
     let disposed = false;
     const cleanup: (() => void)[] = [];
@@ -152,9 +146,6 @@
       message = `${item.title} removed from local activity history.`;
     } catch (error) { message = String(error); }
   }
-  async function resumeActivity() {
-    if (heroActivity) await openItem(heroActivity);
-  }
   async function fullscreen() {
     try { const value = !await getCurrentWindow().isFullscreen(); await getCurrentWindow().setFullscreen(value); settings.fullscreen = value; }
     catch (error) { message = String(error); }
@@ -199,16 +190,17 @@
   {#if panel}<SettingsPanel {message} {settings} {remote} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} fullscreen={settings.fullscreen} toggle={fullscreen} />
-  {#if showHome}
-    <Hero wallpaper={settings.wallpaper} item={hero} activity={heroActivity} launch={() => hero ? openStremioDetail('movie', hero.id) : launch('Stremio')} resume={resumeActivity} details={() => hero && select(hero)} />
-  {:else}<div class="h-32" aria-hidden="true"></div>{/if}
+  <div class="h-32" aria-hidden="true"></div>
+  {#if showHome && settings.sections.continue}
+    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
+  {/if}
   {#if showHome && settings.sections.continue && stremio?.continueWatching.length}<StremioRow title="Continue watching on Stremio" items={stremio.continueWatching.slice(0, 10)} open={openStremio} />{/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openIntegrations} sync={syncStremio} />{/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} onhover={id => hovered = id} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
   {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
   {#if tab === 'Music'}<MusicHome onopen={openPlayer} onsettings={openIntegrations} />{/if}
   {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
-  {#if (showHome && settings.sections.continue) || tab === 'Watch'}
+  {#if tab === 'Watch'}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
   {/if}
   {#if (showHome && settings.sections.recent) || tab === 'Watch'}

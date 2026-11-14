@@ -363,6 +363,11 @@ pub fn save_app_paths(
 #[tauri::command]
 pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Result<(), String> {
     let service = service(&name).ok_or("Application is not approved.")?;
+    if name == "Stremio" {
+        crate::commands::stremio::show(app.clone(), None)?;
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
     let configured = apps
         .0
         .lock()
@@ -370,11 +375,6 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
         .get(&name)
         .cloned()
         .unwrap_or_default();
-    if name == "Stremio" {
-        crate::commands::stremio::show(app.clone(), None)?;
-        crate::activity::record_launch(&app, &name);
-        return Ok(());
-    }
     if name == "Spotify" {
         if !crate::integrations::spotify::process::running() {
             let detected = if configured.is_empty() {

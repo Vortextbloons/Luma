@@ -2,7 +2,7 @@
   import type { AppId } from '../types';
   import { appProviders } from '../services/activity';
   import ProviderIcon from './activity/ProviderIcon.svelte';
-  let { order, launch, customize, onhover }: { order: AppId[]; launch: (id: AppId) => void; customize: () => void; onhover: (id: AppId | null) => void } = $props();
+  let { order, launch, customize }: { order: AppId[]; launch: (id: AppId) => void; customize: () => void } = $props();
   const className = (id: AppId) => id.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '-');
 </script>
 
@@ -10,7 +10,7 @@
   <div class="row-heading"><div><h2>Your apps</h2><p>Running on your Windows PC</p></div><button class="text-link" onclick={customize}>Rearrange apps <span>→</span></button></div>
   <div class="app-track">
     {#each order as id (id)}
-      <button class={`app-card ${className(id)}`} onclick={() => launch(id)} onmouseenter={() => onhover(id)} onmouseleave={() => onhover(null)} onfocus={() => onhover(id)} onblur={() => onhover(null)}>
+      <button class={`app-card ${className(id)}`} onclick={() => launch(id)}>
         {#if id === 'Custom'}
           <span class="plus-logo" aria-hidden="true">＋</span>
         {:else}

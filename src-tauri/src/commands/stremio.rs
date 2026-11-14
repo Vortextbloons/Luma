@@ -701,7 +701,8 @@ fn permitted(app: &AppHandle, url: &tauri::Url) -> bool {
         && url.host_str() == Some("web.stremio.com")
         && url.path() == "/__luma_close__"
     {
-        close(app);
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { close(&app) });
         return false;
     }
     url.scheme() == "about" || (url.scheme() == "https" && web_host(url.host_str()))

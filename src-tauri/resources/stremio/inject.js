@@ -18,6 +18,7 @@
   }
 
   hideWebView();
+  queueMicrotask(hideWebView);
   document.addEventListener('DOMContentLoaded', hideWebView);
   window.addEventListener('load', hideWebView);
 
