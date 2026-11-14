@@ -96,6 +96,8 @@ mod platform {
                 .to_ascii_lowercase();
             if id == "spotify.exe"
                 || id == "spotify"
+                || id.ends_with(r"\spotify.exe")
+                || id.ends_with("/spotify.exe")
                 || id.starts_with("spotifyab.spotifymusic_")
                 || id.starts_with("spotifyab.spotifymusic!")
             {

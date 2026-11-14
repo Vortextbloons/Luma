@@ -44,7 +44,7 @@
 
 <section class="settings-group">
   <h3>Spotify</h3>
-  <p class="panel-description">Uses the installed Windows Spotify app for playback. The optional Spotify account connection adds playlists, saved music, search, recent listening, queue, volume, and device controls. Playback audio still runs in Spotify.</p>
+  <p class="panel-description">Uses the installed Windows Spotify app for playback. The optional Spotify account connection adds playlists, saved music, search, recent listening, queue, volume, and device controls. Playback audio still runs in Spotify. If Luma cannot find Spotify, set its executable under Apps.</p>
 
   <p class="remote-status">{native ? connection.processRunning ? 'Spotify desktop is running.' : connection.installed ? 'Spotify desktop is installed but not running.' : 'Spotify desktop was not found on this PC.' : 'Available in the desktop application.'}</p>
   <p class="remote-status">{connection.authenticated ? `Account connected${connection.displayName ? ` as ${connection.displayName}` : ''}.` : 'Spotify account not connected.'}</p>

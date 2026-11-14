@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ActivityItem, MediaItem } from '../types';
-  import { actionLabel, progressPercent, providerName } from '../services/activity';
+  import { actionLabel, isContinueWatching, progressPercent, providerName } from '../services/activity';
   let { wallpaper, item, activity, launch, resume, details }: {
     wallpaper: string; item: MediaItem | null; activity: ActivityItem | null;
     launch: () => void; resume: () => void; details: () => void;
@@ -8,8 +8,10 @@
   const percent = $derived(activity ? Math.round(progressPercent(activity) ?? 0) : 0);
   const artwork = $derived(activity?.artwork || wallpaper || item?.backdrop || '');
   const label = $derived(activity ? providerName(activity.provider) : 'Popular on Stremio');
-  const eyebrow = $derived(activity ? (activity.type === 'track' ? 'LAST PLAYED' : 'CONTINUE WATCHING') : 'TRENDING NOW');
+  const continuing = $derived(activity ? isContinueWatching(activity) : false);
+  const eyebrow = $derived(activity ? (activity.type === 'track' ? 'LAST PLAYED' : continuing ? 'CONTINUE WATCHING' : 'RECENTLY PLAYED') : 'TRENDING NOW');
   const action = $derived(activity ? actionLabel(activity) : 'Open Stremio');
+  const description = $derived(activity ? (activity.type === 'track' ? 'Your most recent listen on Spotify.' : continuing ? 'Pick up right where you left off.' : 'Recent activity observed on this PC.') : '');
 </script>
 
 <section class="hero" aria-labelledby={activity || item ? 'hero-title' : undefined}>
@@ -24,7 +26,7 @@
       {#if activity.subtitle}<span>{activity.subtitle}</span>{/if}
       {#if percent > 0}<span class="meta-divider"></span><span>{percent}% watched</span>{/if}
     </div>
-    <p class="hero-desc">{activity.type === 'track' ? 'Your most recent listen on Spotify.' : 'Pick up right where you left off.'}</p>
+    <p class="hero-desc">{description}</p>
     <div class="hero-actions"><button class="btn btn-primary" onclick={resume}><span aria-hidden="true">▶</span> {action}</button></div>
   </div>
   {:else if item}

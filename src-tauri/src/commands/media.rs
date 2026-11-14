@@ -47,7 +47,7 @@ pub async fn media_state(
     app: tauri::AppHandle,
     auth: State<'_, Auth>,
 ) -> Result<MediaState, String> {
-    spotify::player::snapshot(&app, &auth)
+    spotify::player::current(&app, &auth)
         .await
         .map(MediaState::from)
         .map_err(|error| error.to_string())

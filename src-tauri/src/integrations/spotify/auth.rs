@@ -12,7 +12,7 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 const AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
-const SCOPES: &str = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative user-library-read user-read-recently-played user-read-private";
+const SCOPES: &str = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read user-read-recently-played user-read-private";
 const CREDENTIAL_TARGET: &str = "Luma/Spotify/OAuth";
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -57,6 +57,8 @@ impl Auth {
             tokens: Mutex::new(tokens),
             client: Client::builder()
                 .user_agent("Luma/0.1 (Spotify integration)")
+                .timeout(Duration::from_secs(20))
+                .connect_timeout(Duration::from_secs(10))
                 .build()
                 .map_err(|error| error.to_string())?,
             connecting: AsyncMutex::new(()),
@@ -191,7 +193,7 @@ impl Auth {
             tokens.expires_at = now_ms() / 1000 + expires_in;
             tokens.clone()
         };
-        credential_write(&serde_json::to_vec(&stored).map_err(|error| error.to_string())?)?;
+        let _ = credential_write(&serde_json::to_vec(&stored).map_err(|error| error.to_string())?);
         Ok(access_token)
     }
 
@@ -213,6 +215,7 @@ impl Auth {
         if client_id.is_empty() {
             return Err("Add your Spotify Client ID in Settings first.".into());
         }
+        let show_dialog = if self.authenticated() { "true" } else { "false" };
         let verifier = random_token(64)?;
         let challenge = base64url(&sha256(verifier.as_bytes())?);
         let state = random_token(24)?;
@@ -244,7 +247,7 @@ impl Auth {
             .append_pair("state", &state)
             .append_pair("code_challenge_method", "S256")
             .append_pair("code_challenge", &challenge)
-            .append_pair("show_dialog", "false");
+            .append_pair("show_dialog", show_dialog);
         if let Err(error) = open_browser(url.as_str()) {
             server.abort();
             return Err(error);
@@ -310,11 +313,11 @@ impl Auth {
             refresh_token,
             expires_at: now_ms() / 1000 + expires_in,
         };
+        credential_write(&serde_json::to_vec(&tokens).map_err(|error| error.to_string())?)?;
         {
             let mut stored = self.tokens.lock().map_err(|error| error.to_string())?;
-            *stored = Some(tokens.clone());
+            *stored = Some(tokens);
         }
-        credential_write(&serde_json::to_vec(&tokens).map_err(|error| error.to_string())?)?;
         Ok(())
     }
 }
@@ -347,7 +350,7 @@ async fn callback(
     }
     if success {
         axum::response::Html(
-            "<!doctype html><html><head><title>Luma</title></head><body style=\"font-family:Segoe UI,sans-serif;background:#0b0d12;color:#f8f8fa;display:grid;place-items:center;height:100vh;margin:0\"><main style=\"text-align:center\"><h1>Spotify connected</h1><p style=\"color:#a9aab5\">You can close this tab and return to Luma.</p></main></body></html>",
+            "<!doctype html><html><head><title>Luma</title></head><body style=\"font-family:Segoe UI,sans-serif;background:#0b0d12;color:#f8f8fa;display:grid;place-items:center;height:100vh;margin:0\"><main style=\"text-align:center\"><h1>Spotify authorization received</h1><p style=\"color:#a9aab5\">Return to Luma to finish connecting. You can close this tab.</p></main></body></html>",
         )
     } else {
         axum::response::Html(

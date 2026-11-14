@@ -217,7 +217,10 @@ async fn start_bridge(app: AppHandle) -> Result<String, String> {
             get(dearrow_thumbnail),
         )
         .route(&format!("/{token}/exit"), get(youtube_exit))
-        .route(&format!("/{token}/playback"), post(playback))
+        .route(
+            &format!("/{token}/playback"),
+            post(playback).options(preflight),
+        )
         .fallback(preflight)
         .layer(DefaultBodyLimit::max(8192))
         .with_state(app);

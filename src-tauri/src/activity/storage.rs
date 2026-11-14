@@ -89,9 +89,16 @@ impl Storage {
                      completed = CASE
                          WHEN excluded.last_activity_at >= activity_items.last_activity_at
                          THEN excluded.completed ELSE activity_items.completed END,
-                     can_resume = excluded.can_resume,
-                     launch_target = COALESCE(excluded.launch_target, activity_items.launch_target),
-                     resume_kind = excluded.resume_kind,
+                     can_resume = CASE
+                         WHEN excluded.last_activity_at >= activity_items.last_activity_at
+                         THEN excluded.can_resume ELSE activity_items.can_resume END,
+                     launch_target = CASE
+                         WHEN excluded.last_activity_at >= activity_items.last_activity_at
+                         THEN COALESCE(excluded.launch_target, activity_items.launch_target)
+                         ELSE activity_items.launch_target END,
+                     resume_kind = CASE
+                         WHEN excluded.last_activity_at >= activity_items.last_activity_at
+                         THEN excluded.resume_kind ELSE activity_items.resume_kind END,
                      metadata_updated_at = excluded.metadata_updated_at",
                 params![
                     item.id,
@@ -217,11 +224,12 @@ impl Storage {
         Ok(())
     }
 
-    pub fn count_provider(&self, provider: &str) -> Result<u32, String> {
+    pub fn count_playback(&self, provider: &str) -> Result<u32, String> {
         let connection = self.connection.lock().map_err(|e| e.to_string())?;
         connection
             .query_row(
-                "SELECT COUNT(*) FROM activity_items WHERE provider = ?1",
+                "SELECT COUNT(*) FROM activity_items
+                 WHERE provider = ?1 AND item_type != 'application'",
                 params![provider],
                 |row| row.get::<_, i64>(0),
             )
@@ -301,7 +309,7 @@ fn read_item(row: &Row<'_>) -> rusqlite::Result<ActivityItem> {
         launch_target: row.get(14)?,
         resume_kind,
         launch_count: (item_type == ActivityType::Application)
-            .then_some(launch_count.max(1) as u32),
+            .then_some(launch_count.max(0) as u32),
     })
 }
 

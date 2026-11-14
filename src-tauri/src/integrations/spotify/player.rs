@@ -25,9 +25,14 @@ pub struct Player {
 pub async fn initialize(app: tauri::AppHandle) {
     let starter = app.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || windows_media::start(&starter)).await;
+    if let Some(auth) = app.try_state::<Auth>() {
+        if auth.authenticated() {
+            let _ = snapshot(&app, &auth).await;
+        }
+    }
     let handle = app;
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
         interval.tick().await;
         loop {
             interval.tick().await;
@@ -56,17 +61,14 @@ pub fn publish_media_event(app: &tauri::AppHandle) {
         if let Some(cached) = cached.as_ref() {
             merge(&mut state, cached);
         }
-        if state.player_available {
-            clear_error(&handle);
+        if state.player_available && clear_error(&handle) {
+            emit_connection(&handle);
         }
         publish(&handle, state);
     });
 }
 
-pub async fn snapshot(
-    app: &tauri::AppHandle,
-    auth: &Auth,
-) -> Result<PlaybackState, String> {
+async fn windows_state(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackState, String> {
     let handle = app.clone();
     let mut state = tauri::async_runtime::spawn_blocking(move || windows_media::snapshot(&handle))
         .await
@@ -85,20 +87,56 @@ pub async fn snapshot(
     if let Some(cached) = cached.as_ref() {
         merge(&mut state, cached);
     }
-    if state.player_available {
-        clear_error(app);
+    if state.player_available && clear_error(app) {
+        emit_connection(app);
     }
     state.connected = auth.authenticated();
+    Ok(state)
+}
+
+pub async fn current(
+    app: &tauri::AppHandle,
+    auth: &Auth,
+) -> Result<PlaybackState, String> {
+    let preferred = app
+        .state::<Player>()
+        .preferred_device
+        .lock()
+        .ok()
+        .and_then(|device| device.clone());
+    if preferred.is_some() && auth.authenticated() {
+        return snapshot(app, auth).await;
+    }
+    let state = windows_state(app, auth).await?;
+    publish(app, state.clone());
+    Ok(state)
+}
+
+pub async fn snapshot(
+    app: &tauri::AppHandle,
+    auth: &Auth,
+) -> Result<PlaybackState, String> {
+    let mut state = windows_state(app, auth).await?;
     if auth.authenticated() {
         match api::playback(auth).await {
             Ok(api_state) => {
-                if state.player_available {
+                let preferred = app
+                    .state::<Player>()
+                    .preferred_device
+                    .lock()
+                    .ok()
+                    .and_then(|device| device.clone());
+                if preferred.is_some() && api_state.player_available {
+                    state = api_state;
+                } else if state.player_available {
                     merge_api(&mut state, &api_state);
                 } else if api_state.player_available {
                     state = api_state;
                 }
                 state.connected = true;
-                clear_error(app);
+                if clear_error(app) {
+                    emit_connection(app);
+                }
             }
             Err(error) => {
                 if !state.player_available {
@@ -151,15 +189,28 @@ fn merge(media: &mut PlaybackState, cached: &PlaybackState) {
 
 fn merge_api(media: &mut PlaybackState, api: &PlaybackState) {
     let same_track = media.title == api.title && media.artist == api.artist;
-    if same_track {
+    let adopt = same_track || media.title.is_none();
+    if adopt {
         if media.track_id.is_none() {
             media.track_id = api.track_id.clone();
+        }
+        if media.title.is_none() {
+            media.title = api.title.clone();
+        }
+        if media.artist.is_none() {
+            media.artist = api.artist.clone();
         }
         if media.album.is_none() {
             media.album = api.album.clone();
         }
-        if media.artwork_url.is_none() {
-            media.artwork_url = api.artwork_url.clone();
+        if let Some(artwork) = api.artwork_url.as_ref() {
+            if media
+                .artwork_url
+                .as_deref()
+                .map_or(true, |value| value.starts_with("data:"))
+            {
+                media.artwork_url = Some(artwork.clone());
+            }
         }
         if media.duration_ms.is_none() {
             media.duration_ms = api.duration_ms;
@@ -167,56 +218,26 @@ fn merge_api(media: &mut PlaybackState, api: &PlaybackState) {
         if media.position_ms.is_none() {
             media.position_ms = api.position_ms;
         }
+        if media.device_id.is_none() {
+            media.device_id = api.device_id.clone();
+        }
         if media.shuffle.is_none() {
             media.shuffle = api.shuffle;
         }
         if media.repeat.is_none() {
             media.repeat = api.repeat.clone();
         }
-    }
-    if media.title.is_none() {
-        media.title = api.title.clone();
-    }
-    if media.artist.is_none() {
-        media.artist = api.artist.clone();
-    }
-    if media.album.is_none() {
-        media.album = api.album.clone();
-    }
-    if let Some(artwork) = api.artwork_url.as_ref() {
-        if media
-            .artwork_url
-            .as_deref()
-            .map_or(true, |value| value.starts_with("data:"))
-        {
-            media.artwork_url = Some(artwork.clone());
+        if media.volume.is_none() {
+            media.volume = api.volume;
         }
-    }
-    if media.duration_ms.is_none() {
-        media.duration_ms = api.duration_ms;
-    }
-    if media.position_ms.is_none() {
-        media.position_ms = api.position_ms;
-    }
-    if media.device_id.is_none() {
-        media.device_id = api.device_id.clone();
+        media.can_seek = media.can_seek || api.can_seek;
+        media.can_skip_next = media.can_skip_next || api.can_skip_next;
+        media.can_skip_previous = media.can_skip_previous || api.can_skip_previous;
+        media.can_toggle = media.can_toggle || api.can_toggle;
     }
     if media.device_name.is_none() {
         media.device_name = api.device_name.clone();
     }
-    if media.shuffle.is_none() {
-        media.shuffle = api.shuffle;
-    }
-    if media.repeat.is_none() {
-        media.repeat = api.repeat.clone();
-    }
-    if media.volume.is_none() {
-        media.volume = api.volume;
-    }
-    media.can_seek = media.can_seek || api.can_seek;
-    media.can_skip_next = media.can_skip_next || api.can_skip_next;
-    media.can_skip_previous = media.can_skip_previous || api.can_skip_previous;
-    media.can_toggle = media.can_toggle || api.can_toggle;
 }
 
 fn publish(app: &tauri::AppHandle, mut state: PlaybackState) {
@@ -274,6 +295,17 @@ pub async fn control(
         return Ok(());
     }
     let command = parse_command(action, value)?;
+    let preferred = app
+        .state::<Player>()
+        .preferred_device
+        .lock()
+        .ok()
+        .and_then(|device| device.clone());
+    if preferred.is_some() && auth.authenticated() {
+        api::control(auth, command).await?;
+        refresh_later(app.clone());
+        return Ok(());
+    }
     let handle = app.clone();
     let windows_command = command.clone();
     let windows_result =
@@ -310,42 +342,51 @@ pub async fn play_uri(
         .lock()
         .ok()
         .and_then(|device| device.clone());
-    let devices = if device_id.is_none() && windows_media::available(app) {
-        api::devices(auth).await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let devices = api::devices(auth).await.unwrap_or_default();
     let target = device_id
         .map(str::to_string)
-        .or(preferred)
-        .or_else(|| pc_device(&devices).and_then(|device| device.id.clone()));
-    if let Some(target) = target.as_deref() {
-        let active = devices
-            .iter()
-            .find(|device| device.active)
-            .and_then(|device| device.id.as_deref());
-        if active != Some(target) {
-            api::transfer(auth, target).await?;
-            tokio::time::sleep(Duration::from_millis(350)).await;
-        }
+        .or_else(|| {
+            preferred
+                .as_deref()
+                .filter(|id| {
+                    devices.is_empty()
+                        || devices
+                            .iter()
+                            .any(|device| device.id.as_deref() == Some(*id))
+                })
+                .map(str::to_string)
+        })
+        .or_else(|| pc_device(&devices).and_then(|device| device.id.clone()))
+        .ok_or(
+            "No Spotify device on this PC is available. Open Spotify on this PC and try again.",
+        )?;
+    let active = devices
+        .iter()
+        .find(|device| device.active)
+        .and_then(|device| device.id.as_deref());
+    if active != Some(target.as_str()) {
+        api::transfer(auth, &target).await?;
+        tokio::time::sleep(Duration::from_millis(350)).await;
     }
-    api::play(auth, uri, target.as_deref()).await?;
+    api::play(auth, uri, Some(target.as_str())).await?;
     refresh_later(app.clone());
     Ok(())
 }
 
+fn is_local_pc(device: &Device) -> bool {
+    !device.restricted
+        && device.kind.eq_ignore_ascii_case("computer")
+        && device.name.eq_ignore_ascii_case(&computer_name())
+}
+
 fn pc_device(devices: &[Device]) -> Option<&Device> {
-    let name = computer_name();
     devices
         .iter()
-        .find(|device| {
-            device.kind.eq_ignore_ascii_case("computer")
-                && device.name.eq_ignore_ascii_case(&name)
-        })
+        .find(|device| is_local_pc(device))
         .or_else(|| {
             devices
                 .iter()
-                .find(|device| device.kind.eq_ignore_ascii_case("computer"))
+                .find(|device| !device.restricted && device.kind.eq_ignore_ascii_case("computer"))
         })
 }
 
@@ -358,8 +399,13 @@ pub async fn transfer(
         return Err("Connect a Spotify account to switch playback devices.".into());
     }
     api::transfer(auth, device_id).await?;
+    let devices = api::devices(auth).await.unwrap_or_default();
+    let local = devices
+        .iter()
+        .find(|device| device.id.as_deref() == Some(device_id))
+        .is_some_and(is_local_pc);
     if let Ok(mut preferred) = app.state::<Player>().preferred_device.lock() {
-        *preferred = Some(device_id.to_string());
+        *preferred = (!local).then(|| device_id.to_string());
     }
     refresh_later(app.clone());
     Ok(())
@@ -381,14 +427,15 @@ pub fn connection(app: &tauri::AppHandle, auth: &Auth) -> ConnectionState {
         .ok()
         .and_then(|cache| cache.clone());
     let live = windows_media::available(app);
+    let running = process::running();
     let api_active = auth.authenticated()
         && cached
             .as_ref()
             .is_some_and(|state| state.player_available);
     ConnectionState {
         authenticated: auth.authenticated(),
-        process_running: process::running(),
-        installed: process::installed(),
+        process_running: running,
+        installed: process::installed() || running,
         player_available: live || api_active,
         starting: player.starting.load(Ordering::SeqCst),
         client_id_configured: auth.client_id_configured(),
@@ -407,15 +454,25 @@ pub fn set_display_name(app: &tauri::AppHandle, value: Option<String>) {
     }
 }
 
+pub fn clear_device_preference(app: &tauri::AppHandle) {
+    if let Ok(mut preferred) = app.state::<Player>().preferred_device.lock() {
+        *preferred = None;
+    }
+}
+
 pub fn set_error(app: &tauri::AppHandle, value: Option<String>) {
     if let Ok(mut error) = app.state::<Player>().error.lock() {
         *error = value;
     }
 }
 
-fn clear_error(app: &tauri::AppHandle) {
+fn clear_error(app: &tauri::AppHandle) -> bool {
     if let Ok(mut error) = app.state::<Player>().error.lock() {
+        let had_error = error.is_some();
         *error = None;
+        had_error
+    } else {
+        false
     }
 }
 

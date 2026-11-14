@@ -11,7 +11,7 @@
   const playback = $derived(spotify.playback);
   const connection = $derived(spotify.connection);
   const home = $derived(spotify.home);
-  const playing = $derived(Boolean(playback.title || playback.playerAvailable));
+
   let transferring = $state<string | null>(null);
 
   const playlists = $derived(home.playlists.map(item => ({
@@ -40,8 +40,10 @@
   async function useDevice(device: SpotifyDevice) {
     if (!device.id || device.active || device.restricted) return;
     transferring = device.id;
-    try { await spotify.transfer(device.id); }
-    finally { transferring = null; }
+    try {
+      await spotify.transfer(device.id);
+      await spotify.loadHome(true);
+    } finally { transferring = null; }
   }
 
   function action(name: string) { void spotify.action(name); }
@@ -56,7 +58,8 @@
     </div>
     <div class="music-status">
       <span class:inactive={!playback.playerAvailable} class="music-status-led" aria-hidden="true"></span>
-      <span>{connection.authenticated ? (connection.displayName ? `Connected as ${connection.displayName}` : 'Spotify account connected') : playback.playerAvailable ? 'Windows media controls' : 'Spotify is not active'}</span>
+      <span>{connection.authenticated ? (connection.displayName ? `Connected as ${connection.displayName}` : 'Spotify account connected') : playback.playerAvailable ? 'Windows media controls' : connection.processRunning ? 'Spotify is running' : 'Spotify is not active'}</span>
+      {#if connection.authenticated}<button class="text-link" disabled={spotify.homeLoading} onclick={() => spotify.loadHome(true)}>{spotify.homeLoading ? 'Refreshing…' : 'Refresh library'}</button>{/if}
       <button class="text-link" onclick={onsettings}>Manage Spotify</button>
     </div>
   </header>
@@ -79,18 +82,19 @@
         <h2>{connection.installed ? 'Spotify is not running' : 'Spotify was not found'}</h2>
         <p>{connection.installed ? 'Start Spotify minimized and let Luma take over the controls.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
       </div>
-      {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify in background</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Check app paths</button>{/if}
+      {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify in background</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Open settings</button>{/if}
     </section>
   {/if}
 
+  {#if connection.processRunning || playback.playerAvailable || playback.title}
   <section class="music-now-card" aria-label="Currently playing">
     <div class="music-now-art">
       {#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" />{:else}<span aria-hidden="true">♪</span>{/if}
     </div>
     <div class="music-now-copy">
-      <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playing ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
+      <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
       <h2>{playback.title ?? 'Spotify is not playing'}</h2>
-      <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || (playback.playerAvailable ? 'Start a track in Spotify or search your library.' : 'Start Spotify and play something to connect.')}</p>
+      <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || (playback.playerAvailable ? 'Start a track in Spotify or search your library.' : connection.processRunning ? 'Spotify is running. Start a track in Spotify to connect.' : 'Start Spotify and play something to connect.')}</p>
       <div class="music-progress" aria-hidden="true"><span style:width={`${Math.round(spotify.progress * 100)}%`}></span></div>
       <div class="music-now-actions">
         <PlaybackControls {playback} busy={spotify.busy} onaction={action} />
@@ -99,6 +103,7 @@
       {#if playback.deviceName}<p class="music-device-label">Playing on {playback.deviceName}</p>{/if}
     </div>
   </section>
+  {/if}
 
   {#if connection.authenticated}
     <MusicSearch {onopen} />

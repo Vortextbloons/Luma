@@ -1,3 +1,5 @@
+export type SpotifyRepeat = 'off' | 'track' | 'context';
+
 export interface SpotifyPlaybackState {
   connected: boolean;
   playerAvailable: boolean;
@@ -16,7 +18,7 @@ export interface SpotifyPlaybackState {
   canSkipPrevious: boolean;
   canToggle: boolean;
   shuffle?: boolean;
-  repeat?: string;
+  repeat?: SpotifyRepeat;
   volume?: number;
   updatedAt: number;
   error?: string;

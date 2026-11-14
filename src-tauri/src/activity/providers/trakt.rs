@@ -1,5 +1,6 @@
 use super::{
-    client, now, ActivityItem, ActivityType, ProgressSource, ProviderConfig, ResumeKind,
+    client, now, normalized_time, ActivityItem, ActivityType, ProgressSource, ProviderConfig,
+    ResumeKind,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -21,7 +22,7 @@ fn number(value: &Value, key: &str) -> Option<f64> {
 
 fn item(value: &Value, fallback: &str) -> Option<ActivityItem> {
     let kind = text(value, "type")?;
-    let watched_at = text(value, "watched_at").unwrap_or_else(|| fallback.to_string());
+    let watched_at = normalized_time(text(value, "watched_at"), fallback);
     match kind.as_str() {
         "movie" => {
             let movie = value.get("movie")?;

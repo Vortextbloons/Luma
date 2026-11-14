@@ -10,8 +10,17 @@ export function createNavigation(back: () => void, home: () => void) {
   function dispatch(command: NavigationCommand) {
     if (command === 'back') { back(); return; }
     if (command === 'home') { home(); return; }
-    const candidates = elements();
     const current = document.activeElement as HTMLElement;
+    if ((command === 'left' || command === 'right') && current instanceof HTMLInputElement && current.type === 'range' && !current.disabled) {
+      const step = (Number(current.step) || 1) * (Number(current.max) > 10_000 ? 5 : 1);
+      const direction = command === 'right' ? 1 : -1;
+      const next = Math.min(Number(current.max), Math.max(Number(current.min), Number(current.value) + step * direction));
+      current.value = String(next);
+      current.dispatchEvent(new Event('input', { bubbles: true }));
+      current.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+    const candidates = elements();
     if (!candidates.includes(current)) { focus(candidates[0]); return; }
     if (command === 'activate') { current.click(); return; }
     const a = current.getBoundingClientRect();

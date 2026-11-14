@@ -7,6 +7,7 @@
   const playback = $derived(spotify.playback);
   const connection = $derived(spotify.connection);
   let showQueue = $state(false);
+  let queueLoading = $state(false);
 
   onMount(() => {
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.now-playing-close')?.focus());
@@ -35,7 +36,17 @@
 
   async function queue() {
     showQueue = !showQueue;
-    if (showQueue) await spotify.loadQueue();
+    if (showQueue) {
+      queueLoading = true;
+      try { await spotify.loadQueue(); }
+      finally { queueLoading = false; }
+    }
+  }
+
+  async function refreshQueue() {
+    queueLoading = true;
+    try { await spotify.loadQueue(); }
+    finally { queueLoading = false; }
   }
 
   async function playQueue(uri?: string) {
@@ -87,8 +98,10 @@
 
   {#if showQueue}
     <section class="now-playing-queue" aria-label="Playback queue">
-      <div class="row-heading"><div><h2>Queue</h2><p>Up next on {playback.deviceName ?? 'Spotify'}</p></div><button class="text-link" onclick={() => spotify.loadQueue()}>Refresh</button></div>
-      {#if spotify.queue?.items.length}
+      <div class="row-heading"><div><h2>Queue</h2><p>Up next on {playback.deviceName ?? 'Spotify'}</p></div><button class="text-link" disabled={queueLoading} onclick={refreshQueue}>{queueLoading ? 'Loading…' : 'Refresh'}</button></div>
+      {#if queueLoading && !spotify.queue}
+        <p class="music-empty-line">Loading queue…</p>
+      {:else if spotify.queue?.items.length}
         <div class="music-track-list compact">
           {#each spotify.queue.items as track, index (track.id ?? `${track.title}-${index}`)}
             <button class="music-track" onclick={() => playQueue(track.uri)}>

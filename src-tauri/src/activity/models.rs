@@ -278,6 +278,30 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         kind: ProviderKind::Launcher,
         capabilities: &["appLaunches"],
     },
+    ProviderInfo {
+        id: "appletv",
+        name: "Apple TV+",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "hulu",
+        name: "Hulu",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "max",
+        name: "Max",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "peacock",
+        name: "Peacock",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
 ];
 
 pub fn provider_info(id: &str) -> Option<&'static ProviderInfo> {
@@ -292,6 +316,10 @@ pub fn app_provider(app: &str) -> &'static str {
         "Netflix" => "netflix",
         "Disney+" => "disneyplus",
         "Prime Video" => "primevideo",
+        "Apple TV+" => "appletv",
+        "Hulu" => "hulu",
+        "Max" => "max",
+        "Peacock" => "peacock",
         _ => "local",
     }
 }

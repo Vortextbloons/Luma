@@ -103,7 +103,19 @@
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
   function keydown(event: KeyboardEvent) {
-    if (event.key === ' ' && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement)) {
+    if (event.target instanceof HTMLInputElement && event.target.type === 'range') {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        navigation.dispatch(event.key === 'ArrowUp' ? 'up' : 'down');
+        return;
+      }
+      if (event.key === 'Backspace') {
+        event.preventDefault();
+        navigation.dispatch('back');
+        return;
+      }
+    }
+    if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement)) {
       event.preventDefault();
       if (spotify.playback.canToggle) void spotify.action('toggle');
       return;
@@ -178,7 +190,7 @@
 <main class="app-shell">
   {#if panel}<SettingsPanel {message} {settings} {remote} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />
   {:else}
-  <TopNav active={tab} {navigate} settings={openSettings} />
+  <TopNav active={tab} {navigate} settings={openSettings} fullscreen={settings.fullscreen} toggle={fullscreen} />
   {#if showHome}
     <Hero wallpaper={settings.wallpaper} item={hero} activity={heroActivity} launch={() => launch('Stremio')} resume={resumeActivity} details={() => hero && select(hero)} />
   {:else}<div class="h-32" aria-hidden="true"></div>{/if}

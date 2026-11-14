@@ -41,7 +41,7 @@ pub async fn spotify_playback(
     app: tauri::AppHandle,
     auth: State<'_, Auth>,
 ) -> Result<PlaybackState, String> {
-    player::snapshot(&app, &auth).await
+    player::current(&app, &auth).await
 }
 
 #[tauri::command]
@@ -138,6 +138,7 @@ pub async fn spotify_disconnect(
 ) -> Result<ConnectionState, String> {
     auth.disconnect()?;
     player::set_display_name(&app, None);
+    player::clear_device_preference(&app);
     let _ = player::snapshot(&app, &auth).await;
     let state = player::connection(&app, &auth);
     let _ = app.emit("spotify-connection", state.clone());

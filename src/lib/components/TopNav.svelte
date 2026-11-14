@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  let { active, navigate, settings }: { active: string; navigate: (tab: string) => void; settings: () => void } = $props();
+  let { active, navigate, settings, fullscreen, toggle }: { active: string; navigate: (tab: string) => void; settings: () => void; fullscreen: boolean; toggle: () => void } = $props();
   let clock = $state('');
   onMount(() => {
     const update = () => clock = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -17,5 +17,5 @@
       <button id={tab === 'Home' ? 'home-button' : undefined} class={['nav-btn', { 'is-active': active === tab }]} aria-current={active === tab ? 'page' : undefined} onclick={() => navigate(tab)}>{tab}</button>
     {/each}
   </nav>
-  <div class="header-right"><time class="clock">{clock}</time><button class="avatar" aria-label="Open settings" onclick={settings}>⚙</button></div>
+  <div class="header-right"><time class="clock">{clock}</time><button class="text-link" aria-pressed={fullscreen} onclick={toggle}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button><button class="avatar" aria-label="Open settings" onclick={settings}>⚙</button></div>
 </header>

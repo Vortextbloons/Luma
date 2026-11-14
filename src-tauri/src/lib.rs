@@ -37,7 +37,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::initialize(handle.clone()).await;
                 if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
-                spotify::initialize(handle.clone()).await;
+                tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
                 if !std::env::args().any(|arg| arg == "--background") {
                     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                     youtube::prepare(handle).await;

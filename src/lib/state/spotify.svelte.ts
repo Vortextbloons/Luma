@@ -78,6 +78,7 @@ export function createSpotify() {
     for (const stop of stops.splice(0)) stop();
     if (timer) clearInterval(timer);
     timer = undefined;
+    initialized = false;
   }
 
   async function refresh() {
@@ -85,6 +86,7 @@ export function createSpotify() {
     loading = true;
     try {
       [playback, connection] = await Promise.all([spotifyPlayback(), spotifyStatus()]);
+      error = '';
     } catch (cause) {
       error = String(cause);
     } finally {
@@ -93,12 +95,13 @@ export function createSpotify() {
   }
 
   async function loadHome(force = false) {
-    if (!native || !connection.authenticated) return;
+    if (!native || !connection.authenticated || homeLoading) return;
     if (!force && homeLoadedAt && Date.now() - homeLoadedAt < 60_000) return;
     homeLoading = true;
     try {
       home = await spotifyHome();
       homeLoadedAt = Date.now();
+      error = '';
     } catch (cause) {
       error = String(cause);
     } finally {
@@ -168,7 +171,7 @@ export function createSpotify() {
     try {
       connection = await spotifyConnect();
       await refresh();
-      await loadHome(true);
+      void loadHome(true);
       return true;
     } catch (cause) {
       error = String(cause);
@@ -198,6 +201,7 @@ export function createSpotify() {
     try {
       await spotifySetClientId(value.trim());
       clientId = value.trim();
+      connection.clientIdConfigured = true;
       connection = await spotifyStatus();
       error = '';
       return true;

@@ -31,6 +31,17 @@ pub fn from_unix(seconds: i64) -> String {
         .unwrap_or_else(now)
 }
 
+pub fn normalized_time(value: Option<String>, fallback: &str) -> String {
+    value
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(&value).ok())
+        .map(|value| {
+            value
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        })
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 pub fn validated_base(value: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(value.trim())
         .map_err(|_| "Enter a complete http:// or https:// server URL.".to_string())?;

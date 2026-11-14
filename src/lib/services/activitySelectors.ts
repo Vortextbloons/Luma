@@ -71,6 +71,7 @@ export function typeLabel(item: ActivityItem): string {
 export const providerNames: Record<string, string> = {
   local: 'This PC', youtube: 'YouTube', spotify: 'Spotify', plex: 'Plex', jellyfin: 'Jellyfin',
   trakt: 'Trakt', stremio: 'Stremio', netflix: 'Netflix', disneyplus: 'Disney+', primevideo: 'Prime Video',
+  appletv: 'Apple TV+', hulu: 'Hulu', max: 'Max', peacock: 'Peacock',
 };
 
 export function providerName(provider: string): string {

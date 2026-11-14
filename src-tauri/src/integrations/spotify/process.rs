@@ -20,9 +20,9 @@ pub fn running() -> bool {
         let mut found = Process32FirstW(snapshot, &mut entry).is_ok();
         while found {
             let name = String::from_utf16_lossy(&entry.szExeFile);
-            if name
-                .trim_end_matches('\0')
-                .eq_ignore_ascii_case("Spotify.exe")
+            let name = name.trim_end_matches('\0');
+            if name.eq_ignore_ascii_case("Spotify.exe")
+                || name.eq_ignore_ascii_case("SpotifyLauncher.exe")
             {
                 let _ = CloseHandle(snapshot);
                 return true;

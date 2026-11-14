@@ -86,10 +86,15 @@ impl Activity {
             }
             _ => true,
         };
-        let observed = self.storage.count_provider(provider.id)? > 0;
+        let observed_playback = match provider.kind {
+            ProviderKind::YouTube | ProviderKind::Spotify => {
+                self.storage.count_playback(provider.id)? > 0
+            }
+            _ => false,
+        };
         let validated = match provider.kind {
             ProviderKind::Local | ProviderKind::Launcher => true,
-            ProviderKind::YouTube | ProviderKind::Spotify => observed,
+            ProviderKind::YouTube | ProviderKind::Spotify => observed_playback,
             ProviderKind::Plex | ProviderKind::Jellyfin | ProviderKind::Trakt => {
                 last_success_at.is_some()
             }

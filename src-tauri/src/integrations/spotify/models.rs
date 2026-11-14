@@ -159,3 +159,20 @@ pub fn parse_command(action: &str, value: Option<&str>) -> Result<Command, Strin
         _ => Err("Unknown Spotify action.".into()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_commands_are_allowlisted_and_typed() {
+        assert!(matches!(parse_command("toggle", None), Ok(Command::Toggle)));
+        assert!(matches!(parse_command("seek", Some("42000")), Ok(Command::Seek(42000))));
+        assert!(matches!(parse_command("shuffle", Some("true")), Ok(Command::Shuffle(true))));
+        assert!(matches!(parse_command("repeat", Some("context")), Ok(Command::Repeat(value)) if value == "context"));
+        assert!(parse_command("launch", Some("cmd.exe")).is_err());
+        assert!(parse_command("seek", Some("-1")).is_err());
+        assert!(parse_command("shuffle", Some("yes")).is_err());
+        assert!(parse_command("repeat", Some("forever")).is_err());
+    }
+}
