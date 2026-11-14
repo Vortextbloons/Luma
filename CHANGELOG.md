@@ -2,16 +2,34 @@
 
 Notable changes to Luma, newest first. The Release workflow publishes the matching section as the GitHub release notes and in-app update notes.
 
+## [0.3.0] - 2026-11-14
+
+### Added
+
+- Steam Big Picture integration with remote controls, recent games, game launching, store actions, recommendations, and header artwork.
+- Coordinated themes across Luma and the web remote, with an optional local theme override on the phone.
+- Home layout editor with live preview, reorderable and hideable rows, a movable featured hero, and reset.
+- Spotify now-playing widget with bottom-bar and screen-corner placement.
+- UI sound presets, remote sound playback, and volume feedback.
+- Shared app dock ordering across Luma, the web remote, and Display Box, including drag-and-drop and remote-friendly ordering controls.
+
+### Changed
+
+- Create the launcher webview on demand and unload embedded YouTube and Stremio webviews when leaving them.
+- Refreshed Steam game cards, Settings header, and app-order controls with live previews.
+- Tray exit choices support prompting, hiding to the tray, or quitting.
+- Stream appearance changes to the phone remote and deduplicate remote state updates.
+
+### Fixed
+
+- Prevent stale remote state and app responses with no-store caching headers.
+- Correct YouTube gamepad polling on focus changes and clean up sound resources.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added
 
-- TV-first launcher with 10-foot typography, themes, and navigation from a keyboard, remote, or phone.
-- Six coordinated themes that recolor every screen and sync to the web remote, with an optional local override on the phone.
-- Home layout editor with a live preview, reorderable and hideable rows, a movable featured hero, and reset.
-- Widget framework with a compact Spotify now-playing widget that can dock to the bottom bar or a screen corner.
-- Drag-and-drop app dock order in Settings, with a remote-friendly Move/arrow path, a live dock preview, and a web remote App layout editor. The order is shared with the web remote and Display Box.
-- Refreshed Settings header and app-order layout with a live theme chip and dock preview.
+- TV-first launcher with 10-foot typography, accent colors, wallpapers, and navigation from a keyboard, remote, or phone.
 - App dock for Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, YouTube, Spotify, Stremio, and a custom app, with Windows app detection and fullscreen browser fallbacks.
 - Movie catalog browsing and search from Cinemeta, with title details and Stremio playback.
 - Spotify account connection with transport controls, playlists, saved albums, liked songs, search, and device transfer.
