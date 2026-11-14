@@ -42,6 +42,7 @@
   let previewApp = $state<AppId | null>(null);
   let youTubeFeed = $state<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
+  let playerPrevious: HTMLElement | null = null;
   const navigation = createNavigation(back, home);
   const showHome = $derived(tab === 'Home');
   const youtubePicks = $derived(showHome && previewApp === 'YouTube' && youTubeFeed.length > 0);
@@ -111,13 +112,13 @@
   }
   function home() { previewApp = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
-    rememberFocus();
+    playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
     requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('.now-playing-close') ?? undefined));
   }
   function closePlayer() {
     playerOpen = false;
-    requestAnimationFrame(() => navigation.focus(previous ?? undefined));
+    requestAnimationFrame(() => navigation.focus(playerPrevious ?? undefined));
   }
   function keydown(event: KeyboardEvent) {
     if (event.target instanceof HTMLInputElement && event.target.type === 'range') {
@@ -147,6 +148,11 @@
   function showSettings(category: string) { previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
   async function launch(id: AppId) {
+    if (id === 'Spotify') {
+      navigate('Music');
+      requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('.music-home .music-now-actions button:not(:disabled), .music-home .music-starting button:not(:disabled), .music-home button:not(:disabled)') ?? undefined));
+      return;
+    }
     if (launching) return;
     if (!native) { message = 'App launching is available in the Luma desktop app.'; return; }
     launching = id;
@@ -217,7 +223,7 @@
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
   {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
   {:else}
-  <TopNav active={tab} {navigate} settings={openSettings} fullscreen={settings.fullscreen} toggle={fullscreen} />
+  <TopNav active={tab} {navigate} settings={openSettings} connect={() => showSettings('Remote & Startup')} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   {#if showHome && settings.sections.continue}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} focusProvider={previewApp ? appProviders[previewApp] : null} />

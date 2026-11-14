@@ -5,6 +5,8 @@
   import StremioIntegration from './StremioIntegration.svelte';
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
   import ActivitySettings from './activity/ActivitySettings.svelte';
+  import ProviderIcon from './activity/ProviderIcon.svelte';
+  import { appProviders } from '../services/activity';
   import type { ActivityState } from '../state/activity.svelte';
   import type { AppId, ExecutableAppId, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
@@ -168,6 +170,7 @@
                 <span class="app-order-index" aria-hidden="true">{index + 1}</span>
                 <div class="app-order-main">
                   <div class="app-order-title">
+                    <ProviderIcon provider={appProviders[id]} />
                     <strong>{id}</strong>
                     {#if id === 'YouTube'}
                       <span class="settings-badge is-muted">Own window</span>

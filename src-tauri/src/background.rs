@@ -1,11 +1,31 @@
 ﻿use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
+#[tauri::command]
+pub fn open_setup_link(service: String) -> Result<(), String> {
+    let url = match service.as_str() {
+        "spotify" => "https://developer.spotify.com/dashboard",
+        "plex" => "https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/",
+        "jellyfin" => "https://jellyfin.org/docs/general/quick-start/",
+        "trakt" => "https://developer.trakt.tv/docs/authentication-oauth",
+        _ => return Err("Choose a supported setup guide.".into()),
+    };
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| error.to_string())
+}
+
 pub fn show(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+    restore_input(app);
+}
+
+pub(crate) fn restore_input(app: &tauri::AppHandle) {
+    if let Some(webview) = app.get_webview("main") {
+        let _ = webview.show();
+        let _ = webview.set_focus();
     }
 }
 

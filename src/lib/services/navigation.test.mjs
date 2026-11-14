@@ -83,6 +83,25 @@ test('text editing retains arrow and Backspace behavior while Escape still goes 
   assert.equal(f.counts().homed, 1);
 });
 
+test('remote arrows adjust playback sliders and vertical navigation leaves them', () => {
+  const f = fixture();
+  const slider = f.button(0, 0), next = f.button(0, 100);
+  Object.setPrototypeOf(slider, Input.prototype);
+  Object.assign(slider, { type: 'range', min: '0', max: '100', step: '1', value: '99', disabled: false });
+  const events = [];
+  slider.dispatchEvent = event => events.push(event.type);
+  slider.focus();
+  f.navigation.dispatch('right');
+  assert.equal(slider.value, '100');
+  f.navigation.dispatch('right');
+  assert.equal(slider.value, '100');
+  f.navigation.dispatch('left');
+  assert.equal(slider.value, '99');
+  assert.deepEqual(events, ['input', 'change', 'input', 'change', 'input', 'change']);
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, next);
+});
+
 test('details summary controls join the remote focus order', () => {
   const f = fixture();
   const first = f.button(0, 0), disclosure = f.summary(0, 100);

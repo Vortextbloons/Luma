@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types --test src/lib/services/navigation.test.mjs src/lib/services/activity.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/services/navigation.test.mjs src/lib/services/activity.test.mjs src-tauri/resources/stremio/inject.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4"

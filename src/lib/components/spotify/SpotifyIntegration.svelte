@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { spotify } from '../../state/spotify.svelte';
   import ProviderIcon from '../activity/ProviderIcon.svelte';
+  import { openSetupLink } from '../../services/tauri';
 
   let { native }: { native: boolean } = $props();
   let clientId = $derived(spotify.clientId);
@@ -35,6 +36,11 @@
   async function start() {
     await spotify.start();
   }
+
+  async function openGuide() {
+    try { await openSetupLink('spotify'); }
+    catch (cause) { message = `Could not open your browser: ${String(cause)}`; }
+  }
 </script>
 
 <section class="settings-group">
@@ -64,9 +70,10 @@
     <div class="settings-advanced-body">
       <p class="panel-description">Play, pause, skip, and volume work with the installed app. A connected account adds playlists, saved music, search, recent listening, queue, and device controls. Luma uses your own Spotify developer app for this optional connection.</p>
       <ol class="spotify-steps">
-        <li>Create an app in the Spotify Developer Dashboard.</li>
+        <li><button class="text-link" disabled={!native} onclick={openGuide}>Open Spotify Developer Dashboard</button>, sign in, and choose Create app.</li>
+        <li>Give the app a name, such as Luma, and select Web API.</li>
         <li>Add the redirect URI <code>http://127.0.0.1:8888/callback</code> exactly. Spotify does not allow <code>localhost</code>.</li>
-        <li>Paste the app Client ID below and save it.</li>
+        <li>Save the app in Spotify, open its Settings, and copy the Client ID. Paste it below and choose Save Client ID. You do not need the Client Secret.</li>
         <li>Choose Connect Spotify. Luma opens your browser for sign-in and finishes the connection locally.</li>
       </ol>
       <p class="panel-description">Development Mode apps require the app owner to have Spotify Premium, are limited to five authorized users, and support a smaller set of features. Playback control through the Spotify account requires Spotify Premium. Some library items may be unavailable for playlists you do not own.</p>

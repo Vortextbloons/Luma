@@ -373,7 +373,7 @@ pub fn save_app_paths(
 pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHandle) -> Result<(), String> {
     let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
     if name == "Stremio" {
-        crate::commands::stremio::show(app.clone(), None)?;
+        crate::commands::stremio::show(app.clone(), None).await?;
         crate::activity::record_launch(&app, &name);
         return Ok(());
     }

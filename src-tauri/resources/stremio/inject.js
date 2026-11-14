@@ -4,6 +4,82 @@
   if (window.top !== window) return;
   if (!/(^|\.)stremio\.com$/.test(location.hostname) && !/(^|\.)strem\.io$/.test(location.hostname)) return;
 
+  const session = __LUMA_STREMIO_SESSION__;
+  if (location.origin === 'https://web.stremio.com') {
+    const marker = 'luma-stremio-account';
+    let authenticating = false;
+    let timeout;
+    function feedback(message) {
+      let banner = document.getElementById('luma-account-status');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'luma-account-status';
+        banner.setAttribute('role', 'status');
+        banner.style.cssText = 'position:fixed;top:16px;left:16px;right:16px;z-index:2147483647;padding:16px;background:#181b23;color:white;border:1px solid #a59bff;border-radius:12px;font:16px "Segoe UI",sans-serif';
+        document.documentElement.append(banner);
+      }
+      banner.textContent = message;
+    }
+    function failed() {
+      authenticating = false;
+      clearTimeout(timeout);
+      feedback('Stremio could not load your account. Return to Luma and reconnect Stremio in Settings, then try again.');
+    }
+    let coreEvents;
+    Object.defineProperty(window, 'onCoreEvent', {
+      configurable: true,
+      get: () => coreEvents,
+      set(listener) {
+        coreEvents = event => {
+          listener?.(event);
+          if (!authenticating || event.name !== 'CoreEvent') return;
+          if (event.args.event === 'UserAuthenticated') {
+            authenticating = false;
+            clearTimeout(timeout);
+            localStorage.setItem(marker, session.account.userId);
+            document.getElementById('luma-account-status')?.remove();
+            setTimeout(() => { location.hash = session.target || '#/'; }, 0);
+          } else if (event.args.event === 'Error' && event.args.args.source.event === 'UserAuthenticated') {
+            failed();
+          }
+        };
+      },
+    });
+    window.__lumaSyncAccount = async (target = session.target) => {
+      session.target = target;
+      if (!window.core || authenticating) return;
+      try {
+        const { profile } = await window.core.getState('ctx');
+        if (!session.account) {
+          if (localStorage.getItem(marker)) {
+            await window.core.dispatch({ action: 'Ctx', args: { action: 'Logout' } });
+            localStorage.removeItem(marker);
+            location.hash = '#/intro';
+          }
+          return;
+        }
+        if (profile.auth?.user?._id === session.account.userId) {
+          localStorage.setItem(marker, session.account.userId);
+          return;
+        }
+        authenticating = true;
+        feedback('Loading your Stremio account and add-ons...');
+        timeout = setTimeout(failed, 30000);
+        await window.core.dispatch({ action: 'Ctx', args: { action: 'Logout' } });
+        await window.core.dispatch({ action: 'Ctx', args: { action: 'Authenticate', args: { type: 'LoginWithToken', token: session.account.token } } });
+      } catch {
+        failed();
+      }
+    };
+    Object.defineProperty(window, 'core', {
+      configurable: true,
+      set(core) {
+        Object.defineProperty(window, 'core', { configurable: true, writable: true, value: core });
+        if (core) queueMicrotask(() => window.__lumaSyncAccount());
+      },
+    });
+  }
+
   function hideWebView() {
     const chrome = window.chrome;
     if (!chrome || !chrome.webview) return;

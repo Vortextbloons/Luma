@@ -8,6 +8,21 @@
   let busy = $state(false);
   let error = $state('');
   let device = $state<Device>('phone');
+  let connecting = $state(false);
+  let qr = $state('');
+  async function connect(selected: Device = device) {
+    device = selected;
+    busy = true;
+    error = '';
+    qr = '';
+    try {
+      if (!status?.enabled) status = await invoke<Status>('configure_frame', { enabled: true });
+      status = await invoke<Status>(selected === 'phone' ? 'phone_pairing' : 'frame_pairing');
+      connecting = true;
+      if (selected === 'phone' && status.addresses.length) qr = await invoke<string>('phone_remote_qr');
+    } catch (reason) { error = String(reason); }
+    finally { busy = false; }
+  }
   const badge = $derived(status?.enabled
     ? status.paired && status.phonePaired
       ? 'Display Box and phone paired'
@@ -59,24 +74,26 @@
   <p class="panel-description">Use a phone or Display Box to control Luma from another screen. Luma remembers paired devices after a restart.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if status}
+    <button class="panel-secondary is-primary" disabled={busy} onclick={() => connect()}>Connect a remote</button>
     <label class="setting-toggle">
       <span class="setting-toggle-copy"><span>Allow remote control</span><small>Paired devices can control Luma while it is running.</small></span>
       <input type="checkbox" checked={status.enabled} disabled={busy} onchange={toggleRemote} />
     </label>
-    {#if status.enabled}
+    {#if status.enabled && connecting}
       <div class="remote-choice" role="group" aria-label="Choose a device">
-        <button class:selected={device === 'phone'} aria-pressed={device === 'phone'} onclick={() => device = 'phone'}>
+        <button disabled={busy} class:selected={device === 'phone'} aria-pressed={device === 'phone'} onclick={() => connect('phone')}>
           <strong>Phone</strong><span>Test on this PC, or use a phone on this Wi-Fi.</span>
         </button>
-        <button class:selected={device === 'frame'} aria-pressed={device === 'frame'} onclick={() => device = 'frame'}>
+        <button disabled={busy} class:selected={device === 'frame'} aria-pressed={device === 'frame'} onclick={() => connect('frame')}>
           <strong>Display Box</strong><span>Use a Luma Display Box frame.</span>
         </button>
       </div>
       {#if device === 'phone'}
         <div class="frame-connect">
+          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote on your phone" /><p class="remote-note">Scan with your phone camera, then enter the code below. Keep both devices on the same Wi-Fi.</p>{/if}
           <ol class="remote-steps">
-            <li>On this PC, choose <strong>Open remote in browser</strong> below.</li>
-            <li>On a phone, connect to the same Wi-Fi as this PC and open the address above.</li>
+            <li>Scan the QR code, or type this address in your phone's browser.</li>
+            <li>Enter the pairing code shown below.</li>
           </ol>
           {#if status.addresses.length}
             <code class="address">{status.phoneUrl}</code>
@@ -85,7 +102,6 @@
           {/if}
           <div class="remote-launch"><button class="panel-secondary" disabled={busy} onclick={openRemote}>Open remote in browser</button></div>
           <p class="remote-note">The browser opens http://localhost:9877 on this PC. Keep Luma running; closing its window leaves it in the tray.</p>
-          <p class="remote-note">Then choose <strong>Pair a phone</strong> below and enter the code shown here in that browser.</p>
           <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New phone code' : status.phonePaired ? 'Pair another phone' : 'Pair a phone'}</button>
           {#if status.phoneCode}
             <div class="frame-code">
@@ -94,7 +110,7 @@
               <p class="panel-description">Enter this code on the phone or this PC's browser. It is valid for five minutes.</p>
             </div>
           {/if}
-          {#if status.phonePaired}<p class="remote-paired">This browser is paired. It can connect whenever remote control is on and Luma is running.</p>{/if}
+          {#if status.phonePaired}<p class="remote-paired">A phone or browser has been paired. Luma remembers it for next time.</p>{/if}
         </div>
       {:else}
         <div class="frame-connect">
@@ -107,7 +123,7 @@
           {:else}
             <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
           {/if}
-          <p class="remote-note">Then choose <strong>Pair Display Box</strong> below and enter the code shown here on the Display Box.</p>
+          <p class="remote-note">Enter the code below on your Display Box.</p>
           <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('frame_pairing')}>{status.code ? 'New Display Box code' : status.paired ? 'Pair another Display Box' : 'Pair Display Box'}</button>
           {#if status.code}
             <div class="frame-code">
@@ -124,12 +140,13 @@
         <p>Make sure the phone or Display Box is on the same private Wi-Fi network as this PC. If Windows asks, allow Luma through the firewall on private networks. Remote control uses HTTP on port 9877.</p>
       </details>
     {:else}
-      <p class="remote-note">Turn on remote control to pair a phone or Display Box.</p>
+      <p class="remote-note">Choose Connect a remote to set up your phone or Display Box.</p>
     {/if}
   {:else if !native}<p class="panel-description">Available in the desktop application.</p>{/if}
 </section>
 
 <style>
+  .remote-qr { display: block; width: min(240px, 100%); aspect-ratio: 1; margin: 0 0 18px; border: 12px solid white; border-radius: 12px; background: white; }
   .remote-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
   .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid #ffffff12; border-radius: 13px; background: #ffffff04; color: #c7ccd8; text-align: left; }
   .remote-choice button:hover { background: #ffffff09; border-color: #ffffff22; }

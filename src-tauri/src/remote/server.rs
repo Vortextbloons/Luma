@@ -37,29 +37,40 @@ impl NavigationCommand {
 }
 
 pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
-    if crate::commands::session::route(app, command.as_str()) {
-        return;
-    }
-    let stremio = app
+    let handled = crate::commands::session::route(app, command.as_str());
+    let embedded = if handled {
+        false
+    } else if app
         .get_webview_window("stremio")
-        .filter(|window| window.is_visible().unwrap_or(false));
-    if stremio.is_some() {
+        .filter(|window| window.is_visible().unwrap_or(false))
+        .is_some()
+    {
         crate::commands::stremio::forward(app, command.as_str());
-        if matches!(command, NavigationCommand::Home) {
-            let _ = app.emit("remote-navigation", command);
-        }
+        true
     } else if app
         .get_webview_window("youtube")
         .filter(|window| window.is_visible().unwrap_or(false))
         .is_some()
     {
         youtube::forward(app, command.as_str());
-        if matches!(command, NavigationCommand::Home) {
-            let _ = app.emit("remote-navigation", command);
-        }
+        true
     } else {
+        false
+    };
+    if frontend_receives(handled, embedded, command) {
+        if show_main(handled, embedded, command) {
+            crate::background::show(app);
+        }
         let _ = app.emit("remote-navigation", command);
     }
+}
+
+fn frontend_receives(handled: bool, embedded: bool, command: NavigationCommand) -> bool {
+    matches!(command, NavigationCommand::Home) || (!handled && !embedded)
+}
+
+fn show_main(handled: bool, embedded: bool, command: NavigationCommand) -> bool {
+    matches!(command, NavigationCommand::Home) && !handled && !embedded
 }
 
 pub struct Remote {
@@ -96,4 +107,31 @@ pub fn update_app_state(
     }
     *remote.state.lock().map_err(|e| e.to_string())? = AppState { view, fullscreen };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frontend_receives, show_main, NavigationCommand};
+
+    #[test]
+    fn home_always_resets_the_luma_frontend() {
+        assert!(frontend_receives(true, false, NavigationCommand::Home));
+        assert!(frontend_receives(false, true, NavigationCommand::Home));
+        assert!(frontend_receives(false, false, NavigationCommand::Home));
+    }
+
+    #[test]
+    fn routed_commands_are_not_duplicated_on_the_frontend() {
+        assert!(!frontend_receives(true, false, NavigationCommand::Left));
+        assert!(!frontend_receives(false, true, NavigationCommand::Activate));
+        assert!(frontend_receives(false, false, NavigationCommand::Left));
+    }
+
+    #[test]
+    fn home_brings_back_a_hidden_luma_but_not_a_handled_app() {
+        assert!(show_main(false, false, NavigationCommand::Home));
+        assert!(!show_main(true, false, NavigationCommand::Home));
+        assert!(!show_main(false, true, NavigationCommand::Home));
+        assert!(!show_main(false, false, NavigationCommand::Left));
+    }
 }

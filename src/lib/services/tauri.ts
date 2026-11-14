@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { ActivitySnapshot, ExecutableAppId, MediaState, NavigationCommand, OpenOutcome, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
+export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
 export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', { name });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
 export const mediaState = () => invoke<MediaState>('media_state');

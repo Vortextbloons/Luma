@@ -495,6 +495,17 @@ pub fn phone_pairing(app: tauri::AppHandle) -> Result<Status, String> {
     *frame.phone_pairing.lock().map_err(|e| e.to_string())? = Some(new_pairing()?);
     frame_status(app)
 }
+
+#[tauri::command]
+pub fn phone_remote_qr(app: tauri::AppHandle) -> Result<String, String> {
+    let status = frame_status(app)?;
+    if !status.enabled || status.addresses.is_empty() {
+        return Err("Connect this PC to Wi-Fi and enable remote control first.".into());
+    }
+    let code = qrcode::QrCode::new(status.phone_url.as_bytes()).map_err(|error| error.to_string())?;
+    let svg = code.render::<qrcode::render::svg::Color>().build();
+    Ok(format!("data:image/svg+xml,{}", percent_encoding::utf8_percent_encode(&svg, percent_encoding::NON_ALPHANUMERIC)))
+}
 #[tauri::command]
 pub fn open_phone_remote(app: tauri::AppHandle) -> Result<(), String> {
     let frame = app.state::<Frame>();

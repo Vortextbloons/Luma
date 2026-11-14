@@ -95,7 +95,7 @@
       <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
       <h2>{playback.title ?? 'Spotify is not playing'}</h2>
       <p>{[playback.artist, playback.album].filter(Boolean).join(' · ') || (playback.playerAvailable ? 'Start a track in Spotify or search your library.' : connection.processRunning ? 'Spotify is running. Start a track in Spotify to connect.' : 'Start Spotify and play something to connect.')}</p>
-      <div class="music-progress" aria-hidden="true"><span style:width={`${Math.round(spotify.progress * 100)}%`}></span></div>
+      <div class="music-progress" aria-hidden="true"><span style:transform={`scaleX(${spotify.progress})`}></span></div>
       <div class="music-now-actions">
         <PlaybackControls {playback} busy={spotify.busy} onaction={action} />
         <button class="btn btn-glass" onclick={onopen}>Open full player</button>

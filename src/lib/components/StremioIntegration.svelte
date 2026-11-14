@@ -117,12 +117,12 @@
     <p class="panel-description" role="status">Checking Stremio connection…</p>
   {:else if status.connected}
     <div class="stremio-account"><span class="stremio-dot" aria-hidden="true"></span><div><strong>{status.email || 'Stremio account'}</strong><p>Connected</p></div></div>
-    <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library. Stremio Web opens inside Luma; sign in there once to watch.</p>
+    <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library. Stremio opens inside Luma with this account and its installed add-ons.</p>
     <div class="settings-actions">
       <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync now'}</button>
       <button class="text-link" disabled={busy} onclick={disconnect}>Disconnect account</button>
     </div>
-    <p class="panel-description">Disconnecting removes only Luma's saved credential. Your Stremio account and its library are not modified.</p>
+    <p class="panel-description">Disconnecting closes Stremio and removes Luma's saved connection. Your Stremio account and its library are not modified.</p>
   {:else if waiting}
     <div class="stremio-link">
       <p class="panel-description">On your phone or another device, open the link below and sign in to Stremio, or scan the QR code. Luma will connect automatically. The code expires after five minutes.</p>
@@ -136,7 +136,12 @@
       <p class="panel-description" role="status">Waiting for approval…</p>
     </div>
   {:else}
-    <p class="panel-description">Connect your Stremio account to see Continue Watching and your library in Luma. Luma uses Stremio's device-link service, so your password is never requested or stored.</p>
+    <p class="panel-description">Connect Stremio to see your library and Continue Watching here.</p>
+    <ol class="panel-description">
+      <li>Choose Connect account to get a code and QR link.</li>
+      <li>Scan the QR code with your phone, or choose Open link.stremio.com on this PC.</li>
+      <li>Sign in to Stremio and approve the connection. Return here; your library loads automatically.</li>
+    </ol>
     <button class="panel-secondary is-primary" disabled={busy} onclick={connect}>{busy ? 'Requesting code…' : 'Connect account'}</button>
   {/if}
   {#if error}<p class="stremio-error" role="alert">{error}</p>{/if}

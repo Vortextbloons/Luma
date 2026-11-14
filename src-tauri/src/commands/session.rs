@@ -47,6 +47,31 @@ pub fn reuse(app: &AppHandle, name: &str) -> bool {
     true
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Pass,
+    Forward,
+    Home,
+    Release,
+}
+
+fn action(luma_foreground: bool, found: bool, running: bool, command: &str) -> Action {
+    if luma_foreground {
+        return Action::Pass;
+    }
+    if command == "home" {
+        return Action::Home;
+    }
+    if found {
+        return Action::Forward;
+    }
+    if running {
+        Action::Pass
+    } else {
+        Action::Release
+    }
+}
+
 pub fn route(app: &AppHandle, command: &str) -> bool {
     let state = app.state::<Session>();
     let Ok(mut current) = state.0.lock() else {
@@ -56,41 +81,54 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
         return false;
     };
     let (name, pid) = (launched.name.clone(), launched.pid);
-    if command == "home" {
-        if let Some(window) = platform::find(pid, &name) {
-            platform::minimize(window);
+    let luma_foreground = platform::foreground_is_luma();
+    let window = if luma_foreground {
+        None
+    } else {
+        platform::find(pid, &name)
+    };
+    match action(
+        luma_foreground,
+        window.is_some(),
+        !luma_foreground && platform::running(pid),
+        command,
+    ) {
+        Action::Pass => false,
+        Action::Forward => {
+            let Some(window) = window else {
+                return false;
+            };
+            match command {
+                "up" => platform::step(window, 0, -1),
+                "down" => platform::step(window, 0, 1),
+                "left" => platform::step(window, -1, 0),
+                "right" => platform::step(window, 1, 0),
+                "activate" => platform::click(window),
+                "back" => platform::escape(window),
+                _ => return false,
+            }
+            true
         }
-        *current = None;
-        drop(current);
-        restore(app);
-        return true;
-    }
-    let Some(window) = platform::find(pid, &name) else {
-        if !platform::running(pid) {
+        Action::Home => {
+            if let Some(window) = window {
+                platform::minimize(window);
+            }
             *current = None;
             drop(current);
             restore(app);
+            true
         }
-        return false;
-    };
-    match command {
-        "up" => platform::step(window, 0, -1),
-        "down" => platform::step(window, 0, 1),
-        "left" => platform::step(window, -1, 0),
-        "right" => platform::step(window, 1, 0),
-        "activate" => platform::click(window),
-        "back" => platform::escape(window),
-        _ => return false,
+        Action::Release => {
+            *current = None;
+            drop(current);
+            restore(app);
+            false
+        }
     }
-    true
 }
 
 fn restore(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    crate::background::show(app);
 }
 
 fn stepped(cursor: (i32, i32), rect: (i32, i32, i32, i32), dx: i32, dy: i32) -> (i32, i32) {
@@ -162,6 +200,18 @@ mod platform {
 
     pub fn running(pid: u32) -> bool {
         snapshot().contains_key(&pid)
+    }
+
+    pub fn foreground_is_luma() -> bool {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.0.is_null() {
+                return false;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(foreground, Some(&mut pid));
+            pid == std::process::id()
+        }
     }
 
     pub fn pid(window: Window) -> Option<u32> {
@@ -344,6 +394,9 @@ mod platform {
     pub fn running(_: u32) -> bool {
         false
     }
+    pub fn foreground_is_luma() -> bool {
+        false
+    }
     pub fn pid(_: Window) -> Option<u32> {
         None
     }
@@ -359,7 +412,27 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::stepped;
+    use super::{action, stepped, Action};
+
+    #[test]
+    fn remote_input_stays_in_luma_once_it_is_foreground() {
+        assert_eq!(action(true, true, true, "left"), Action::Pass);
+        assert_eq!(action(true, true, true, "activate"), Action::Pass);
+        assert_eq!(action(true, false, true, "left"), Action::Pass);
+        assert_eq!(action(false, true, true, "left"), Action::Forward);
+    }
+
+    #[test]
+    fn home_releases_the_app_only_while_it_owns_the_screen() {
+        assert_eq!(action(false, true, true, "home"), Action::Home);
+        assert_eq!(action(true, true, true, "home"), Action::Pass);
+    }
+
+    #[test]
+    fn a_closed_app_releases_the_session() {
+        assert_eq!(action(false, false, false, "left"), Action::Release);
+        assert_eq!(action(false, false, true, "left"), Action::Pass);
+    }
 
     #[test]
     fn keeps_the_pointer_inside_the_app_window() {

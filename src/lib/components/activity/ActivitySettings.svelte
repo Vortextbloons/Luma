@@ -2,6 +2,7 @@
   import type { ProviderStatus } from '../../types';
   import type { ActivityState } from '../../state/activity.svelte';
   import ProviderIcon from './ProviderIcon.svelte';
+  import { openSetupLink } from '../../services/tauri';
 
   let { activity, native }: { activity: ActivityState; native: boolean } = $props();
 
@@ -132,6 +133,22 @@
             {#if provider.capabilities.length > 0}<p class="provider-caps"><span>Can show</span>{provider.capabilities.map(id => capabilityName[id] ?? id).join(' · ')}</p>{/if}
             {#if provider.requiresConfig}
               <p class="provider-advanced-note">Enter the connection details from {provider.name}. Luma stores them securely on this PC.</p>
+              {#if fields[provider.id]}
+                <ol class="provider-steps">
+                  {#if provider.id === 'plex'}
+                    <li>Enter the address of your Plex Media Server, including its port, such as http://192.168.1.20:32400.</li>
+                    <li>Follow the Plex guide to find your account token, then paste it below.</li>
+                  {:else if provider.id === 'jellyfin'}
+                    <li>Enter the address you use to open your Jellyfin server.</li>
+                    <li>Ask your server administrator for an API key. Leave User ID blank if the server has one user.</li>
+                  {:else if provider.id === 'trakt'}
+                    <li>Follow Trakt's developer guide to create an application and authorize your account.</li>
+                    <li>Paste the Client ID and your OAuth access token below. This advanced connection does not use your Trakt password.</li>
+                  {/if}
+                  <li>Choose Save and connect. Luma checks the details and loads your history.</li>
+                </ol>
+                <button class="text-link" disabled={busy !== ''} onclick={() => run(provider.id, () => openSetupLink(provider.id))}>Open {provider.name} setup guide</button>
+              {/if}
               <div class="provider-config">
                 {#if fields[provider.id]}
                   {#if fields[provider.id].url}<label class="field">{provider.id === 'jellyfin' ? 'Jellyfin server URL' : 'Plex server URL'}<input bind:value={forms[provider.id].serverUrl} placeholder="http://192.168.1.20:8096" spellcheck="false" /></label>{/if}
@@ -158,6 +175,8 @@
 {/if}
 
 <style>
+  .provider-steps { margin: 0; padding-left: 24px; color: #b6bdca; font-size: clamp(14px, 1vw, 18px); line-height: 1.65; }
+  .provider-steps li + li { margin-top: 8px; }
   .activity-danger { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
   .provider-list { display: grid; gap: 14px; }
   .provider-row { border: 1px solid #ffffff11; background: #0c0f16; border-radius: 16px; padding: clamp(16px, 1.5vw, 24px); display: grid; gap: 14px; }

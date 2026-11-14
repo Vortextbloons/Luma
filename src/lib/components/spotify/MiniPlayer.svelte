@@ -18,6 +18,6 @@
     </button>
     <PlaybackControls {playback} busy={spotify.busy} compact onaction={action => spotify.action(action)} />
     <span class="mini-player-status" class:playing={playback.playing} aria-hidden="true"></span>
-    <div class="mini-player-progress" aria-hidden="true"><span style:width={`${Math.round(spotify.progress * 100)}%`}></span></div>
+    <div class="mini-player-progress" aria-hidden="true"><span style:transform={`scaleX(${spotify.progress})`}></span></div>
   </aside>
 {/if}

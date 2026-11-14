@@ -54,6 +54,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             background::startup_enabled,
+            background::open_setup_link,
             background::set_startup,
             apps::launch_app,
             apps::app_paths,
@@ -79,6 +80,7 @@ pub fn run() {
             frame::configure_frame,
             frame::frame_pairing,
             frame::phone_pairing,
+            frame::phone_remote_qr,
             frame::open_phone_remote,
             server::update_app_state,
             youtube::open_youtube,

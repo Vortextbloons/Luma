@@ -519,6 +519,10 @@ pub async fn stremio_link_poll(
         inner.auth_key = Some(session.auth_key.clone());
         inner.pending = None;
     }
+    if let Some(window) = app.get_webview_window("stremio") {
+        window.destroy().map_err(|error| error.to_string())?;
+        restore_main(&app);
+    }
     synchronize(&app, &state, &session.auth_key).await?;
     let inner = lock(&state)?;
     Ok(build_status(&inner))
@@ -560,10 +564,14 @@ pub async fn stremio_sync(
 }
 
 #[tauri::command]
-pub fn stremio_disconnect(
+pub async fn stremio_disconnect(
     app: tauri::AppHandle,
-    state: State<Stremio>,
+    state: State<'_, Stremio>,
 ) -> Result<StremioStatus, String> {
+    if let Some(window) = app.get_webview_window("stremio") {
+        window.destroy().map_err(|error| error.to_string())?;
+        restore_main(&app);
+    }
     let mut inner = lock(&state)?;
     credential_delete()?;
     remove_cache(&app);
@@ -596,19 +604,37 @@ pub async fn stremio_open(
         },
         None => None,
     };
-    show(app, target.as_deref())
+    show(app, target.as_deref()).await
 }
 
-pub(crate) fn show(app: AppHandle, target: Option<&str>) -> Result<(), String> {
+pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), String> {
     let window = match app.get_webview_window("stremio") {
         Some(window) => {
-            if let Some(target) = target {
-                let target = serde_json::to_string(target).map_err(|error| error.to_string())?;
-                let _ = window.eval(format!("location.hash = {target};"));
-            }
+            let target = serde_json::to_string(&target).map_err(|error| error.to_string())?;
+            window.eval(format!(
+                "if ({target}) location.hash = {target}; window.__lumaSyncAccount?.({target});"
+            )).map_err(|error| error.to_string())?;
             window
         }
-        None => create(&app, target)?,
+        None => {
+            let state = app.state::<Stremio>();
+            let auth_key = lock(&state)?.auth_key.clone();
+            let expected_auth_key = auth_key.clone();
+            let session = match auth_key {
+                Some(auth_key) => {
+                    let user: Value = post(&state.client, "getUser", json!({ "authKey": auth_key }))
+                        .await.map_err(RemoteError::message)?;
+                    let user_id = user.get("_id").and_then(Value::as_str)
+                        .ok_or("Stremio returned an unexpected account response.")?;
+                    Some(json!({ "token": auth_key, "userId": user_id }))
+                }
+                None => None,
+            };
+            if lock(&state)?.auth_key != expected_auth_key {
+                return Err("The Stremio account changed while opening. Try again.".into());
+            }
+            create(&app, target, session)?
+        },
     };
     window.show().map_err(|error| error.to_string())?;
     window.unminimize().map_err(|error| error.to_string())?;
@@ -644,7 +670,7 @@ pub(crate) fn forward(app: &AppHandle, command: &str) {
     ));
 }
 
-fn create(app: &AppHandle, target: Option<&str>) -> Result<WebviewWindow, String> {
+fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Result<WebviewWindow, String> {
     let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|error| error.to_string())?;
     let position = main.outer_position().map_err(|error| error.to_string())?;
@@ -664,7 +690,10 @@ fn create(app: &AppHandle, target: Option<&str>) -> Result<WebviewWindow, String
         .min_inner_size(720.0, 405.0)
         .fullscreen(fullscreen)
         .visible(false)
-        .initialization_script(SCRIPT)
+        .initialization_script(SCRIPT.replace("__LUMA_STREMIO_SESSION__", &json!({
+            "account": session,
+            "target": target,
+        }).to_string()))
         .on_navigation(move |url| permitted(&handle, url))
         .on_new_window(move |url, _| {
             if web_host(url.host_str()) {
@@ -734,11 +763,7 @@ fn pause(window: &WebviewWindow) {
 }
 
 fn restore_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    crate::background::show(app);
 }
 
 fn web_path(kind: &str, id: &str, video_id: Option<&str>) -> String {

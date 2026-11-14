@@ -430,11 +430,7 @@ pub fn close(app: &AppHandle) {
         let _ = window.eval("document.querySelector('video')?.pause();");
         let _ = window.hide();
     }
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.show();
-        let _ = main.unminimize();
-        let _ = main.set_focus();
-    }
+    crate::background::show(app);
 }
 
 pub fn navigate(window: &WebviewWindow, command: &str) {
