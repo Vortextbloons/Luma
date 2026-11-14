@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { updates, initializeUpdates, checkUpdates, downloadUpdate, installUpdate } from '../state/updates.svelte';
+  import ReleaseNotes from './ReleaseNotes.svelte';
   let { native }: { native: boolean } = $props();
   const busy = $derived(['checking', 'downloading', 'installing'].includes(updates.phase));
   const progress = $derived(updates.total ? Math.min(100, Math.round(updates.downloaded / updates.total * 100)) : undefined);
@@ -32,12 +33,11 @@
       }}>{updates.phase === 'ready' ? 'Restart to update' : updates.phase === 'installing' ? 'Restarting…' : updates.phase === 'downloading' ? 'Downloading…' : updates.phase === 'available' ? 'Update now' : updates.phase === 'checking' ? 'Checking…' : 'Check for updates'}</button>
     </div>
   {/if}
-  {#if updates.notes}<h3>What’s new in {updates.nextVersion}</h3><p class="release-notes">{updates.notes}</p>{/if}
+  {#if updates.notes}<h3>What’s new in {updates.nextVersion}</h3><ReleaseNotes notes={updates.notes} />{/if}
 </section>
 
 <style>
   progress { width: 100%; height: 14px; accent-color: var(--accent); margin-bottom: 20px; }
-  .release-notes { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; color: var(--text); }
   .settings-actions + h3 { margin-top: 28px; }
   button[aria-disabled='true'] { opacity: .6; cursor: wait; }
 </style>

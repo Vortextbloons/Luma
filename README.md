@@ -85,5 +85,5 @@ npm run tauri dev
 ---
 
 <p align="center">
-  Architecture, remote protocol, releases, and validation live in <a href="docs/DEVELOPMENT.md">docs/DEVELOPMENT.md</a>.
+  Architecture, remote protocol, releases, and validation live in <a href="docs/DEVELOPMENT.md">docs/DEVELOPMENT.md</a>. Release notes are in <a href="CHANGELOG.md">CHANGELOG.md</a>.
 </p>

@@ -33,6 +33,9 @@ jobs:
       - run: node scripts/version.mjs --check
       - run: npm run check
       - run: npm test
+      - name: Read changelog
+        id: notes
+        run: node scripts/changelog.mjs
       - run: node scripts/release-config.mjs
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -40,7 +43,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Luma v__VERSION__
-          releaseBody: See the assets below to install Luma. Existing installations can update from Settings.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: --config src-tauri/tauri.release.conf.json -- --locked

@@ -487,7 +487,7 @@
       <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
     </header>
   {/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} showHeading={tab !== 'Apps'} active={previewApp} />{/if}
   {#if tab === 'Watch'}
     <header class="page-head">
       <div><span class="eyebrow">STREMIO CATALOG</span><h1>Watch</h1><p>Search for a title or browse what is popular right now.</p></div>
