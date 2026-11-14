@@ -196,7 +196,7 @@
   .music-now-card { background: linear-gradient(125deg,#263954,#151c2a 75%); border-radius: 24px; }
   .music-now-art img { object-fit: contain; } .music-now-art { border-radius: 10px; }
   .music-page-header { align-items: center; margin-bottom: 28px; }
-  .music-page-header h1 { font-size: clamp(44px, 4vw, 68px); }
+  .music-page-header h1 { font-size: clamp(34px, 3.6vw, 60px); }
   .music-menu { position: relative; flex: none; z-index: 2; }
   .music-menu summary { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 14px 6px 6px; border: 1px solid #ffffff18; border-radius: 99px; cursor: pointer; list-style: none; font-size: 16px; }
   .music-menu summary::-webkit-details-marker { display: none; }

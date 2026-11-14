@@ -7,7 +7,6 @@ export interface Settings {
   appTileShape: 'wide' | 'square';
   homeShortcut: string;
   fullscreen: boolean;
-  wallpaper: string;
   sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean; recent: boolean; recentApps: boolean };
   paths: Record<ExecutableAppId, string>;
   order: AppId[];

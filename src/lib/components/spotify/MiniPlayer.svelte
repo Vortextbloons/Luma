@@ -1,15 +1,22 @@
 <script lang="ts">
   import MusicIcon from './MusicIcon.svelte';
+  import ProviderIcon from '../activity/ProviderIcon.svelte';
   import { spotify } from '../../state/spotify.svelte';
   import PlaybackControls from './PlaybackControls.svelte';
 
   let { onopen }: { onopen: () => void } = $props();
   const playback = $derived(spotify.playback);
   const visible = $derived(playback.playerAvailable || Boolean(playback.title));
+  const duration = $derived(playback.durationMs ?? 0);
+  function clock(ms: number) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
 </script>
 
 {#if visible}
-  <aside class="mini-player" aria-label="Mini player">
+  <aside class="mini-player" aria-label="Now playing">
+    <div class="mini-player-brand" aria-hidden="true"><ProviderIcon provider="spotify" /><span>Spotify</span></div>
     <button class="mini-player-open" onclick={onopen} aria-label="Open now playing">
       <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>
       <span class="mini-player-copy">
@@ -18,22 +25,11 @@
       </span>
     </button>
     <PlaybackControls {playback} busy={spotify.busy} compact onaction={action => spotify.action(action)} />
-    <span class={["mini-player-status", { "playing": playback.playing }]} aria-hidden="true"></span>
-    <div class="mini-player-progress" aria-hidden="true"><span style:transform={`scaleX(${spotify.progress})`}></span></div>
+    <div class="mini-player-timeline" aria-hidden="true">
+      <span class="mini-player-progress" style:--progress={spotify.progress}><span style:transform={`scaleX(${spotify.progress})`}></span><i></i></span>
+      <span class="mini-player-time">{clock(spotify.positionMs)} / {clock(duration)}</span>
+    </div>
+    <span class={['mini-player-status', { playing: playback.playing }]} aria-hidden="true"></span>
   </aside>
+  <div class="mini-player-spacer" aria-hidden="true"></div>
 {/if}
-
-<style>
-  .mini-player { width: min(880px,calc(100vw - 2 * var(--side))); padding: 14px 20px; gap: 20px; }
-  .mini-player-open { min-height: 60px; gap: 16px; border-radius: 8px; }
-  .mini-player-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
-  .mini-player-art { width: 58px; height: 58px; } .mini-player-art img { object-fit: contain; }
-  .mini-player-copy b { font-size: 20px; } .mini-player-copy small { font-size: 16px; }
-  @media (max-width: 710px) {
-    .mini-player { width: calc(100vw - 20px); padding: 10px 14px; gap: 12px; }
-    .mini-player-open { min-height: 48px; gap: 10px; }
-    .mini-player-art { width: 44px; height: 44px; }
-    .mini-player-copy b { font-size: 16px; }
-    .mini-player-copy small { font-size: 13px; }
-  }
-</style>

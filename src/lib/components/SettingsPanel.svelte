@@ -13,10 +13,10 @@
   import type { ActivityState } from '../state/activity.svelte';
   import type { AppId, ExecutableAppId, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display' }: {
+  let { settings, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display' }: {
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
-    report: (message: string) => void; activity: ActivityState;
+    activity: ActivityState;
     startCategory?: string;
   } = $props();
   const categoryGroups = [
@@ -85,15 +85,6 @@
   }
   function mountPage(element: HTMLElement) { (element.querySelector<HTMLButtonElement>('.settings-category.selected') ?? element.querySelector<HTMLButtonElement>('button'))?.focus(); window.scrollTo(0, 0); }
   function mountContent(element: HTMLDivElement) { content = element; }
-  async function wallpaper(event: Event) {
-    const file = (event.currentTarget as HTMLInputElement).files?.[0];
-    if (!file) return;
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 3_000_000) { report('Choose a PNG, JPEG, WebP, or GIF under 3 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => settings.wallpaper = String(reader.result);
-    reader.onerror = () => report('The background image could not be read.');
-    reader.readAsDataURL(file);
-  }
 </script>
 
 <section {@attach mountPage} class="settings-page" aria-labelledby="settings-title">
@@ -134,7 +125,7 @@
           </div>
           <div class="settings-form-grid">
             <label class="field">App tile shape
-              <select bind:value={settings.appTileShape}><option value="wide">Wide rectangles</option><option value="square">Squares</option></select>
+              <select bind:value={settings.appTileShape}><option value="wide">Pills</option><option value="square">Squares</option></select>
               <span class="field-hint">Wide cards suit artwork; squares fit more apps.</span>
             </label>
             <label class="field">Layout density
@@ -155,13 +146,6 @@
               </button>
             {/each}
           </div>
-        </section>
-        <section class="settings-group">
-          <h3>Background image</h3>
-          <p class="panel-description">Use your own image behind the home screen. PNG, JPEG, WebP, or GIF up to 3 MB.</p>
-          {#if settings.wallpaper}<img class="wallpaper-preview" src={settings.wallpaper} alt="Current home screen background" decoding="async" />{/if}
-          <label class="field">Choose an image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={wallpaper} /></label>
-          <div class="settings-actions"><button class="text-link" disabled={!settings.wallpaper} onclick={() => settings.wallpaper = ''}>Reset background</button></div>
         </section>
         <section class="settings-group">
           <h3>Home screen rows</h3>

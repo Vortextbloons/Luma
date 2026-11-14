@@ -7,6 +7,8 @@
   import TopNav from './lib/components/TopNav.svelte';
   import UpdateNotice from './lib/components/UpdateNotice.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
+  import MovieHero from './lib/components/MovieHero.svelte';
+  import BackdropRow from './lib/components/BackdropRow.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import VideoRow from './lib/components/VideoRow.svelte';
   import PlaylistRow from './lib/components/spotify/PlaylistRow.svelte';
@@ -106,8 +108,8 @@
     document.documentElement.dataset.accent = settings.accent;
     document.documentElement.dataset.density = settings.density;
     document.documentElement.dataset.appTileShape = settings.appTileShape;
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
-    catch { message = 'Preferences could not be saved. Try a smaller wallpaper or free local storage.'; }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, sections: settings.sections, order: settings.order })); }
+    catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
   });
   $effect(() => {
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen }).catch(error => message = String(error));
@@ -339,11 +341,14 @@
 
 <svelte:window onkeydown={keydown} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
+  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
+  {#if showHome && settings.sections.featured && featured.length}
+    <MovieHero items={featured.slice(0, 5)} onplay={item => void openStremioDetail('movie', item.id)} ondetails={select} />
+  {/if}
   <div {@attach smoothHeight}><div class="resizing-content">
   {#if showHome && settings.sections.continue}
     {#if previewApp === 'Stremio'}
@@ -354,10 +359,18 @@
   {/if}
   </div></div>
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} />{/if}
+  {#if tab === 'Apps'}
+    <header class="page-head">
+      <div><span class="eyebrow">ON THIS PC</span><h1>Apps</h1><p>Open your streaming apps and keep the ones you use most in reach.</p></div>
+      <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
+    </header>
+  {/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} {launching} customize={openApps} {preview} showHeading={tab !== 'Apps'} />{/if}
   {#if tab === 'Watch'}
+    <header class="page-head">
+      <div><span class="eyebrow">STREMIO CATALOG</span><h1>Watch</h1><p>Search for a title or browse what is popular right now.</p></div>
+    </header>
     <section class="content-row" aria-label="Search movies">
-      <div class="row-heading"><div><h2>Search movies</h2><p>Find a title from Stremio's catalog</p></div></div>
       <form onsubmit={searchWatch} class="movie-search-field" role="search">
         <svg class="movie-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         <input id="movie-search" type="search" bind:value={movieQuery} placeholder="Search by movie title" aria-label="Search movies" autocomplete="off" spellcheck="false" />
@@ -387,8 +400,13 @@
         <section class="content-row" aria-label={`${previewApp} recommendations`}><div class="row-heading"><h2>From {previewApp === 'Custom' ? 'your custom app' : previewApp}</h2></div><div class="activity-empty"><strong>{previewApp === 'Spotify' && spotify.homeLoading ? 'Loading your music...' : 'No recommendations available yet'}</strong><span>{previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => previewApp && launch(previewApp)}>Open {previewApp === 'Custom' ? 'custom app' : previewApp}</button></div></section>
       {/if}
     {:else}
-      {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
-      {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />{/if}
+      {#if showHome}
+        {#if settings.sections.popular}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
+        {#if settings.sections.featured}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} />{/if}
+      {:else if tab === 'Watch'}
+        <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
+        <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
+      {/if}
     {/if}
     </div>
   {/key}
@@ -408,7 +426,6 @@
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
     <UpdateNotice {native} />
   </div>
-  <footer class="footer"><span><span class="footer-mark">L</span> luma tv</span><span>Desktop · v0.1</span><span>Arrow keys to navigate · Enter to select · Escape to go back · Space toggles playback</span></footer>
   {#if !playerOpen}<MiniPlayer onopen={openPlayer} />{/if}
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}

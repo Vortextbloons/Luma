@@ -21,15 +21,16 @@
   </nav>
   <div class="header-right">
     <NetworkStatus />
-    <time class="clock">{clock}</time>
-    <button class="header-btn" onclick={connect}>Connect</button>
+    <time class="clock" aria-label="Local time">{clock}</time>
+    <button class="header-btn is-icon" title="Connect a remote" aria-label="Connect a remote" onclick={connect}>
+      <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="18" rx="2.5" /><path d="M11 18h2" /></svg>
+    </button>
     {#if !fullscreen}
-      <button class="header-btn" aria-label="Enter fullscreen" onclick={toggle}>
+      <button class="header-btn is-icon" title="Enter fullscreen" aria-label="Enter fullscreen" onclick={toggle}>
         <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" /><path d="M21 16v3a2 2 0 0 1-2 2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /></svg>
-        <span>Fullscreen</span>
       </button>
     {/if}
-    <button class="header-btn is-icon" aria-label="Open settings" onclick={settings}>
+    <button class="header-btn is-icon" title="Settings" aria-label="Open settings" onclick={settings}>
       <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
     </button>
   </div>
