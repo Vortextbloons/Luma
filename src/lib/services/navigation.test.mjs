@@ -10,10 +10,11 @@ globalThis.HTMLSelectElement = Select;
 
 function fixture() {
   const buttons = [];
+  const summaries = [];
   let modal = null;
-  const document = { activeElement: null, querySelector: selector => selector === 'dialog[open]' ? modal : { querySelectorAll: () => buttons } };
+  const document = { activeElement: null, querySelector: selector => selector === 'dialog[open]' ? modal : { querySelectorAll: query => query.includes('summary') ? [...buttons, ...summaries] : buttons } };
   globalThis.document = document;
-  function button(x, y, disabled = false) {
+  function control(x, y, disabled = false) {
     const value = {
       clicks: 0, scrolled: false, isConnected: true,
       getClientRects: () => disabled || !value.isConnected ? [] : [{}],
@@ -22,13 +23,22 @@ function fixture() {
       scrollIntoView() { value.scrolled = true; },
       click() { value.clicks++; },
     };
+    return value;
+  }
+  function button(x, y, disabled = false) {
+    const value = control(x, y, disabled);
     buttons.push(value);
+    return value;
+  }
+  function summary(x, y) {
+    const value = control(x, y);
+    summaries.push(value);
     return value;
   }
   let backed = 0;
   let homed = 0;
   const navigation = createNavigation(() => backed++, () => homed++);
-  return { document, button, navigation, modal: values => modal = { querySelectorAll: () => values }, counts: () => ({ backed, homed }) };
+  return { document, button, summary, navigation, modal: values => modal = { querySelectorAll: () => values }, counts: () => ({ backed, homed }) };
 }
 
 test('directional navigation follows the row and scrolls the focused tile into view', () => {
@@ -71,6 +81,16 @@ test('text editing retains arrow and Backspace behavior while Escape still goes 
   assert.equal(f.counts().backed, 1);
   f.navigation.dispatch('home');
   assert.equal(f.counts().homed, 1);
+});
+
+test('details summary controls join the remote focus order', () => {
+  const f = fixture();
+  const first = f.button(0, 0), disclosure = f.summary(0, 100);
+  first.focus();
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, disclosure);
+  f.navigation.dispatch('activate');
+  assert.equal(disclosure.clicks, 1);
 });
 
 test('closing settings restores visible focus when its original section was hidden', () => {

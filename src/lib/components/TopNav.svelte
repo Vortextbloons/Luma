@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import logo from '../../assets/luma.png';
   let { active, navigate, settings, fullscreen, toggle }: { active: string; navigate: (tab: string) => void; settings: () => void; fullscreen: boolean; toggle: () => void } = $props();
   let clock = $state('');
   onMount(() => {
@@ -11,11 +12,24 @@
 </script>
 
 <header class="topbar">
-  <span class="brand"><span class="brand-mark">L</span> luma<span class="brand-sub">TV</span></span>
+  <span class="brand"><img class="brand-image" src={logo} alt="" /> luma<span class="brand-sub">TV</span></span>
   <nav class="nav-pill" aria-label="Main navigation">
     {#each ['Home', 'Watch', 'Library', 'Music', 'Apps'] as tab (tab)}
       <button id={tab === 'Home' ? 'home-button' : undefined} class={['nav-btn', { 'is-active': active === tab }]} aria-current={active === tab ? 'page' : undefined} onclick={() => navigate(tab)}>{tab}</button>
     {/each}
   </nav>
-  <div class="header-right"><time class="clock">{clock}</time><button class="text-link" aria-pressed={fullscreen} onclick={toggle}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button><button class="avatar" aria-label="Open settings" onclick={settings}>⚙</button></div>
+  <div class="header-right">
+    <time class="clock">{clock}</time>
+    {#if fullscreen}
+      <span class="fullscreen-hint">Press <kbd>F11</kbd> to exit fullscreen</span>
+    {:else}
+      <button class="header-btn" aria-label="Enter fullscreen" onclick={toggle}>
+        <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" /><path d="M21 16v3a2 2 0 0 1-2 2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /></svg>
+        <span>Fullscreen</span>
+      </button>
+    {/if}
+    <button class="header-btn is-icon" aria-label="Open settings" onclick={settings}>
+      <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+    </button>
+  </div>
 </header>

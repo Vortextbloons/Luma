@@ -103,13 +103,13 @@ fn validate(path: &str) -> Result<PathBuf, String> {
             .extension()
             .is_some_and(|v| v.eq_ignore_ascii_case("exe"))
     {
-        return Err("Choose an existing local executable using its absolute .exe path.".into());
+        return Err("Choose an existing .exe file on this PC.".into());
     }
     let Ok(resolved) = value.canonicalize() else {
         return Ok(value.to_path_buf());
     };
     if resolved.to_string_lossy().starts_with(r"\\?\UNC\") {
-        return Err("Network executables are not allowed.".into());
+        return Err("Apps on a network drive are not supported.".into());
     }
     Ok(resolved)
 }
@@ -333,15 +333,17 @@ pub fn app_paths(apps: State<Apps>) -> Result<BTreeMap<String, String>, String> 
 }
 
 #[tauri::command]
-pub fn detect_apps() -> Vec<DetectedApp> {
-    SERVICES
+pub async fn detect_apps() -> Result<Vec<DetectedApp>, String> {
+    tauri::async_runtime::spawn_blocking(|| SERVICES
         .iter()
         .filter(|service| !service.executables.is_empty())
         .map(|service| DetectedApp {
             name: service.id.into(),
             path: detect(service.id).map(|p| p.to_string_lossy().into_owned()),
         })
-        .collect()
+        .collect())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -351,7 +353,7 @@ pub fn save_app_paths(
     paths: BTreeMap<String, String>,
 ) -> Result<(), String> {
     if paths.keys().any(|id| service(id).is_none()) {
-        return Err("Unknown application.".into());
+        return Err("One of those apps is not recognized by Luma.".into());
     }
     for path in paths.values().filter(|p| !p.is_empty()) {
         validate(path)?;
@@ -368,8 +370,8 @@ pub fn save_app_paths(
 }
 
 #[tauri::command]
-pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Result<(), String> {
-    let service = service(&name).ok_or("Application is not approved.")?;
+pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHandle) -> Result<(), String> {
+    let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
     if name == "Stremio" {
         crate::commands::stremio::show(app.clone(), None)?;
         crate::activity::record_launch(&app, &name);
@@ -390,7 +392,7 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
                 Some(validate(&configured)?)
             };
             let executable = detected.ok_or(
-                "Spotify was not found. Install it or set its executable path in Settings.",
+                "Spotify was not found. Install it or choose its program under App locations in Settings.",
             )?;
             crate::integrations::spotify::process::launch_path_minimized(&executable)?;
         }
@@ -414,11 +416,11 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
         None => {
             let Some(url) = service.url else {
                 return Err(format!(
-                    "{name} was not found. Install it or set its executable path in Settings."
+                    "{name} was not found. Install it or choose its program under App locations in Settings."
                 ));
             };
             let browser = edge().ok_or_else(|| {
-                format!("Microsoft Edge is required to open {name}. Install Edge or set an executable path in Settings.")
+                format!("Microsoft Edge is required to open {name}. Install Edge or choose a program under App locations in Settings.")
             })?;
             (browser, edge_arguments(&app, service.id, url)?)
         }

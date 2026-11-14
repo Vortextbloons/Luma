@@ -574,9 +574,9 @@ pub fn stremio_disconnect(
 }
 
 #[tauri::command]
-pub fn stremio_open(
+pub async fn stremio_open(
     app: AppHandle,
-    state: State<Stremio>,
+    state: State<'_, Stremio>,
     id: Option<String>,
     kind: Option<String>,
 ) -> Result<(), String> {

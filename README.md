@@ -19,7 +19,7 @@ npm run tauri build
 
 Arrow keys move visible focus, Enter activates, Escape or Backspace returns, and Home opens the home screen. Tab and Shift+Tab wrap within the current modal. Text fields keep their normal editing keys. Keyboard and authenticated remote inputs share the same navigation dispatcher.
 
-Settings provide fullscreen, accent colors, wallpaper, density, section visibility, tile ordering, and executable paths. Appearance preferences are stored in the WebView's local storage. Approved app paths are saved separately in `apps.json` under Tauri's application configuration directory. Choose **Save approved app paths** after editing paths. Luma validates local absolute `.exe` paths and launches them directly without shell commands. Services are described by one registry in `apps.rs` — id, executable locations, and streaming URL — so adding a service is a data change rather than a new launch path.
+Settings provide fullscreen, accent colors, wallpaper, density, section visibility, tile ordering, and executable paths. Appearance preferences are stored in the WebView's local storage. App paths are saved separately in `apps.json` under Tauri's application configuration directory. Choose **Save app settings** after editing paths. Luma validates local absolute `.exe` paths and launches them directly without shell commands. Services are described by one registry in `apps.rs` — id, executable locations, and streaming URL — so adding a service is a data change rather than a new launch path.
 
 Spotify, Netflix, Disney+, and Prime Video are automatically detected at startup and whenever launched with an empty configured path. Detection checks standard per-user/system installation locations and Windows App Paths registrations. **Find installed apps** fills empty path fields without replacing manual overrides. Stremio opens inside Luma and has no executable path. The custom tile always requires a path.
 
@@ -35,7 +35,7 @@ The Music view controls only a Spotify Windows media session, using GlobalSystem
 
 ## Movie catalog
 
-Home and Watch load two public Cinemeta catalogs at startup: Popular movies and Featured for you. Titles, descriptions, artwork, year, runtime, and IMDb rating come from Cinemeta and MetaHub, so the rows stay current without an API key or Stremio account. An internet connection is required; when the catalog is unreachable, Luma reports the error and leaves the rows empty. Luma does not stream titles itself; the optional Stremio account integration and the local activity system supply Continue Watching.
+Home and Watch load two public Cinemeta catalogs at startup: Popular movies and Top-rated movies. Titles, descriptions, artwork, year, runtime, and IMDb rating come from Cinemeta and MetaHub, so the rows stay current without an API key or Stremio account. An internet connection is required; when the catalog is unreachable, Luma reports the error and leaves the rows empty. Luma does not stream titles itself; the optional Stremio account integration and the local activity system supply Continue Watching.
 
 ## Unified activity
 
@@ -50,7 +50,7 @@ Real sources in this build:
 - **Jellyfin** — authenticated resume and played-item requests for a configured user.
 - **Trakt** — authorized watch history using a client ID and access token.
 
-Plex, Jellyfin, and Trakt refresh only when the user selects **Refresh now**, so startup does not wait for network services. A provider with saved credentials is shown as **Not validated** until a refresh succeeds; only then does it become **Connected**. Provider tokens are written to Windows Credential Manager and are never returned to the WebView, stored in the activity database, or sent to the photo-frame remote. The remote receives only navigation state.
+Plex, Jellyfin, and Trakt refresh only when the user selects **Check connection**, so startup does not wait for network services. A provider with saved credentials is shown as **Needs check** until a refresh succeeds; only then does it become **Connected**. Provider tokens are written to Windows Credential Manager and are never returned to the WebView, stored in the activity database, or sent to the photo-frame remote. The remote receives only navigation state.
 
 Progress bars appear only when the provider or Luma supplied a valid position and duration. The card action reflects the stored capability: direct resume, open content, open the service, or open the app. This build stores open-content/service actions for the implemented providers because their direct-resume mechanisms have not been validated here, so no card displays a Resume button for an unverified mechanism. Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, and Peacock are launchers only because no legitimate watch-history source is assumed. Music and video records stay visually distinct, and provider activity is never merged across services by title alone.
 
@@ -60,7 +60,7 @@ Settings → Activity lets you stop recording, hide a provider on Home, disable 
 
 Settings → Integrations → Stremio links an account through Stremio's device-link service. Luma requests a short code from `https://link.stremio.com/api/v2/create?type=Create`, shows the code, link, and QR code, and polls `https://link.stremio.com/api/v2/read?type=Read&code=...` until the user approves it in Stremio. The link returns a one-time token, which Luma exchanges through `https://api.strem.io/api/loginWithToken` for the session auth key. No password is requested, and Luma never reads cookies or credentials from the installed Stremio application.
 
-After pairing, Luma calls `https://api.strem.io/api/getUser` and `https://api.strem.io/api/datastoreGet` with collection `libraryItem` and `all: true` to load the account email and synchronized library. These requests run only in the Rust backend. The auth key is stored in Windows Credential Manager under `Luma/Stremio` and is never returned by a Tauri command, emitted to the WebView, or exposed by the remote HTTP/WebSocket server. `stremio.json` under Tauri's application configuration directory holds the non-secret email, last synchronization time, and library metadata so Continue Watching can render immediately at startup. Disconnecting deletes only that credential and cache; it does not call Stremio's logout endpoint or modify the user's account.
+After pairing, Luma calls `https://api.strem.io/api/getUser` and `https://api.strem.io/api/datastoreGet` with collection `libraryItem` and `all: true` to load the account email and synchronized library. These requests run only in the Rust backend. The auth key is stored in Windows Credential Manager under `Luma/Stremio` and is never returned by a Tauri command, emitted to the WebView, or exposed by the local remote server. `stremio.json` under Tauri's application configuration directory holds the non-secret email, last synchronization time, and library metadata so Continue Watching can render immediately at startup. Disconnecting deletes only that credential and cache; it does not call Stremio's logout endpoint or modify the user's account.
 
 Continue Watching uses Stremio's library state: titles with a positive `timeOffset`, excluding type `other`; progress is `timeOffset / duration`. Selecting a title opens the official Stremio Web app (`https://web.stremio.com/`) in a dedicated Luma window at `#/detail/{type}/{id}/{videoId}`. The Stremio tile, the catalog details dialog, and the hero title action use the same window. External links from Stremio open in the default browser; the embedded window only navigates Stremio hosts. `Ctrl+W`, Escape or Backspace at the Stremio home screen, or the remote Home command closes the window and returns to Luma.
 
@@ -70,25 +70,30 @@ Stremio Web plays streams that its HTML5 player can handle directly, including H
 
 These endpoints, payload shapes, and web routes are implementation-specific. The integration follows Stremio's upstream `stremio-core` commit `2c89236b47dfcd5e844c1dfae5737164cb616fbf` (`src/models/link.rs`, `src/types/api/request.rs`, `src/deep_links/mod.rs`) and the current `stremio-web` hash routes (`/detail/:type?/:id?/:videoId?`). Re-check these interfaces when updating the integration; `stremio-core` itself is not bundled because its runtime, add-on system, and player dependencies are much larger than this adapter needs.
 
-## Remote protocol
+## Local remote server
 
-The Rust HTTP/WebSocket server starts with Luma at `127.0.0.1:9876` and stops with the process. LAN access is off after every restart. Settings can explicitly enable binding to `0.0.0.0:9876` and set an exact allowed HTTP(S) origin for the remote client. Every request requires a random 256-bit session credential. Restarting or reconfiguring the server rotates that credential and disconnects existing WebSockets. The credential is visible only in desktop Settings and is never returned by HTTP endpoints.
+One local server starts with Luma at `0.0.0.0:9877` when local remote access is enabled in Settings → Remote & Startup. It serves the Display Box frame protocol and a phone browser remote on the same LAN, so both can stay connected at once. Disabling access stops the server. LAN traffic is unencrypted HTTP; use it only on a trusted private network, and allow Luma through Windows Firewall on private networks. No firewall rules are added automatically.
 
-LAN mode uses unencrypted HTTP/WebSocket traffic. Use it only on a trusted private network; TLS, six-digit pairing, and remembered remote credentials are outside v0.1. No firewall rules are added automatically. Remote commands cannot supply executable paths or shell arguments.
+### Display Box frame
 
-- `GET /state`: returns `{ "view": "Home", "fullscreen": false }`.
-- `POST /command`: accepts `{ "command": "up" }`. Valid commands: `up`, `down`, `left`, `right`, `activate`, `back`, `home`. HTTP 202 means queued for frontend navigation.
-- `GET /ws`: WebSocket upgrade, accepting the same JSON command objects. Replies include `accepted` and a snapshot of basic state, or an error. The snapshot may precede the queued navigation's render.
+The frame keeps its existing protocol on port 9877 and authenticates with `Authorization: Bearer <frame-token>`:
 
-For HTTP, send `Authorization: Bearer <session-token>`. An Origin header, when present, must match the configured origin exactly. HTTP clients should be native clients; cross-origin browser HTTP requests are not enabled.
-WebSocket handshakes must include the exact configured `Origin`, plus either the bearer header or `Sec-WebSocket-Protocol: luma.<session-token>`. Browser clients can use:
+- `POST /pair` accepts `{ "code": "123456" }` and returns `{ "token": "...", "pcName": "..." }`.
+- `GET /state` returns the PC name and connection state.
+- `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; volume commands are `volumeup`, `volumedown`, and `mute`.
 
-```js
-const socket = new WebSocket('ws://PC_ADDRESS:9876/ws', ['luma.' + token]);
-socket.onopen = () => socket.send(JSON.stringify({ command: 'right' }));
-```
+Frame credentials are persistent and are not replaced by phone pairing. This protocol rejects requests that include an Origin header. Commands cannot carry executable paths or shell arguments.
 
-Serve the browser remote client from the origin configured in Settings. `file://` and `null` origins are rejected. WebSockets are limited to four clients, 512-byte messages, and approximately 33 commands per second per connection. Invalid command types and extra command fields are rejected.
+### Phone remote
+
+Open `http://<PC-Wi-Fi-address>:9877/` on a phone connected to the same network, or choose **Open remote in browser** in Settings to test the same page at `http://localhost:9877/` on this PC. Settings shows the exact phone address. Choose **Pair a phone** in Luma, then enter the six-digit code in the browser you opened. Both addresses use the same server, pairing, and commands. The server sets an `HttpOnly`, `SameSite=Strict` browser cookie, and the page polls while it is visible. Phone pairing is stored separately from the frame credential, so pairing or replacing either one does not disconnect the other. Luma must stay running; closing its window leaves it in the system tray.
+
+- `GET /` serves the phone page.
+- `POST /phone/pair` accepts `{ "code": "123456" }` and sets the phone cookie.
+- `GET /phone/state` returns the PC name and the current Luma view.
+- `POST /phone/command` accepts the same command objects as Display Box.
+
+Phone commands require the server's own origin; cross-origin and missing-origin POSTs are rejected. The separate port 9876 HTTP/WebSocket remote, its manually configured allowed origin, and its per-session credential are replaced by this consolidated server. Browsers can now control navigation, app launches, playback, and PC volume from the page Luma serves.
 
 ## Remote control of launched applications
 
@@ -102,10 +107,10 @@ Spotify's local icon comes from its [official design asset download](https://dev
 
 ## Validation limits
 
-Automated checks cover frontend types/build, directional focus/modal navigation, activity progress/capability selection and filtering, executable-path rejection, remote authentication/origin/command validation, Stremio library/deep-link mapping, and pointer clamping to the tracked window. Visual 1080p/4K behavior and playback against a live Spotify installation should also be checked on the target TV/PC. Window matching and pointer control should be checked against each installed service, since foreground behavior differs between desktop and Store-packaged applications. Stremio device linking and account synchronization require a live Stremio account. Embedded Stremio Web loading, its sign-in, external-link handling, and playback were not validated in this checkout; playback additionally requires a reachable Stremio Service for torrent or transcoded streams and is subject to WebView2 codec and Widevine limits. Plex, Jellyfin, and Trakt imports require a reachable server or account and were not validated in this checkout; they remain **Not validated** until a real refresh succeeds. YouTube progress reporting and direct app launches need a live Luma desktop session. Packaged Store applications depend on Windows exposing a usable executable alias or manually configured executable.
+Automated checks cover frontend types/build, directional focus/modal navigation, activity progress/capability selection and filtering, executable-path rejection, remote authentication/origin/command validation, Stremio library/deep-link mapping, and pointer clamping to the tracked window. Visual 1080p/4K behavior and playback against a live Spotify installation should also be checked on the target TV/PC. Window matching and pointer control should be checked against each installed service, since foreground behavior differs between desktop and Store-packaged applications. Stremio device linking and account synchronization require a live Stremio account. Embedded Stremio Web loading, its sign-in, external-link handling, and playback were not validated in this checkout; playback additionally requires a reachable Stremio Service for torrent or transcoded streams and is subject to WebView2 codec and Widevine limits. Plex, Jellyfin, and Trakt imports require a reachable server or account and were not validated in this checkout; they remain **Needs check** until a real refresh succeeds. YouTube progress reporting and direct app launches need a live Luma desktop session. Packaged Store applications depend on Windows exposing a usable executable alias or manually configured executable.
 
 ## System tray and Windows startup
 
-Closing the main window hides Luma in the system tray while its servers keep running. Left-click the tray icon or choose **Open Luma TV** to restore the launcher. Choose **Quit Luma and stop server** to exit completely.
+Closing the main window hides Luma in the system tray while its server keeps running. Left-click the tray icon or choose **Open Luma TV** to restore the launcher. Choose **Quit Luma and stop server** to exit completely.
 
-In Settings → Background server, enable **Start server when Windows starts** to launch quietly after Windows sign-in. Startup runs the same application with `--background`, without showing the launcher. Display Box must be enabled separately for the photo frame to connect. A single-instance guard prevents a second copy from occupying the server ports; opening Luma again restores the running instance. Configure startup from the installed application so Windows points to its permanent executable location.
+In Settings → Remote & Startup, enable **Start Luma when I sign in** to launch quietly after Windows sign-in. Startup runs the same application with `--background`, without showing the launcher. Display Box must be enabled separately for the photo frame to connect. A single-instance guard prevents a second copy from occupying the server ports; opening Luma again restores the running instance. Configure startup from the installed application so Windows points to its permanent executable location.

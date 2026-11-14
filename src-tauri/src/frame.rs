@@ -3,8 +3,10 @@ use crate::{
     remote::server::{self, NavigationCommand},
 };
 use axum::{
+    body::Body,
     extract::{DefaultBodyLimit, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -14,11 +16,19 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
+
+const PHONE_COOKIE: &str = "luma_phone";
+const PHONE_LOCAL_URL: &str = "http://localhost:9877/";
+const PHONE: &str = include_str!("phone.html");
+const PHONE_CSP: &str = "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
     enabled: bool,
     token: String,
+    #[serde(default)]
+    phone_token: String,
 }
 struct Pairing {
     code: String,
@@ -42,6 +52,7 @@ impl Pairing {
 pub struct Frame {
     saved: Mutex<Saved>,
     pairing: Mutex<Option<Pairing>>,
+    phone_pairing: Mutex<Option<Pairing>>,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 #[derive(Serialize)]
@@ -52,6 +63,9 @@ pub struct Status {
     addresses: Vec<String>,
     pc_name: String,
     code: Option<String>,
+    phone_paired: bool,
+    phone_url: String,
+    phone_code: Option<String>,
 }
 
 fn pc_name() -> String {
@@ -77,6 +91,45 @@ fn random_token() -> Result<String, String> {
 fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |n, (a, b)| n | (a ^ b)) == 0
 }
+fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value.split(';').find_map(|part| {
+                let (key, value) = part.trim().split_once('=')?;
+                (key == name).then_some(value)
+            })
+        })
+}
+fn same_origin(headers: &HeaderMap) -> Result<(), StatusCode> {
+    if headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value != "same-origin" && value != "none")
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| url::Url::parse(value).ok())
+        .ok_or(StatusCode::FORBIDDEN)?;
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| url::Url::parse(&format!("http://{value}")).ok())
+        .ok_or(StatusCode::FORBIDDEN)?;
+    if origin.scheme() != "http"
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.host_str() != host.host_str()
+        || origin.port_or_known_default() != host.port_or_known_default()
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
 fn authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), StatusCode> {
     if headers.contains_key("origin") {
         return Err(StatusCode::FORBIDDEN);
@@ -96,6 +149,48 @@ fn authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), StatusC
     }
     Ok(())
 }
+fn phone_authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), StatusCode> {
+    let frame = app.state::<Frame>();
+    let saved = frame
+        .saved
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let candidate = cookie(headers, PHONE_COOKIE).unwrap_or("");
+    if !saved.enabled || saved.phone_token.is_empty() || !same(candidate, &saved.phone_token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(())
+}
+fn rotate_display(saved: &Saved) -> Result<Saved, String> {
+    Ok(Saved {
+        enabled: saved.enabled,
+        token: random_token()?,
+        phone_token: saved.phone_token.clone(),
+    })
+}
+fn rotate_phone(saved: &Saved) -> Result<Saved, String> {
+    Ok(Saved {
+        enabled: saved.enabled,
+        token: saved.token.clone(),
+        phone_token: random_token()?,
+    })
+}
+fn new_pairing() -> Result<Pairing, String> {
+    let mut bytes = [0u8; 4];
+    getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
+    Ok(Pairing {
+        code: format!("{:06}", u32::from_le_bytes(bytes) % 1_000_000),
+        expires: Instant::now() + Duration::from_secs(300),
+        attempts: 0,
+    })
+}
+fn active_code(pairing: &Option<Pairing>) -> Option<String> {
+    pairing
+        .as_ref()
+        .filter(|p| p.expires > Instant::now() && p.attempts < 10)
+        .map(|p| p.code.clone())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairRequest {
@@ -110,26 +205,28 @@ async fn pair(
         return Err(StatusCode::FORBIDDEN);
     }
     let frame = app.state::<Frame>();
-    let mut pairing = frame
-        .pairing
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let pending = pairing.as_mut().ok_or(StatusCode::FORBIDDEN)?;
-    pending.verify(&request.code, Instant::now())?;
     let mut saved = frame
         .saved
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let replacement = Saved {
-        enabled: saved.enabled,
-        token: random_token().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-    };
-    if !replacement.enabled {
+    if !saved.enabled {
         return Err(StatusCode::FORBIDDEN);
     }
+    {
+        let mut pairing = frame
+            .pairing
+            .lock()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let pending = pairing.as_mut().ok_or(StatusCode::FORBIDDEN)?;
+        pending.verify(&request.code, Instant::now())?;
+    }
+    let replacement = rotate_display(&saved).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     save(&app, &replacement).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     *saved = replacement;
-    *pairing = None;
+    *frame
+        .pairing
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? = None;
     Ok(Json(
         serde_json::json!({"token": saved.token, "pcName": pc_name()}),
     ))
@@ -148,29 +245,111 @@ async fn state(
 struct Command {
     command: String,
 }
+async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), String>> {
+    if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
+        server::navigate(app, nav);
+        return Some(Ok(()));
+    }
+    let result = match command {
+        "youtube" => youtube::open_youtube(app.clone(), true).await,
+        "stremio" => apps::launch_app("Stremio".into(), app.state::<apps::Apps>(), app.clone()).await,
+        "custom" => apps::launch_app("Custom".into(), app.state::<apps::Apps>(), app.clone()).await,
+        "spotify" => apps::launch_app("Spotify".into(), app.state::<apps::Apps>(), app.clone()).await,
+        "toggle" | "previous" | "next" => media::control(app, command).await,
+        "volumeup" | "volumedown" | "mute" => volume(command),
+        _ => return None,
+    };
+    Some(result)
+}
 async fn command(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
     Json(request): Json<Command>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     authorized(&app, &headers)?;
-    if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(request.command))
-    {
-        server::navigate(&app, nav);
-        return Ok(Json(serde_json::json!({"accepted": true})));
-    }
-    let result = match request.command.as_str() {
-        "youtube" => youtube::open_youtube(app, true).await,
-        "stremio" => apps::launch_app("Stremio".into(), app.state::<apps::Apps>(), app.clone()),
-        "custom" => apps::launch_app("Custom".into(), app.state::<apps::Apps>(), app.clone()),
-        "spotify" => apps::launch_app("Spotify".into(), app.state::<apps::Apps>(), app.clone()),
-        "toggle" | "previous" | "next" => media::control(&app, &request.command).await,
-        "volumeup" | "volumedown" | "mute" => volume(&request.command),
-        _ => return Err(StatusCode::BAD_REQUEST),
-    };
+    let result = perform(&app, &request.command)
+        .await
+        .ok_or(StatusCode::BAD_REQUEST)?;
     Ok(Json(match result {
         Ok(()) => serde_json::json!({"accepted": true}),
         Err(error) => serde_json::json!({"error":error}),
+    }))
+}
+async fn phone_page() -> Response {
+    Response::builder()
+        .header("content-type", "text/html; charset=utf-8")
+        .header("cache-control", "no-store")
+        .header("content-security-policy", PHONE_CSP)
+        .header("x-content-type-options", "nosniff")
+        .header("x-frame-options", "DENY")
+        .header("referrer-policy", "no-referrer")
+        .body(Body::from(PHONE))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+async fn phone_pair(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<PairRequest>,
+) -> Result<Response, StatusCode> {
+    same_origin(&headers)?;
+    let frame = app.state::<Frame>();
+    let mut saved = frame
+        .saved
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !saved.enabled {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    {
+        let mut pairing = frame
+            .phone_pairing
+            .lock()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let pending = pairing.as_mut().ok_or(StatusCode::FORBIDDEN)?;
+        pending.verify(&request.code, Instant::now())?;
+    }
+    let replacement = rotate_phone(&saved).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    save(&app, &replacement).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    *saved = replacement;
+    *frame
+        .phone_pairing
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? = None;
+    let cookie = format!(
+        "{PHONE_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000",
+        saved.phone_token
+    );
+    let mut response = Json(serde_json::json!({"pcName": pc_name()})).into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&cookie).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    Ok(response)
+}
+async fn phone_state(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(
+        serde_json::json!({"pcName": pc_name(), "state": state}),
+    ))
+}
+async fn phone_command(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<Command>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    same_origin(&headers)?;
+    phone_authorized(&app, &headers)?;
+    let result = perform(&app, &request.command)
+        .await
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(match result {
+        Ok(()) => serde_json::json!({"accepted": true, "state": state}),
+        Err(error) => serde_json::json!({"error": error, "state": state}),
     }))
 }
 #[cfg(windows)]
@@ -200,9 +379,13 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Cannot listen on port 9877: {e}"))?;
     let router = Router::new()
+        .route("/", get(phone_page))
         .route("/pair", post(pair))
         .route("/state", get(state))
         .route("/command", post(command))
+        .route("/phone/pair", post(phone_pair))
+        .route("/phone/state", get(phone_state))
+        .route("/phone/command", post(phone_command))
         .layer(DefaultBodyLimit::max(512))
         .with_state(app.clone());
     let task = tauri::async_runtime::spawn(async move {
@@ -235,21 +418,29 @@ pub async fn initialize(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn frame_status(app: tauri::AppHandle) -> Result<Status, String> {
     let frame = app.state::<Frame>();
-    let (enabled, paired) = {
+    let (enabled, paired, phone_paired) = {
         let saved = frame.saved.lock().map_err(|e| e.to_string())?;
-        (saved.enabled, !saved.token.is_empty())
+        (
+            saved.enabled,
+            !saved.token.is_empty(),
+            !saved.phone_token.is_empty(),
+        )
     };
     let pairing = frame.pairing.lock().map_err(|e| e.to_string())?;
+    let phone_pairing = frame.phone_pairing.lock().map_err(|e| e.to_string())?;
     let addresses = local_addresses();
     Ok(Status {
         enabled: enabled && frame.task.lock().map_err(|e| e.to_string())?.is_some(),
         paired,
+        phone_url: addresses
+            .first()
+            .map(|address| format!("http://{address}:9877"))
+            .unwrap_or_else(|| "http://localhost:9877".into()),
         addresses,
         pc_name: pc_name(),
-        code: pairing
-            .as_ref()
-            .filter(|p| p.expires > Instant::now() && p.attempts < 10)
-            .map(|p| p.code.clone()),
+        code: active_code(&pairing),
+        phone_paired,
+        phone_code: active_code(&phone_pairing),
     })
 }
 fn local_addresses() -> Vec<String> {
@@ -274,20 +465,15 @@ pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Sta
     }
     {
         let mut saved = frame.saved.lock().map_err(|e| e.to_string())?;
-        save(
-            &app,
-            &Saved {
-                enabled,
-                token: saved.token.clone(),
-            },
-        )?;
         saved.enabled = enabled;
+        save(&app, &saved)?;
     }
     if !enabled {
         if let Some(task) = frame.task.lock().map_err(|e| e.to_string())?.take() {
             task.abort();
         }
         *frame.pairing.lock().map_err(|e| e.to_string())? = None;
+        *frame.phone_pairing.lock().map_err(|e| e.to_string())? = None;
     }
     frame_status(app)
 }
@@ -295,17 +481,31 @@ pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Sta
 pub fn frame_pairing(app: tauri::AppHandle) -> Result<Status, String> {
     let frame = app.state::<Frame>();
     if !frame.saved.lock().map_err(|e| e.to_string())?.enabled {
-        return Err("Enable Display Box first.".into());
+        return Err("Enable local remote access first.".into());
     }
-    let mut bytes = [0u8; 4];
-    getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
-    let code = format!("{:06}", u32::from_le_bytes(bytes) % 1_000_000);
-    *frame.pairing.lock().map_err(|e| e.to_string())? = Some(Pairing {
-        code,
-        expires: Instant::now() + Duration::from_secs(300),
-        attempts: 0,
-    });
+    *frame.pairing.lock().map_err(|e| e.to_string())? = Some(new_pairing()?);
     frame_status(app)
+}
+#[tauri::command]
+pub fn phone_pairing(app: tauri::AppHandle) -> Result<Status, String> {
+    let frame = app.state::<Frame>();
+    if !frame.saved.lock().map_err(|e| e.to_string())?.enabled {
+        return Err("Enable local remote access first.".into());
+    }
+    *frame.phone_pairing.lock().map_err(|e| e.to_string())? = Some(new_pairing()?);
+    frame_status(app)
+}
+#[tauri::command]
+pub fn open_phone_remote(app: tauri::AppHandle) -> Result<(), String> {
+    let frame = app.state::<Frame>();
+    let running = frame.task.lock().map_err(|e| e.to_string())?.is_some();
+    let enabled = frame.saved.lock().map_err(|e| e.to_string())?.enabled;
+    if !running || !enabled {
+        return Err("Enable local remote access first.".into());
+    }
+    app.opener()
+        .open_url(PHONE_LOCAL_URL, None::<&str>)
+        .map_err(|error| format!("Could not open the phone remote: {error}"))
 }
 
 #[cfg(test)]
@@ -333,5 +533,76 @@ mod tests {
     #[test]
     fn command_cannot_inject_arguments() {
         assert!(serde_json::from_str::<Command>(r#"{"command":"home","path":"cmd.exe"}"#).is_err());
+    }
+    #[test]
+    fn legacy_display_box_file_loads_without_a_phone_credential() {
+        let saved: Saved =
+            serde_json::from_str(r#"{"enabled":true,"token":"saved"}"#).unwrap();
+        assert!(saved.enabled);
+        assert_eq!(saved.token, "saved");
+        assert!(saved.phone_token.is_empty());
+    }
+    #[test]
+    fn pairing_one_device_does_not_replace_the_other_credential() {
+        let saved = Saved {
+            enabled: true,
+            token: "display".into(),
+            phone_token: "phone".into(),
+        };
+        let display = rotate_display(&saved).unwrap();
+        assert_eq!(display.phone_token, "phone");
+        assert_eq!(display.token.len(), 64);
+        let phone = rotate_phone(&saved).unwrap();
+        assert_eq!(phone.token, "display");
+        assert_eq!(phone.phone_token.len(), 64);
+    }
+    #[test]
+    fn phone_requests_must_come_from_the_served_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "192.168.1.5:9877".parse().unwrap());
+        headers.insert("origin", "http://192.168.1.5:9877".parse().unwrap());
+        assert!(same_origin(&headers).is_ok());
+        headers.insert("host", "localhost:9877".parse().unwrap());
+        headers.insert("origin", "http://localhost:9877".parse().unwrap());
+        assert!(same_origin(&headers).is_ok());
+        headers.insert("origin", "http://127.0.0.1:9877".parse().unwrap());
+        assert!(same_origin(&headers).is_err());
+        headers.insert("origin", "http://evil.example".parse().unwrap());
+        assert!(same_origin(&headers).is_err());
+        headers.insert("origin", "http://localhost:9877".parse().unwrap());
+        headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        assert!(same_origin(&headers).is_err());
+        headers.remove("sec-fetch-site");
+        headers.remove("origin");
+        assert!(same_origin(&headers).is_err());
+    }
+    #[test]
+    fn phone_cookie_is_read_from_the_cookie_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            "other=1; luma_phone=abc123; last=2".parse().unwrap(),
+        );
+        assert_eq!(cookie(&headers, PHONE_COOKIE), Some("abc123"));
+        assert_eq!(cookie(&headers, "missing"), None);
+    }
+    #[test]
+    fn phone_page_is_served_with_browser_security_headers() {
+        tauri::async_runtime::block_on(async {
+            let response = phone_page().await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()["content-type"],
+                "text/html; charset=utf-8"
+            );
+            assert!(response.headers()["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .contains("frame-ancestors 'none'"));
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("Pair this phone"));
+        });
     }
 }

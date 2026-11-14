@@ -1,28 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { spotify } from '../../state/spotify.svelte';
+  import ProviderIcon from '../activity/ProviderIcon.svelte';
 
   let { native }: { native: boolean } = $props();
-  let clientId = $state('');
-  let synced = $state(false);
+  let clientId = $derived(spotify.clientId);
   let saving = $state(false);
   let message = $state('');
 
   const connection = $derived(spotify.connection);
-
-  $effect(() => {
-    if (!synced && spotify.clientId) {
-      clientId = spotify.clientId;
-      synced = true;
-    }
-  });
+  const stateLabel = $derived(!native ? 'Desktop only' : connection.authenticated ? 'Account connected' : connection.installed ? 'Ready' : 'Not found');
+  const stateTone = $derived(!native ? 'is-muted' : connection.authenticated ? 'is-good' : connection.installed ? 'is-muted' : 'is-warn');
 
   onMount(() => { void spotify.refresh(); });
 
   async function save() {
     saving = true;
     try {
-      if (await spotify.saveClientId(clientId)) message = 'Spotify Client ID saved.';
+      if (await spotify.saveClientId(clientId)) message = 'Spotify Client ID saved. You can connect now.';
     } finally {
       saving = false;
     }
@@ -38,39 +33,61 @@
   }
 
   async function start() {
-    if (await spotify.start()) message = 'Spotify is starting in the background. Luma will connect when a media session appears.';
+    await spotify.start();
   }
 </script>
 
 <section class="settings-group">
-  <h3>Spotify</h3>
-  <p class="panel-description">Uses the installed Windows Spotify app for playback. The optional Spotify account connection adds playlists, saved music, search, recent listening, queue, volume, and device controls. Playback audio still runs in Spotify. If Luma cannot find Spotify, set its executable under Apps.</p>
+  <div class="settings-service-head">
+    <ProviderIcon provider="spotify" />
+    <div class="settings-service-title"><h3>Spotify</h3><p>Music controls for the Spotify app on this PC.</p></div>
+    <span class={`settings-badge ${stateTone}`}>{stateLabel}</span>
+  </div>
+  <p class="panel-description">Luma controls the Spotify app installed on this PC. Playback stays in Spotify.</p>
 
-  <p class="remote-status">{native ? connection.processRunning ? 'Spotify desktop is running.' : connection.installed ? 'Spotify desktop is installed but not running.' : 'Spotify desktop was not found on this PC.' : 'Available in the desktop application.'}</p>
-  <p class="remote-status">{connection.authenticated ? `Account connected${connection.displayName ? ` as ${connection.displayName}` : ''}.` : 'Spotify account not connected.'}</p>
-  {#if connection.error}<p class="error">{connection.error}</p>{/if}
+  <div class="settings-status-panel">
+    <p class="settings-status-line"><span class={`settings-status-dot ${connection.processRunning ? 'is-good' : ''}`}></span>{native ? connection.processRunning ? 'Spotify is running.' : connection.starting ? 'Spotify is starting…' : connection.installed ? 'Spotify is installed but closed.' : 'Spotify is not installed on this PC.' : 'Available in the desktop application.'}</p>
+    <p class="settings-status-line"><span class={`settings-status-dot ${connection.authenticated ? 'is-good' : ''}`}></span>{connection.authenticated ? `Account connected${connection.displayName ? ` as ${connection.displayName}` : ''}.` : 'Connecting a Spotify account is optional.'}</p>
+  </div>
 
   {#if connection.installed && !connection.processRunning}
-    <button class="panel-secondary" disabled={!native || spotify.busy || connection.starting} onclick={start}>{connection.starting ? 'Starting Spotify…' : 'Start Spotify in background'}</button>
+    <button class="panel-secondary is-primary" disabled={!native || spotify.busy || connection.starting} onclick={start}>{connection.starting ? 'Starting Spotify…' : 'Start Spotify'}</button>
   {/if}
 
-  <div class="spotify-setup">
-    <h4>Account connection</h4>
-    <ol>
-      <li>Create an app in the Spotify Developer Dashboard.</li>
-      <li>Add the redirect URI <code>http://127.0.0.1:8888/callback</code> exactly. Spotify does not allow <code>localhost</code>.</li>
-      <li>Paste the app Client ID below and save it.</li>
-      <li>Press Connect. Luma opens your browser for Spotify sign-in and catches the loopback callback locally.</li>
-    </ol>
-    <p class="panel-description">Development Mode apps require the app owner to have Spotify Premium, are limited to five authorized users, and support a smaller set of Web API endpoints. Playback control through the Web API requires Spotify Premium. Some library endpoints may be unavailable for playlists you do not own.</p>
-  </div>
+  {#if connection.error}<p class="error">{connection.error}</p>{/if}
 
-  <label class="field">Spotify Client ID<input bind:value={clientId} placeholder="Paste the Client ID" spellcheck="false" autocomplete="off" /></label>
-  <div class="spotify-actions">
-    <button class="panel-secondary" disabled={!native || saving || !clientId.trim()} onclick={save}>{saving ? 'Saving…' : 'Save Client ID'}</button>
-    <button class="panel-secondary" disabled={!native || spotify.connecting || !connection.clientIdConfigured} onclick={connect}>{spotify.connecting ? 'Waiting for browser…' : connection.authenticated ? 'Reconnect Spotify' : 'Connect Spotify'}</button>
-    {#if connection.authenticated}<button class="text-link" disabled={!native} onclick={disconnect}>Disconnect account</button>{/if}
-  </div>
-  {#if message}<p class="panel-description" role="status">{message}</p>{/if}
-  {#if spotify.error}<p class="error" role="status">{spotify.error}</p>{/if}
+  <details class="spotify-advanced">
+    <summary class="settings-advanced-summary" tabindex="0">
+      <span class="settings-advanced-copy"><strong>Connect a Spotify account</strong><small>Optional. Adds playlists, search, saved music, and devices.</small></span>
+      <span class="settings-advanced-mark" aria-hidden="true">›</span>
+    </summary>
+    <div class="settings-advanced-body">
+      <p class="panel-description">Play, pause, skip, and volume work with the installed app. A connected account adds playlists, saved music, search, recent listening, queue, and device controls. Luma uses your own Spotify developer app for this optional connection.</p>
+      <ol class="spotify-steps">
+        <li>Create an app in the Spotify Developer Dashboard.</li>
+        <li>Add the redirect URI <code>http://127.0.0.1:8888/callback</code> exactly. Spotify does not allow <code>localhost</code>.</li>
+        <li>Paste the app Client ID below and save it.</li>
+        <li>Choose Connect Spotify. Luma opens your browser for sign-in and finishes the connection locally.</li>
+      </ol>
+      <p class="panel-description">Development Mode apps require the app owner to have Spotify Premium, are limited to five authorized users, and support a smaller set of features. Playback control through the Spotify account requires Spotify Premium. Some library items may be unavailable for playlists you do not own.</p>
+
+      <label class="field">Spotify Client ID<input bind:value={clientId} placeholder="Paste the Client ID" spellcheck="false" autocomplete="off" /></label>
+      <div class="settings-actions">
+        <button class="panel-secondary" disabled={!native || saving || !clientId.trim()} onclick={save}>{saving ? 'Saving…' : 'Save Client ID'}</button>
+        <button class="panel-secondary is-primary" disabled={!native || spotify.connecting || !connection.clientIdConfigured} onclick={connect}>{spotify.connecting ? 'Waiting for browser…' : connection.authenticated ? 'Reconnect Spotify' : 'Connect Spotify'}</button>
+        {#if connection.authenticated}<button class="text-link" disabled={!native} onclick={disconnect}>Disconnect account</button>{/if}
+      </div>
+      {#if message}<p class="panel-description" role="status">{message}</p>{/if}
+      {#if spotify.error}<p class="error" role="status">{spotify.error}</p>{/if}
+    </div>
+  </details>
 </section>
+
+<style>
+  .spotify-advanced { margin-top: 18px; border: 1px solid #ffffff10; border-radius: 14px; background: #0b0e15; overflow: hidden; }
+  .spotify-advanced .settings-advanced-summary { min-height: 0; padding: 16px 18px; }
+  .spotify-advanced[open] .settings-advanced-mark { transform: rotate(90deg); }
+  .spotify-advanced .settings-advanced-body { padding: 0 18px 18px; border-top: 0; }
+  .spotify-steps { display: grid; gap: 8px; margin: 0 0 16px; padding-left: 20px; color: #a6a7b2; font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
+  .spotify-steps code { color: #dfe3eb; overflow-wrap: anywhere; }
+</style>

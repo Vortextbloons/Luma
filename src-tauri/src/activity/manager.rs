@@ -119,38 +119,38 @@ impl Activity {
         };
         let detail = match (provider.kind, state) {
             (_, ProviderState::Disabled) => {
-                "Disabled. Cached activity is still available to clear.".into()
+                "Off. You can still clear its history.".into()
             }
             (ProviderKind::Local, _) => {
-                "Records launches made inside Luma. Stored only on this PC.".into()
+                "Records apps opened from Luma on this PC.".into()
             }
             (ProviderKind::YouTube, _) => {
-                "Tracks playback observed in Luma's YouTube window. No Google account access.".into()
+                "Records videos played in Luma's YouTube window.".into()
             }
             (ProviderKind::Spotify, _) => {
-                "Tracks the current Spotify playback session observed by Luma. Not full listening history.".into()
+                "Records what Spotify is playing while Luma is open.".into()
             }
             (ProviderKind::Launcher, _) if provider.id == "stremio" => {
-                "Launcher tracking here. Connect a Stremio account under Integrations for account library progress.".into()
+                "Connect a Stremio account under Integrations to see library progress.".into()
             }
             (ProviderKind::Launcher, _) => {
-                "Launcher only. Luma records the app open and does not claim watch-history access.".into()
+                "Records when you open this app from Luma.".into()
             }
             (_, ProviderState::NeedsSetup) => match provider.kind {
-                ProviderKind::Trakt => "Add a Trakt client ID and authorized access token.".into(),
-                _ => format!("Add a {} server URL and token.", provider.name),
+                ProviderKind::Trakt => "Add a Trakt client ID and access token under Advanced.".into(),
+                _ => format!("Add your {} details under Advanced.", provider.name),
             },
             (_, ProviderState::NotValidated) => {
-                "Credentials saved. Run Refresh to validate the connection and import activity.".into()
+                "Settings saved. Check the connection to import activity.".into()
             }
             (_, ProviderState::Error) => last_error
                 .clone()
-                .unwrap_or_else(|| "The last refresh failed.".into()),
+                .unwrap_or_else(|| "The last check did not work. Try again.".into()),
             (_, ProviderState::Connected) => format!(
-                "Connected. Last successful refresh {}.",
+                "Connected. Last checked {}.",
                 last_success_at.clone().unwrap_or_default()
             ),
-            _ => format!("{} is available on this PC.", provider.name),
+            _ => format!("{} is ready on this PC.", provider.name),
         };
         Ok(ProviderStatus {
             id: provider.id.into(),
@@ -429,10 +429,10 @@ impl Activity {
                 .launch_target
                 .clone()
                 .unwrap_or_else(|| item.title.clone());
-            apps::launch_app(name, app.state::<apps::Apps>(), app.clone())?;
+            apps::launch_app(name, app.state::<apps::Apps>(), app.clone()).await?;
             return Ok(OpenOutcome {
                 kind: ResumeKind::Service,
-                message: format!("{} launch requested.", item.title),
+                message: format!("{} opened.", item.title),
             });
         }
         if item.provider == "youtube" {
@@ -454,7 +454,7 @@ impl Activity {
             if name == "YouTube" {
                 commands::youtube::open_youtube(app.clone(), fullscreen).await?;
             } else {
-                apps::launch_app(name, app.state::<apps::Apps>(), app.clone())?;
+                apps::launch_app(name, app.state::<apps::Apps>(), app.clone()).await?;
             }
             return Ok(OpenOutcome {
                 kind: ResumeKind::Service,
@@ -472,9 +472,9 @@ impl Activity {
         Ok(OpenOutcome {
             kind: item.resume_kind,
             message: if item.resume_kind == ResumeKind::Direct {
-                "Resume opened in the provider.".into()
+                "Resumed where you left off.".into()
             } else {
-                "Content opened in the provider.".into()
+                "Opened in the service.".into()
             },
         })
     }

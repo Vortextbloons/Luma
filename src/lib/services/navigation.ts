@@ -1,7 +1,7 @@
 import type { NavigationCommand } from '../types';
 
 export function createNavigation(back: () => void, home: () => void) {
-  const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
+  const elements = () => [...(document.querySelector('dialog[open]') ?? document.querySelector('main') ?? document).querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0);
   function focus(el?: HTMLElement) {
     const target = el?.isConnected && el.getClientRects().length ? el : elements()[0];
     target?.focus({ preventScroll: true });

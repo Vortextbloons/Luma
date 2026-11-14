@@ -1,25 +1,71 @@
 <script lang="ts">
+  import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
   import FramePairing from './FramePairing.svelte';
   import StremioIntegration from './StremioIntegration.svelte';
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
   import ActivitySettings from './activity/ActivitySettings.svelte';
   import type { ActivityState } from '../state/activity.svelte';
-  import type { ExecutableAppId, RemoteStatus, Settings } from '../types';
+  import type { AppId, ExecutableAppId, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, remote, native, close, fullscreen, savePaths, network, detect, message, report, activity, startCategory = 'Display' }: {
-    message: string; detect: () => Promise<void>; settings: Settings; remote: RemoteStatus; native: boolean; close: () => void;
+  let { settings, native, close, fullscreen, savePaths, detect, message, report, activity, startCategory = 'Display' }: {
+    message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
-    network: (lan: boolean, origin: string) => Promise<void>; report: (message: string) => void; activity: ActivityState;
+    report: (message: string) => void; activity: ActivityState;
     startCategory?: string;
   } = $props();
-  let category = $state('Display');
-  $effect(() => { category = startCategory; });
-  const categories = ['Display', 'Appearance', 'Activity', 'Apps', 'Integrations', 'Remote & Startup'];
-  let origin = $state('');
+  const categoryGroups = [
+    { name: 'Picture', categories: [
+      { name: 'Display', description: 'Fullscreen, layout density, and screen fit.' },
+      { name: 'Appearance', description: 'Accent, background, and home rows.' },
+    ] },
+    { name: 'Library', categories: [
+      { name: 'Activity', description: 'Watch history and connected services.' },
+      { name: 'Apps', description: 'Find, choose, and arrange apps.' },
+    ] },
+    { name: 'Connections', categories: [
+      { name: 'Integrations', description: 'Spotify and Stremio.' },
+      { name: 'Remote & Startup', description: 'Display Box, phone remote, and startup.' },
+    ] },
+  ] as const;
+  const categories: { name: string; description: string }[] = categoryGroups.flatMap(group => [...group.categories]);
+  const accents = [
+    { id: 'violet', label: 'Violet', color: '#a59bff' },
+    { id: 'blue', label: 'Blue', color: '#72bfff' },
+    { id: 'mint', label: 'Mint', color: '#88e6c5' },
+    { id: 'peach', label: 'Peach', color: '#ffae92' },
+  ] as const;
+  const homeSections = [
+    { id: 'continue', label: 'Continue Watching', detail: 'In-progress movies and shows from this PC and connected services.' },
+    { id: 'recent', label: 'Recently played', detail: 'A quick row of the titles you played most recently.' },
+    { id: 'recentApps', label: 'Recently used apps', detail: 'Apps you opened from Luma on this PC.' },
+    { id: 'popular', label: 'Popular movies', detail: 'The shared movie catalog.' },
+    { id: 'apps', label: 'Your apps', detail: 'The app dock on the home screen.' },
+    { id: 'featured', label: 'Top-rated movies', detail: 'Movies ranked by IMDb rating.' },
+  ] as const;
+  let category = $derived(startCategory);
+  const activeCategory = $derived(categories.find(item => item.name === category) ?? categories[0]);
   let busy = $state(false);
-  let reveal = $state(false);
-  function mountPage(element: HTMLElement) { origin = remote.origin; element.querySelector<HTMLButtonElement>('button')?.focus(); window.scrollTo(0, 0); }
+  let content = $state<HTMLDivElement>();
+  function selectCategory(name: string) {
+    category = name;
+    if (content) content.scrollTop = 0;
+  }
+  function builtInNote(id: AppId) {
+    if (id === 'YouTube') return 'YouTube TV opens in its own Luma window.';
+    if (id === 'Stremio') return 'Stremio opens inside Luma.';
+    return '';
+  }
+  async function findApps() {
+    busy = true;
+    try { await detect(); } finally { busy = false; }
+  }
+  async function saveApps() {
+    busy = true;
+    try { await savePaths(); } finally { busy = false; }
+  }
+  function mountPage(element: HTMLElement) { (element.querySelector<HTMLButtonElement>('.settings-category.selected') ?? element.querySelector<HTMLButtonElement>('button'))?.focus(); window.scrollTo(0, 0); }
+  function mountContent(element: HTMLDivElement) { content = element; }
   async function wallpaper(event: Event) {
     const file = (event.currentTarget as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -29,37 +75,147 @@
     reader.onerror = () => report('The background image could not be read.');
     reader.readAsDataURL(file);
   }
-  async function configure(lan: boolean) {
-    busy = true;
-    try { await network(lan, origin); } finally { busy = false; }
-  }
 </script>
 
 <section {@attach mountPage} class="settings-page" aria-labelledby="settings-title">
-  <header class="settings-page-header"><div><span class="panel-kicker">LUMA TV</span><h1 id="settings-title">Settings</h1><p>Make yourself at home.</p></div><button class="btn btn-glass" onclick={close}>Back to Luma</button></header>
+  <header class="settings-page-header">
+    <div class="settings-brand">
+      <img class="settings-brand-logo" src={logo} alt="Luma TV" />
+      <h1 id="settings-title">Settings</h1>
+      <p>Picture, apps, and connections for this screen.</p>
+    </div>
+    <button class="btn btn-glass" onclick={close}>Back to Luma</button>
+  </header>
   <div class="settings-layout">
     <nav class="settings-categories" aria-label="Settings categories">
-      {#each categories as item (item)}<button class={['settings-category', { selected: category === item }]} aria-current={category === item ? 'page' : undefined} onclick={() => category = item}>{item}<span aria-hidden="true">?</span></button>{/each}
+      {#each categoryGroups as group (group.name)}
+        <p class="settings-category-group">{group.name}</p>
+        {#each group.categories as item (item.name)}
+          <button class={['settings-category', { selected: category === item.name }]} aria-current={category === item.name ? 'page' : undefined} onclick={() => selectCategory(item.name)}>
+            <span class="settings-category-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
+            <span class="settings-category-mark" aria-hidden="true">›</span>
+          </button>
+        {/each}
+      {/each}
     </nav>
-    <div class="settings-content">
-      <h2>{category}</h2>
+    <div class="settings-content" {@attach mountContent}>
+      <header class="settings-content-header">
+        <h2>{activeCategory.name}</h2>
+        <p>{activeCategory.description}</p>
+      </header>
       {#if message}<p role="status" class="panel-feedback">{message}</p>{/if}
       {#if category === 'Display'}
-  <section class="settings-group"><h3>Display</h3><button class="panel-secondary" disabled={!native} onclick={fullscreen}>{settings.fullscreen ? 'Switch to windowed mode' : 'Switch to fullscreen'}</button><label class="field">Layout density<select bind:value={settings.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label></section>
+        <section class="settings-group">
+          <h3>Screen</h3>
+          <p class="panel-description">Choose how Luma fills this display and how much room its cards get.</p>
+          <div class="settings-row">
+            <div class="settings-row-copy"><strong>Fullscreen</strong><span>{native ? (settings.fullscreen ? 'Luma is filling the screen.' : 'Luma is running in a window.') : 'Available in the desktop application.'}</span></div>
+            <button class="panel-secondary" disabled={!native} onclick={fullscreen}>{settings.fullscreen ? 'Switch to windowed mode' : 'Switch to fullscreen'}</button>
+          </div>
+          <div class="settings-form-grid">
+            <label class="field">App tile shape
+              <select bind:value={settings.appTileShape}><option value="wide">Wide rectangles</option><option value="square">Squares</option></select>
+              <span class="field-hint">Wide cards suit artwork; squares fit more apps.</span>
+            </label>
+            <label class="field">Layout density
+              <select bind:value={settings.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select>
+              <span class="field-hint">Compact fits more rows on screen.</span>
+            </label>
+          </div>
+        </section>
       {:else if category === 'Appearance'}
-  <section class="settings-group"><h3>Accent color</h3><div class="swatches">{#each [{ id: 'violet', color: '#a59bff' }, { id: 'blue', color: '#72bfff' }, { id: 'mint', color: '#88e6c5' }, { id: 'peach', color: '#ffae92' }] as accent (accent.id)}<button class={['swatch', { 'is-active': settings.accent === accent.id }]} style:--sw={accent.color} aria-label={accent.id} aria-pressed={settings.accent === accent.id} onclick={() => settings.accent = accent.id as Settings['accent']}></button>{/each}</div><label class="field">Background image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={wallpaper} /></label><button class="text-link" onclick={() => settings.wallpaper = ''}>Reset background</button></section>
-  <section class="settings-group"><h3>Home screen sections</h3>{#each [{ id: 'continue', label: 'Continue Watching' }, { id: 'recent', label: 'Recently played' }, { id: 'recentApps', label: 'Recently used apps' }, { id: 'popular', label: 'Popular movies' }, { id: 'apps', label: 'Your apps' }, { id: 'featured', label: 'Featured for you' }] as section (section.id)}<label class="setting-toggle"><span>{section.label}</span><input type="checkbox" bind:checked={settings.sections[section.id as keyof Settings['sections']]} /></label>{/each}</section>
+        <section class="settings-group">
+          <h3>Accent color</h3>
+          <p class="panel-description">Used for focus rings, progress, and selected states across Luma.</p>
+          <div class="swatches" role="group" aria-label="Accent color">
+            {#each accents as accent (accent.id)}
+              <button class={['swatch-choice', { 'is-active': settings.accent === accent.id }]} aria-pressed={settings.accent === accent.id} onclick={() => settings.accent = accent.id as Settings['accent']}>
+                <span class="swatch" style:--sw={accent.color}></span>
+                <span>{accent.label}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+        <section class="settings-group">
+          <h3>Background image</h3>
+          <p class="panel-description">Use your own image behind the home screen. PNG, JPEG, WebP, or GIF up to 3 MB.</p>
+          {#if settings.wallpaper}<img class="wallpaper-preview" src={settings.wallpaper} alt="Current home screen background" />{/if}
+          <label class="field">Choose an image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={wallpaper} /></label>
+          <div class="settings-actions"><button class="text-link" disabled={!settings.wallpaper} onclick={() => settings.wallpaper = ''}>Reset background</button></div>
+        </section>
+        <section class="settings-group">
+          <h3>Home screen rows</h3>
+          <p class="panel-description">Choose which rows appear on Home. Hiding a row does not remove its content.</p>
+          <div class="settings-toggle-list">
+            {#each homeSections as section (section.id)}
+              <label class="setting-toggle">
+                <span class="setting-toggle-copy"><span>{section.label}</span><small>{section.detail}</small></span>
+                <input type="checkbox" bind:checked={settings.sections[section.id]} />
+              </label>
+            {/each}
+          </div>
+        </section>
       {:else if category === 'Activity'}
-  <ActivitySettings {activity} {native} />
+        <ActivitySettings {activity} {native} />
       {:else if category === 'Apps'}
-  <section class="settings-group"><h3>Application paths and tile order</h3><p class="panel-description">Leave a path blank to detect a standard installation. Services with no local app, such as Apple TV+, Hulu, Max, and Peacock, open in a Microsoft Edge app window with their own profile. Custom apps require a local .exe path. Luma never passes shell commands.</p><button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await detect(); } finally { busy = false; } }}>Find installed apps</button>{#each settings.order as id, index (id)}<div class="mb-5">{#if id === 'YouTube'}<p class="panel-description">YouTube TV opens in its own Luma window and has no executable path.</p>{:else if id === 'Stremio'}<p class="panel-description">Stremio opens inside Luma and has no executable path.</p>{:else}<label class="field">{id}<input bind:value={settings.paths[id as ExecutableAppId]} placeholder="C:\Program Files\App\App.exe" spellcheck="false" /></label>{/if}<div class="flex gap-3"><button class="text-link" disabled={index === 0} onclick={() => moveApp(settings, id, -1)}>← Earlier</button><button class="text-link" disabled={index === settings.order.length - 1} onclick={() => moveApp(settings, id, 1)}>Later →</button></div></div>{/each}<button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await savePaths(); } finally { busy = false; } }}>Save approved app paths</button></section>
+        <section class="settings-group">
+          <h3>Apps on this PC</h3>
+          <p class="panel-description">Luma can find apps installed in the usual places. Arrange them below, and open App locations only if an app is missing.</p>
+          <div class="settings-actions"><button class="panel-secondary" disabled={!native || busy} onclick={findApps}>Find installed apps</button></div>
+          <div class="app-order-list">
+            {#each settings.order as id, index (id)}
+              <article class="app-order-row">
+                <span class="app-order-index" aria-hidden="true">{index + 1}</span>
+                <div class="app-order-main">
+                  <div class="app-order-title">
+                    <strong>{id}</strong>
+                    {#if id === 'YouTube'}
+                      <span class="settings-badge is-muted">Own window</span>
+                    {:else if id === 'Stremio'}
+                      <span class="settings-badge is-muted">Inside Luma</span>
+                    {:else if settings.paths[id as ExecutableAppId]}
+                      <span class="settings-badge is-good">Ready</span>
+                    {:else if id === 'Apple TV+' || id === 'Hulu' || id === 'Max' || id === 'Peacock'}
+                      <span class="settings-badge is-muted">Opens in a window</span>
+                    {:else}
+                      <span class="settings-badge is-warn">Choose app</span>
+                    {/if}
+                  </div>
+                  {#if id === 'YouTube' || id === 'Stremio'}
+                    <p class="app-order-note">{builtInNote(id)}</p>
+                  {:else if !settings.paths[id as ExecutableAppId]}
+                    <p class="app-order-note">{id === 'Apple TV+' || id === 'Hulu' || id === 'Max' || id === 'Peacock' ? 'No program is needed. It opens in its own window.' : 'Choose this app under App locations if you use it.'}</p>
+                  {/if}
+                </div>
+                <div class="app-order-actions">
+                  <button disabled={id === 'Custom' || index === 0} onclick={() => moveApp(settings, id, -1)} aria-label={`Move ${id} earlier`}>Move up</button>
+                  <button disabled={id === 'Custom' || index === settings.order.length - 1 || settings.order[index + 1] === 'Custom'} onclick={() => moveApp(settings, id, 1)} aria-label={`Move ${id} later`}>Move down</button>
+                </div>
+              </article>
+            {/each}
+          </div>
+        </section>
+        <details class="settings-group settings-advanced">
+          <summary class="settings-advanced-summary" tabindex="0">
+            <span class="settings-advanced-copy"><strong>App locations</strong><small>Only needed when Luma cannot find an app automatically.</small></span>
+            <span class="settings-advanced-mark" aria-hidden="true">›</span>
+          </summary>
+          <div class="settings-advanced-body">
+            <p class="panel-description">A program is the .exe file Luma opens. Leave a location blank if you use the built-in version or do not use that app.</p>
+            {#each settings.order as id (id)}
+              {#if id !== 'YouTube' && id !== 'Stremio'}
+                <label class="field app-path-field"><span class="app-path-label">{id} program</span><input bind:value={settings.paths[id as ExecutableAppId]} placeholder="C:\Program Files\App\App.exe" spellcheck="false" /></label>
+              {/if}
+            {/each}
+            <div class="settings-actions settings-actions-end"><button class="panel-secondary is-primary" disabled={!native || busy} onclick={saveApps}>Save app settings</button></div>
+          </div>
+        </details>
       {:else if category === 'Integrations'}
-  <SpotifyIntegration {native} />
-  <StremioIntegration {native} />
+        <SpotifyIntegration {native} />
+        <StremioIntegration {native} />
       {:else}
-  <BackgroundSettings {native} />
-  <FramePairing {native} />
-  <section class="settings-group"><h3>Advanced remote connection</h3><p class="remote-status">{native ? remote.running ? `Listening on ${remote.address}` : 'Server stopped' : 'Available in the desktop application'}</p>{#if remote.error}<p class="error">{remote.error}</p>{/if}<p class="panel-description">{remote.lan ? 'LAN access enabled. Every request requires the session token.' : 'Localhost only. LAN access is disabled.'} This advanced connection is separate from Display Box pairing. Its session credential resets when Luma restarts.</p><label class="field">Allowed remote web origin<input bind:value={origin} placeholder="https://frame.example" spellcheck="false" /></label><p class="panel-description">Use the exact origin of your remote client. Native clients must send this Origin header too. LAN traffic uses unencrypted HTTP; use a trusted private network.</p><button class="panel-secondary" disabled={!native || busy} onclick={() => configure(!remote.lan)}>{remote.lan ? 'Disable LAN access' : 'Enable authenticated LAN access'}</button><button class="text-link" disabled={!native || busy} onclick={() => configure(remote.lan)}>Apply origin / restart server</button>{#if remote.running}<button class="text-link" onclick={() => reveal = !reveal}>{reveal ? 'Hide' : 'Show'} session credential</button>{#if reveal}<code class="credential">{remote.token}</code><p class="panel-description">Keep this token private. Use Authorization: Bearer &lt;token&gt; for HTTP. WebSocket clients may use the luma.&lt;token&gt; subprotocol.</p>{/if}{/if}</section>
+        <BackgroundSettings {native} />
+        <FramePairing {native} />
       {/if}
     </div>
   </div>

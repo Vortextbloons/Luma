@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08070c">
+<title>Luma Remote</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #08070c;
+    --shell: #121019;
+    --panel: #191624;
+    --panel-lift: #211d30;
+    --line: rgba(255, 255, 255, .09);
+    --text: #f2eeff;
+    --muted: #9a93b5;
+    --accent: #a59bff;
+    --accent-soft: #2c2545;
+    --accent-ink: #171129;
+    --danger: #ffa1a1;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(120% 55% at 50% -8%, rgba(125, 105, 220, .22), transparent 62%),
+      var(--ink);
+    color: var(--text);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, input { font: inherit; color: inherit; }
+  button {
+    touch-action: manipulation;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 16px;
+    transition: background .12s ease, border-color .12s ease, transform .12s ease;
+  }
+  button:active { transform: scale(.97); background: var(--panel-lift); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  button[aria-busy="true"] { opacity: .55; }
+  [hidden] { display: none !important; }
+
+  .shell {
+    width: min(100%, 440px);
+    min-height: 100dvh;
+    margin: 0 auto;
+    padding: max(18px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .masthead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #remote { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 14px; }
+  .brand { font-size: 24px; font-weight: 700; letter-spacing: -.04em; display: flex; align-items: center; gap: 8px; }
+  .brand i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+  .where { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 13px; }
+  .where b { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #6ee7a8; box-shadow: 0 0 0 4px rgba(110, 231, 168, .12); }
+  .live.away { background: var(--muted); box-shadow: none; }
+
+  .statusbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 22px; }
+  .view {
+    font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--accent);
+    border: 1px solid rgba(165, 155, 255, .28); background: rgba(165, 155, 255, .08);
+    padding: 3px 10px; border-radius: 999px;
+  }
+  .notice { margin: 0; min-height: 18px; color: var(--muted); font-size: 12px; text-align: right; }
+  .notice.bad { color: var(--danger); }
+
+  .pad-wrap { position: relative; display: grid; place-items: center; padding: 8px 0 2px; }
+  .pad-wrap::before {
+    content: ""; position: absolute; width: min(66vw, 280px); aspect-ratio: 1;
+    border-radius: 50%; background: radial-gradient(circle, rgba(165, 155, 255, .15), transparent 68%);
+    filter: blur(10px); pointer-events: none;
+  }
+  .pad {
+    position: relative;
+    width: min(65vw, 264px); aspect-ratio: 1;
+    border-radius: 50%; padding: 12px;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+    background: linear-gradient(160deg, #1d192b, #100e17);
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -14px 30px rgba(0,0,0,.45), 0 26px 50px rgba(0,0,0,.45);
+  }
+  .pad-key {
+    margin: 3px; border-radius: 50%; border-color: transparent; background: transparent;
+    display: grid; place-items: center; font-size: 21px; color: var(--muted); min-height: 44px; min-width: 44px;
+  }
+  .pad-key:active { background: var(--accent-soft); color: var(--text); }
+  .pad-key.up { grid-area: 1 / 2; } .pad-key.left { grid-area: 2 / 1; }
+  .pad-key.ok { grid-area: 2 / 2; } .pad-key.right { grid-area: 2 / 3; }
+  .pad-key.down { grid-area: 3 / 2; }
+  .pad-key.ok {
+    background: linear-gradient(160deg, #b9afff, #8f82f4); color: var(--accent-ink);
+    font-size: 14px; font-weight: 800; letter-spacing: .05em;
+    box-shadow: 0 0 26px rgba(165, 155, 255, .34), inset 0 1px 0 rgba(255,255,255,.5);
+  }
+  .pad-key.ok:active { background: var(--accent); }
+
+  .navrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .navrow button { min-height: 48px; font-size: 14px; font-weight: 600; color: var(--muted); background: rgba(25, 22, 36, .7); }
+
+  .apps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .app-key {
+    min-height: 58px; padding: 8px 4px; border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+    font-size: 11px; font-weight: 600; color: var(--muted); background: rgba(25, 22, 36, .7);
+  }
+  .app-key span { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .app-key[data-command="youtube"] span { background: #ff5a5a; }
+  .app-key[data-command="spotify"] span { background: #6ee7a8; }
+  .app-key[data-command="stremio"] span { background: #b7a6ff; }
+  .app-key[data-command="custom"] span { background: #c8c3dc; }
+  .app-key:active { color: var(--text); border-color: rgba(165, 155, 255, .35); }
+
+  .deck {
+    margin-top: auto; padding: 12px; border-radius: var(--radius);
+    background: rgba(18, 16, 25, .82); border: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .deck-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .deck-row button { min-height: 46px; font-size: 12px; font-weight: 650; color: var(--muted); border-color: transparent; background: transparent; }
+  .deck-row button:active { background: var(--panel-lift); color: var(--text); }
+  .deck-row.transport button:nth-child(2) { background: var(--accent-soft); color: var(--text); border-color: rgba(165, 155, 255, .24); }
+  .deck-row.volume button { font-size: 16px; }
+  .deck-row.volume button:nth-child(1), .deck-row.volume button:nth-child(3) { font-size: 24px; line-height: 1; }
+  .deck-label { font-size: 10px; font-weight: 600; color: #6f6888; letter-spacing: .1em; margin: 0 2px; }
+
+  .pairing { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; padding-bottom: 8vh; }
+  .pairing .brand { font-size: 30px; }
+  .pairing h1 { font-size: clamp(30px, 9vw, 42px); line-height: 1.02; letter-spacing: -.04em; margin: 4px 0 0; font-weight: 750; max-width: 9ch; }
+  .pairing p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 15px; max-width: 34ch; }
+  .pairing form { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .pairing label { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .pairing input {
+    width: 100%; min-height: 60px; padding: 8px 16px; border-radius: 14px;
+    border: 1px solid var(--line); background: var(--shell);
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", monospace;
+    font-size: 30px; letter-spacing: .34em; text-align: center;
+  }
+  .pairing input::placeholder { letter-spacing: .1em; color: #5b5572; }
+  .pairing form button {
+    min-height: 54px; margin-top: 4px; border: 0;
+    background: linear-gradient(160deg, #b9afff, #8f82f4); color: var(--accent-ink);
+    font-size: 16px; font-weight: 750;
+    box-shadow: 0 16px 30px rgba(108, 90, 200, .28);
+  }
+  .pairing .notice { text-align: left; min-height: 20px; font-size: 13px; }
+  .pairing .fine { font-size: 12px; line-height: 1.5; color: #7c7597; margin-top: auto; }
+
+  @media (min-width: 520px) {
+    .shell { padding-top: 30px; }
+    .pad { width: 270px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+    button:active { transform: none; }
+  }
+</style>
+</head>
+<body>
+<main class="shell">
+  <section id="pairing" class="pairing" hidden>
+    <div class="brand">luma<i></i></div>
+    <h1>Pair this phone</h1>
+    <p>In Luma Settings, open Display Box and choose <strong>Pair a phone</strong>. Enter the six-digit code shown on your PC.</p>
+    <form id="pair-form">
+      <label for="pair-code">Pairing code</label>
+      <input id="pair-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="000000" required>
+      <button type="submit">Pair phone</button>
+    </form>
+    <p id="pair-notice" class="notice bad" role="alert" aria-live="polite"></p>
+    <p class="fine">Phone pairing is kept separately from a Display Box frame, so this will not disconnect your frame.</p>
+  </section>
+
+  <section id="remote" hidden>
+    <div class="masthead">
+      <div class="brand">luma<i></i></div>
+      <div class="where"><span id="live" class="live"></span><b id="pc-name">Luma PC</b></div>
+    </div>
+    <div class="statusbar">
+      <span id="view" class="view">Home</span>
+      <p id="notice" class="notice" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="pad-wrap">
+      <div class="pad" role="group" aria-label="Navigation">
+        <button type="button" class="pad-key up" data-command="up" aria-label="Up">&#8593;</button>
+        <button type="button" class="pad-key left" data-command="left" aria-label="Left">&#8592;</button>
+        <button type="button" class="pad-key ok" data-command="activate" aria-label="OK">OK</button>
+        <button type="button" class="pad-key right" data-command="right" aria-label="Right">&#8594;</button>
+        <button type="button" class="pad-key down" data-command="down" aria-label="Down">&#8595;</button>
+      </div>
+    </div>
+
+    <div class="navrow" role="group" aria-label="Navigation actions">
+      <button type="button" data-command="back">Back</button>
+      <button type="button" data-command="home">Home</button>
+    </div>
+
+    <div class="apps" role="group" aria-label="Launch apps">
+      <button type="button" class="app-key" data-command="youtube"><span></span>YouTube</button>
+      <button type="button" class="app-key" data-command="spotify"><span></span>Spotify</button>
+      <button type="button" class="app-key" data-command="stremio"><span></span>Stremio</button>
+      <button type="button" class="app-key" data-command="custom"><span></span>Custom</button>
+    </div>
+
+    <section class="deck" aria-label="Playback and volume">
+      <p class="deck-label">Playback</p>
+      <div class="deck-row transport" role="group" aria-label="Playback controls">
+        <button type="button" data-command="previous">Previous</button>
+        <button type="button" data-command="toggle">Play / pause</button>
+        <button type="button" data-command="next">Next</button>
+      </div>
+      <p class="deck-label">PC volume</p>
+      <div class="deck-row volume" role="group" aria-label="Volume controls">
+        <button type="button" data-command="volumedown" aria-label="Volume down">&#8722;</button>
+        <button type="button" data-command="mute">Mute</button>
+        <button type="button" data-command="volumeup" aria-label="Volume up">+</button>
+      </div>
+    </section>
+  </section>
+</main>
+<script>
+  const pairing = document.getElementById('pairing');
+  const remote = document.getElementById('remote');
+  const pairForm = document.getElementById('pair-form');
+  const pairCode = document.getElementById('pair-code');
+  const pairNotice = document.getElementById('pair-notice');
+  const notice = document.getElementById('notice');
+  const view = document.getElementById('view');
+  const pcName = document.getElementById('pc-name');
+  const live = document.getElementById('live');
+  let paired = false;
+  let refreshing = false;
+
+  async function request(path, options = {}) {
+    const init = { credentials: 'same-origin', ...options };
+    if (init.body) init.headers = { 'Content-Type': 'application/json' };
+    const response = await fetch(path, init);
+    let data = null;
+    try { data = await response.json(); } catch (_) {}
+    return { response, data };
+  }
+
+  function say(text, bad = false) {
+    notice.textContent = text;
+    notice.classList.toggle('bad', bad);
+  }
+
+  function applyState(state) {
+    if (!state) return;
+    view.textContent = state.view || 'Home';
+  }
+
+  function showRemote(data) {
+    paired = true;
+    live.classList.remove('away');
+    pairing.hidden = true;
+    remote.hidden = false;
+    pcName.textContent = data.pcName || 'Luma PC';
+    applyState(data.state);
+  }
+
+  function showPairing(message = '') {
+    paired = false;
+    live.classList.add('away');
+    remote.hidden = true;
+    pairing.hidden = false;
+    if (message) pairNotice.textContent = message;
+  }
+
+  async function refresh() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const { response, data } = await request('/phone/state');
+      if (response.status === 401) {
+        showPairing();
+        return;
+      }
+      if (!response.ok) {
+        if (paired) say('Luma did not answer. Try again.', true);
+        return;
+      }
+      showRemote(data || {});
+    } catch (_) {
+      if (paired) {
+        live.classList.add('away');
+        say('Connection lost. Check Wi-Fi and that Luma is open.', true);
+      }
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  async function send(command, button) {
+    button.setAttribute('aria-busy', 'true');
+    try {
+      const { response, data } = await request('/phone/command', {
+        method: 'POST',
+        body: JSON.stringify({ command })
+      });
+      if (response.status === 401) {
+        showPairing('This phone is no longer paired. Create a new code in Luma Settings.');
+        return;
+      }
+      if (!response.ok) {
+        say('Luma did not accept that button.', true);
+        return;
+      }
+      applyState(data && data.state);
+      say(data && data.error ? data.error : '', Boolean(data && data.error));
+    } catch (_) {
+      live.classList.add('away');
+      say('Luma is not reachable. Check Wi-Fi and that Luma is open.', true);
+    } finally {
+      button.removeAttribute('aria-busy');
+    }
+  }
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-command]');
+    if (!button) return;
+    void send(button.dataset.command, button);
+  });
+
+  pairForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const code = pairCode.value.replace(/\D/g, '').slice(0, 6);
+    if (code.length !== 6) {
+      pairNotice.textContent = 'Enter the six-digit code from Luma.';
+      return;
+    }
+    const submit = pairForm.querySelector('button');
+    submit.disabled = true;
+    pairNotice.textContent = '';
+    try {
+      const { response } = await request('/phone/pair', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      });
+      if (response.ok) {
+        pairCode.value = '';
+        await refresh();
+        return;
+      }
+      pairNotice.textContent = response.status === 401 || response.status === 403
+        ? 'That code was not accepted. Create a new phone code in Luma Settings.'
+        : 'Luma could not pair this phone. Try again.';
+    } catch (_) {
+      pairNotice.textContent = 'Luma is not reachable. Check Wi-Fi and that Luma is open.';
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  pairCode.addEventListener('input', () => {
+    pairCode.value = pairCode.value.replace(/\D/g, '').slice(0, 6);
+  });
+
+  void refresh();
+  setInterval(() => { if (!document.hidden) void refresh(); }, 3000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
+</script>
+</body>
+</html>

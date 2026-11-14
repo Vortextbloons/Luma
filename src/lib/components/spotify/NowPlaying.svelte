@@ -92,7 +92,7 @@
       </label>
 
       {#if spotify.error}<p class="music-inline-error" role="status">{spotify.error}</p>{/if}
-      {#if !connection.authenticated}<p class="music-note">Connect your Spotify account for volume, queue, search, playlists, saved music and device controls. Play, pause, skipping, seek, shuffle and repeat use the Windows media session when Spotify exposes them.</p>{/if}
+      {#if !connection.authenticated}<p class="music-note">Connect a Spotify account for volume, queue, search, playlists, saved music, and device controls. Playback stays in the Spotify app, and basic controls work without an account.</p>{/if}
     </div>
   </div>
 

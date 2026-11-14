@@ -3,10 +3,11 @@
   import { actionLabel, formatRelative, progressLabel, progressPercent, providerName, typeLabel } from '../../services/activity';
   import ProviderIcon from './ProviderIcon.svelte';
 
-  let { item, onopen, onremove }: {
+  let { item, onopen, onremove, cinematic = false }: {
     item: ActivityItem;
     onopen: (item: ActivityItem) => void;
     onremove?: (item: ActivityItem) => void;
+    cinematic?: boolean;
   } = $props();
 
   const percent = $derived(progressPercent(item));
@@ -20,6 +21,16 @@
 </script>
 
 <article class={['activity-card', { 'is-app': isApp, 'is-track': isTrack }]}>
+  {#snippet copy()}
+    <span class="activity-copy">
+      <span class="activity-title">{item.title}</span>
+      {#if item.subtitle}<span class="activity-subtitle">{item.subtitle}</span>{/if}
+      <span class="activity-meta">
+        {#if !isApp}<span class="activity-type">{typeLabel(item)}</span>{/if}
+        <span>{meta}</span>
+      </span>
+    </span>
+  {/snippet}
   <button class="activity-main" onclick={() => onopen(item)} aria-label={`${actionLabel(item)} ${item.title}`}>
     {#if isApp}
       <span class="activity-app-art"><ProviderIcon provider={item.provider} /></span>
@@ -36,17 +47,11 @@
         {/if}
       </span>
     {/if}
-    <span class="activity-copy">
-      <span class="activity-title">{item.title}</span>
-      {#if item.subtitle}<span class="activity-subtitle">{item.subtitle}</span>{/if}
-      <span class="activity-meta">
-        {#if !isApp}<span class="activity-type">{typeLabel(item)}</span>{/if}
-        <span>{meta}</span>
-      </span>
-    </span>
+    {@render copy()}
   </button>
-  <div class="activity-actions">
-    <button class="text-link" onclick={() => onopen(item)}>{actionLabel(item)} <span aria-hidden="true">→</span></button>
-    {#if onremove}<button class="activity-remove" aria-label={`Remove ${item.title} from activity history`} title="Remove from history" onclick={() => onremove(item)}>Remove</button>{/if}
-  </div>
+  {#if onremove}
+    <div class="activity-actions">
+      <button class="activity-remove" aria-label={`Remove ${item.title} from activity history`} title="Remove from history" onclick={() => onremove(item)}>Remove</button>
+    </div>
+  {/if}
 </article>

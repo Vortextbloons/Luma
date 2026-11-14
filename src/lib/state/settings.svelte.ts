@@ -2,7 +2,7 @@ import type { AppId, Settings } from '../types';
 
 const executable = ['Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
 const defaults: Settings = {
-  accent: 'violet', density: 'comfortable', fullscreen: false, wallpaper: '',
+  accent: 'violet', density: 'comfortable', appTileShape: 'wide', fullscreen: false, wallpaper: '',
   sections: { popular: true, apps: true, featured: true, continue: true, recent: true, recentApps: true },
   paths: { Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
   order: ['YouTube', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'],
@@ -17,12 +17,14 @@ export function createSettings() {
       const data = saved as Partial<Settings>;
       if (['violet', 'blue', 'mint', 'peach'].includes(data.accent ?? '')) value.accent = data.accent!;
       if (data.density === 'compact') value.density = data.density;
+      if (data.appTileShape === 'square') value.appTileShape = 'square';
       value.fullscreen = data.fullscreen === true;
       if (typeof data.wallpaper === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(data.wallpaper)) value.wallpaper = data.wallpaper;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) {
         const order = data.order.filter((id): id is AppId => defaults.order.includes(id) && typeof id === 'string');
-        value.order = [...new Set(order), ...defaults.order.filter(id => !order.includes(id))];
+        value.order = [...new Set([...order, ...defaults.order.filter(id => !order.includes(id))])].filter(id => id !== 'Custom');
+        value.order.push('Custom');
       }
       if (data.sections && typeof data.sections === 'object') {
         for (const key of ['popular', 'apps', 'featured', 'continue', 'recent', 'recentApps'] as const) {
@@ -38,6 +40,6 @@ export function createSettings() {
 export function moveApp(settings: Settings, id: AppId, direction: -1 | 1) {
   const index = settings.order.indexOf(id);
   const target = index + direction;
-  if (target < 0 || target >= settings.order.length) return;
+  if (id === 'Custom' || target < 0 || target >= settings.order.length || settings.order[target] === 'Custom') return;
   [settings.order[index], settings.order[target]] = [settings.order[target], settings.order[index]];
 }

@@ -26,6 +26,25 @@
     location.href = 'https://web.stremio.com/__luma_close__';
   }
 
+  function addReturnButton() {
+    if (document.getElementById('luma-return-button')) return;
+    const host = document.createElement('div');
+    host.id = 'luma-return-button';
+    host.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483647;';
+    const root = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = 'button{all:initial;display:inline-flex;align-items:center;gap:7px;padding:11px 16px;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:rgba(12,14,20,.84);color:#fff;font:600 14px/1 "Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(10px)}button:hover{background:rgba(35,39,52,.94)}button:focus-visible{outline:2px solid #a59bff;outline-offset:3px}';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '‹ Back to Luma';
+    button.addEventListener('click', close);
+    root.append(style, button);
+    (document.documentElement ?? document.body).append(host);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addReturnButton, { once: true });
+  else addReturnButton();
+
   function atHome() {
     return !location.hash || location.hash === '#/' || location.hash === '#/intro';
   }

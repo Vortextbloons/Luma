@@ -4,6 +4,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
+  import VideoRow from './lib/components/VideoRow.svelte';
   import AppDock from './lib/components/AppDock.svelte';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
   import MusicHome from './lib/components/spotify/MusicHome.svelte';
@@ -19,9 +20,10 @@
   import { createSettings } from './lib/state/settings.svelte';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
-  import { native, launchApp, saveAppPaths, remoteStatus, configureRemote, onNavigation, onRemote, openYouTube, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
+  import { appProviders } from './lib/services/activity';
+  import { native, launchApp, saveAppPaths, onNavigation, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail } from './lib/services/tauri';
   import { loadCatalog } from './lib/services/catalog';
-  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, RemoteStatus, StremioStatus } from './lib/types';
+  import type { ActivityItem, AppId, ExecutableAppId, MediaItem, StremioStatus, YouTubeFeedItem } from './lib/types';
 
   const preferences = createSettings();
   const settings = preferences.value;
@@ -34,18 +36,35 @@
   let message = $state(preferences.error);
   let popular = $state<MediaItem[]>([]);
   let featured = $state<MediaItem[]>([]);
-  let remote = $state<RemoteStatus>({ running: false, lan: false, address: '', token: '', origin: '', error: null });
   let playerOpen = $state(false);
   let launching = $state<AppId | null>(null);
   let stremio = $state<StremioStatus | null>(null);
+  let previewApp = $state<AppId | null>(null);
+  let youTubeFeed = $state<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
   const navigation = createNavigation(back, home);
   const showHome = $derived(tab === 'Home');
+  const youtubePicks = $derived(showHome && previewApp === 'YouTube' && youTubeFeed.length > 0);
+
+  function horizontalWheel(node: HTMLElement) {
+    function wheel(event: WheelEvent) {
+      const track = event.target instanceof Element ? event.target.closest<HTMLElement>('.app-track, .card-track, .activity-track, .video-track, .music-card-track') : null;
+      if (!track || track.scrollWidth <= track.clientWidth || event.ctrlKey) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const max = track.scrollWidth - track.clientWidth;
+      if ((delta < 0 && track.scrollLeft <= 0) || (delta > 0 && track.scrollLeft >= max - 1)) return;
+      event.preventDefault();
+      track.scrollLeft += delta;
+    }
+    node.addEventListener('wheel', wheel, { passive: false });
+    return () => node.removeEventListener('wheel', wheel);
+  }
 
   $effect(() => {
     document.documentElement.dataset.accent = settings.accent;
     document.documentElement.dataset.density = settings.density;
-    try { localStorage.setItem('luma-v1', JSON.stringify({ accent: settings.accent, density: settings.density, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
+    document.documentElement.dataset.appTileShape = settings.appTileShape;
+    try { localStorage.setItem('luma-v1', JSON.stringify({ accent: settings.accent, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, wallpaper: settings.wallpaper, sections: settings.sections, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Try a smaller wallpaper or free local storage.'; }
   });
   $effect(() => {
@@ -62,19 +81,20 @@
     let disposed = false;
     const cleanup: (() => void)[] = [];
     async function start() {
-      if (!native) { message = 'Browser preview. Native app launching, fullscreen, remote server, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
+      if (!native) { message = 'Browser preview. Native app launching, fullscreen, phone remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
         cleanup.push(await onNavigation(navigation.dispatch));
-        cleanup.push(await onRemote(state => remote = state));
+        await onYouTubeFeed(items => youTubeFeed = items).then(stop => cleanup.push(stop)).catch(() => {});
+        youtubeFeed().then(items => youTubeFeed = items).catch(() => {});
         cleanup.push(await activity.start());
         await spotify.initialize();
         cleanup.push(() => spotify.dispose());
-        remote = await remoteStatus();
         stremio = await stremioStatus();
         const paths = await invoke<Record<ExecutableAppId, string>>('app_paths');
         settings.paths = paths;
         await detect(false);
         await getCurrentWindow().setFullscreen(settings.fullscreen);
+        cleanup.push(await getCurrentWindow().onResized(async () => { const value = await getCurrentWindow().isFullscreen(); if (value !== settings.fullscreen) settings.fullscreen = value; }));
       } catch (error) { message = String(error); }
       finally { if (disposed) cleanup.splice(0).forEach(stop => stop()); }
     }
@@ -89,7 +109,7 @@
     else { home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
-  function home() { playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function home() { previewApp = null; playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     rememberFocus();
     playerOpen = true;
@@ -112,6 +132,7 @@
         return;
       }
     }
+    if (event.key === 'F11' && !event.repeat) { event.preventDefault(); void fullscreen(); return; }
     if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement) && !(event.target instanceof HTMLButtonElement) && !(event.target instanceof HTMLAnchorElement)) {
       event.preventDefault();
       if (spotify.playback.canToggle) void spotify.action('toggle');
@@ -119,18 +140,19 @@
     }
     navigation.keydown(event);
   }
-  function navigate(value: string) { tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function navigate(value: string) { previewApp = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   function openSettings() { showSettings('Display'); }
+  function openApps() { showSettings('Apps'); }
   function openIntegrations() { showSettings('Integrations'); }
-  function showSettings(category: string) { rememberFocus(); message = ''; settingsCategory = category; panel = true; }
+  function showSettings(category: string) { previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
   async function launch(id: AppId) {
     if (launching) return;
     if (!native) { message = 'App launching is available in the Luma desktop app.'; return; }
     launching = id;
     try {
-      if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Press Ctrl+W there to return to Luma.'; }
-      else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Press Ctrl+W there to return.' : `${id} launch requested.`; }
+      if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Use Back to Luma when you are done.'; }
+      else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Use Back to Luma when you are done.' : `${id} opened.`; }
     } catch (error) { message = String(error); }
     finally { launching = null; }
   }
@@ -143,7 +165,7 @@
     if (!native) return;
     try {
       await activity.remove(item.id);
-      message = `${item.title} removed from local activity history.`;
+      message = `${item.title} removed from watch history.`;
     } catch (error) { message = String(error); }
   }
   async function fullscreen() {
@@ -154,15 +176,16 @@
     try {
       const apps = await invoke<{ name: ExecutableAppId; path: string | null }[]>('detect_apps');
       for (const app of apps) if (app.path && !settings.paths[app.name]) settings.paths[app.name] = app.path;
-      if (announce) message = apps.map(app => app.path ? `${app.name} found.` : `${app.name} was not found; configure its path manually.`).join(' ');
+      if (announce) {
+        const found = apps.filter(app => app.path).length;
+        message = found
+          ? `${found} app${found === 1 ? '' : 's'} found. Choose Save app settings to keep them. If an app you use is missing, choose it under App locations.`
+          : 'No installed apps were found automatically. You can choose an app under App locations.';
+      }
     } catch (error) { message = String(error); }
   }
   async function savePaths() {
-    try { await saveAppPaths(settings.paths); message = 'Approved application paths saved.'; }
-    catch (error) { message = String(error); }
-  }
-  async function network(lan: boolean, origin: string) {
-    try { remote = await configureRemote(lan, origin); }
+    try { await saveAppPaths(settings.paths); message = 'App settings saved.'; }
     catch (error) { message = String(error); }
   }
   async function refreshStremio() {
@@ -171,35 +194,44 @@
   }
   async function syncStremio() {
     stremio = await stremioSync();
-    message = 'Stremio library synchronized.';
+    message = 'Your Stremio library is up to date.';
+  }
+  async function openYouTubeItem(id: string) {
+    if (!native) { message = 'Opening YouTube is available in the desktop app.'; return; }
+    try { await openYouTubeVideo(id, settings.fullscreen); message = 'Opening in YouTube. Press Ctrl+W there to return.'; }
+    catch (error) { message = String(error); }
   }
   async function openStremio(id: string) {
     if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
-    try { await stremioOpen(id); message = 'Opening in Stremio inside Luma. Press Ctrl+W there to return.'; }
+    try { await stremioOpen(id); message = 'Opening in Stremio inside Luma.'; }
     catch (error) { message = String(error); }
   }
   async function openStremioDetail(kind: string, id: string) {
     if (!native) { message = 'Opening Stremio is available in the desktop app.'; return; }
-    try { await stremioOpenDetail(kind, id); message = 'Opening in Stremio inside Luma. Press Ctrl+W there to return.'; }
+    try { await stremioOpenDetail(kind, id); message = 'Opening in Stremio inside Luma.'; }
     catch (error) { message = String(error); }
   }
 </script>
 
 <svelte:window onkeydown={keydown} />
-<main class="app-shell">
-  {#if panel}<SettingsPanel {message} {settings} {remote} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {network} {detect} report={value => message = value} />
+<main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
+  {#if panel}<SettingsPanel {message} {settings} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} report={value => message = value} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} fullscreen={settings.fullscreen} toggle={fullscreen} />
-  <div class="h-32" aria-hidden="true"></div>
+  <div class="topbar-offset" aria-hidden="true"></div>
   {#if showHome && settings.sections.continue}
-    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
+    <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} focusProvider={previewApp ? appProviders[previewApp] : null} />
   {/if}
   {#if showHome && settings.sections.continue && stremio?.continueWatching.length}<StremioRow title="Continue watching on Stremio" items={stremio.continueWatching.slice(0, 10)} open={openStremio} />{/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openIntegrations} sync={syncStremio} />{/if}
-  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openSettings} />{/if}
-  {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
+  {#if (showHome && settings.sections.apps) || tab === 'Apps'}<AppDock order={settings.order} {launch} customize={openApps} preview={id => previewApp = id} />{/if}
+  {#if youtubePicks && (settings.sections.popular || settings.sections.featured)}
+    <VideoRow items={youTubeFeed} open={openYouTubeItem} />
+  {:else}
+    {#if (showHome && settings.sections.popular) || tab === 'Watch'}<MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />{/if}
+    {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />{/if}
+  {/if}
   {#if tab === 'Music'}<MusicHome onopen={openPlayer} onsettings={openIntegrations} />{/if}
-  {#if (showHome && settings.sections.featured) || tab === 'Watch'}<MediaRow id="featured" title="Featured for you" items={featured} onselect={select} />{/if}
   {#if tab === 'Watch'}
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} />
   {/if}

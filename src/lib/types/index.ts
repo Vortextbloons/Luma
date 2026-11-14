@@ -4,6 +4,7 @@ export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 
 export interface Settings {
   accent: 'violet' | 'blue' | 'mint' | 'peach';
   density: 'comfortable' | 'compact';
+  appTileShape: 'wide' | 'square';
   fullscreen: boolean;
   wallpaper: string;
   sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean; recent: boolean; recentApps: boolean };
@@ -23,6 +24,7 @@ export interface StremioItem {
   timeOffset: number; duration: number; lastWatched: string | null;
   videoId: string | null; mtime: string;
 }
+export interface YouTubeFeedItem { id: string; title: string }
 export interface StremioLink { code: string; link: string; qr: string }
 export interface StremioStatus {
   connected: boolean; email: string | null; lastSync: number | null;
@@ -32,4 +34,3 @@ export interface MediaState {
   available: boolean; title: string; artist: string; playing: boolean;
   canToggle: boolean; canPrevious: boolean; canNext: boolean; error: string | null;
 }
-export interface RemoteStatus { running: boolean; lan: boolean; address: string; token: string; origin: string; error: string | null }

@@ -14,13 +14,13 @@
   let confirming = $state(false);
 
   const stateLabel: Record<ProviderStatus['state'], string> = {
-    available: 'Ready', needsSetup: 'Setup needed', notValidated: 'Not validated',
-    connected: 'Connected', disabled: 'Disabled', error: 'Error',
+    available: 'Ready', needsSetup: 'Setup needed', notValidated: 'Needs check',
+    connected: 'Connected', disabled: 'Off', error: 'Needs attention',
   };
   const capabilityName: Record<string, string> = {
-    appLaunches: 'App launches', playbackTracking: 'Playback tracking', progress: 'Verified progress',
-    currentMediaSession: 'Current media session', onDeck: 'On-deck', resume: 'Resume items',
-    contentLinks: 'Content links', watchHistory: 'Watch history',
+    appLaunches: 'Opened apps', playbackTracking: 'Playback history', progress: 'Playback progress',
+    currentMediaSession: 'Now playing', onDeck: 'Up next', resume: 'Resume',
+    contentLinks: 'Links to titles', watchHistory: 'Watch history',
   };
   const fields: Record<string, { url?: boolean; user?: boolean; client?: boolean; token: string }> = {
     plex: { url: true, token: 'Plex token' },
@@ -40,7 +40,7 @@
     await run(provider.id, async () => {
       const result = await activity.refresh(provider.id);
       if (result.error) error = result.error;
-      else note = result.updated > 0 ? `${provider.name}: ${result.updated} item${result.updated === 1 ? '' : 's'} updated.` : `${provider.name} is connected. No new items.`;
+      else note = result.updated > 0 ? `${provider.name} is connected. ${result.updated} item${result.updated === 1 ? '' : 's'} updated.` : `${provider.name} is connected. Nothing new to show.`;
     });
   }
 
@@ -53,42 +53,54 @@
       token: form.token.trim() || undefined,
     };
     if (!values.serverUrl && !values.userId && !values.clientId && !values.token) {
-      note = 'Enter a server URL, user ID, client ID, or token before saving.';
+      note = 'Fill in the connection details before saving.';
       return;
     }
     await run(provider.id, async () => {
       await activity.saveConfig(provider.id, values);
       form.token = '';
-      note = `${provider.name} credentials saved to Windows Credential Manager. Run Refresh to validate.`;
+      const result = await activity.refresh(provider.id);
+      if (result.error) {
+        error = result.error;
+        note = `${provider.name} settings saved, but Luma could not connect yet.`;
+      } else {
+        note = result.updated > 0 ? `${provider.name} is connected. ${result.updated} item${result.updated === 1 ? '' : 's'} updated.` : `${provider.name} is connected.`;
+      }
     });
   }
 
   async function clearProvider(provider: ProviderStatus) {
     await run(provider.id, async () => {
       await activity.clear(provider.id);
-      note = `${provider.name} history cleared from this PC.`;
+      note = `${provider.name} history was removed from Luma on this PC.`;
     });
   }
 
   async function clearAll() {
-    if (!confirming) { confirming = true; note = 'Select Clear all history again to confirm.'; return; }
+    if (!confirming) { confirming = true; note = 'Choose Clear watch history again to confirm.'; return; }
     await run('all', async () => {
       await activity.clear();
       confirming = false;
-      note = 'All local activity history was cleared.';
+      note = 'Watch history was cleared from this PC. Your connected services were not changed.';
     });
   }
 </script>
 
 <section class="settings-group">
-  <h3>Local activity</h3>
-  <p class="panel-description">History lives in a local SQLite database on this PC. No Luma account, cloud sync, or viewing data leaves the device. Provider tokens are stored in Windows Credential Manager, never in the activity database.</p>
+  <div class="settings-group-head">
+    <h3>Watch history</h3>
+    {#if native}<span class={activity.trackingEnabled ? 'settings-badge is-good' : 'settings-badge is-muted'}>{activity.trackingEnabled ? 'On' : 'Paused'}</span>{/if}
+  </div>
+  <p class="panel-description">Luma can remember what you watch and play so you can pick up where you left off. History stays on this PC and is never uploaded to a Luma account.</p>
   {#if !native}
-    <p class="panel-description">Activity tracking is available in the desktop application.</p>
+    <p class="panel-description">Watch history is available in the desktop application.</p>
   {:else}
-    <label class="setting-toggle"><span>Record activity on this PC</span><input type="checkbox" checked={activity.trackingEnabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run('tracking', () => activity.setTracking(enabled)); }} /></label>
+    <label class="setting-toggle">
+      <span class="setting-toggle-copy"><span>Remember what I watch and play</span><small>Adds titles you open and playback progress to history on this PC.</small></span>
+      <input type="checkbox" checked={activity.trackingEnabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run('tracking', () => activity.setTracking(enabled)); }} />
+    </label>
     <div class="activity-danger">
-      <button class="text-link" disabled={busy !== ''} onclick={clearAll}>{confirming ? 'Clear all history now' : 'Clear all activity history'}</button>
+      <button class="text-link is-danger" disabled={busy !== ''} onclick={clearAll}>{confirming ? 'Clear watch history now' : 'Clear watch history'}</button>
       {#if confirming}<button class="text-link" onclick={() => { confirming = false; note = ''; }}>Cancel</button>{/if}
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -98,8 +110,8 @@
 
 {#if native}
 <section class="settings-group">
-  <h3>Providers</h3>
-  <p class="panel-description">Each integration is independent. A provider that is offline or unconfigured never blocks the home screen. “Not validated” means credentials are saved but Luma has not completed a successful refresh.</p>
+  <h3>Connected services</h3>
+  <p class="panel-description">Connect the services you use to see what you're watching in Luma. Each service is optional, and one that is offline will not stop the rest of Luma.</p>
   <div class="provider-list">
     {#each activity.providers as provider (provider.id)}
       <article class="provider-row">
@@ -109,27 +121,36 @@
           <span class={`provider-state state-${provider.state}`}>{stateLabel[provider.state]}</span>
         </div>
         <div class="provider-flags">
-          {#if provider.capabilities.length > 0}<span class="provider-caps">{provider.capabilities.map(id => capabilityName[id] ?? id).join(' · ')}</span>{/if}
-          <label class="setting-toggle compact"><span>Enabled</span><input type="checkbox" checked={provider.enabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run(provider.id, () => activity.setEnabled(provider.id, enabled)); }} /></label>
-          <label class="setting-toggle compact"><span>Hide on Home</span><input type="checkbox" checked={provider.hidden} disabled={busy !== ''} onchange={event => { const hidden = event.currentTarget.checked; run(provider.id, () => activity.setHidden(provider.id, hidden)); }} /></label>
-        </div>
-        {#if provider.requiresConfig}
-          <div class="provider-config">
-            {#if fields[provider.id]}
-              {#if fields[provider.id].url}<label class="field">{provider.id === 'jellyfin' ? 'Jellyfin server URL' : 'Plex server URL'}<input bind:value={forms[provider.id].serverUrl} placeholder="http://192.168.1.20:8096" spellcheck="false" /></label>{/if}
-              {#if fields[provider.id].user}<label class="field">Jellyfin user ID (optional if there is one user)<input bind:value={forms[provider.id].userId} placeholder="User ID from Jellyfin" spellcheck="false" /></label>{/if}
-              {#if fields[provider.id].client}<label class="field">Trakt client ID<input bind:value={forms[provider.id].clientId} placeholder="Trakt API client ID" spellcheck="false" /></label>{/if}
-              <label class="field">{fields[provider.id].token}<input type="password" bind:value={forms[provider.id].token} placeholder="Stored in Windows Credential Manager" autocomplete="off" spellcheck="false" /></label>
-            {/if}
-            <div class="provider-actions">
-              <button class="panel-secondary" disabled={busy !== ''} onclick={() => save(provider)}>Save credentials</button>
-              {#if provider.configured}<button class="text-link" disabled={busy !== ''} onclick={() => refresh(provider)}>Refresh now</button><button class="text-link" disabled={busy !== ''} onclick={() => run(provider.id, () => activity.disconnect(provider.id))}>Disconnect</button>{/if}
-              <button class="text-link" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button>
-            </div>
+          <div class="provider-toggles">
+            <label class="setting-toggle compact"><span>Use this service</span><input type="checkbox" checked={provider.enabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run(provider.id, () => activity.setEnabled(provider.id, enabled)); }} /></label>
+            <label class="setting-toggle compact"><span>Show on Home</span><input type="checkbox" checked={!provider.hidden} disabled={busy !== ''} onchange={event => { const shown = event.currentTarget.checked; run(provider.id, () => activity.setHidden(provider.id, !shown)); }} /></label>
           </div>
-        {:else}
-          <div class="provider-actions"><button class="text-link" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button></div>
-        {/if}
+        </div>
+        <details class="provider-advanced" open={provider.requiresConfig && !provider.configured}>
+          <summary tabindex="0">Advanced</summary>
+          <div class="provider-advanced-body">
+            {#if provider.capabilities.length > 0}<p class="provider-caps"><span>Can show</span>{provider.capabilities.map(id => capabilityName[id] ?? id).join(' · ')}</p>{/if}
+            {#if provider.requiresConfig}
+              <p class="provider-advanced-note">Enter the connection details from {provider.name}. Luma stores them securely on this PC.</p>
+              <div class="provider-config">
+                {#if fields[provider.id]}
+                  {#if fields[provider.id].url}<label class="field">{provider.id === 'jellyfin' ? 'Jellyfin server URL' : 'Plex server URL'}<input bind:value={forms[provider.id].serverUrl} placeholder="http://192.168.1.20:8096" spellcheck="false" /></label>{/if}
+                  {#if fields[provider.id].user}<label class="field">Jellyfin user ID (optional if there is one user)<input bind:value={forms[provider.id].userId} placeholder="User ID from Jellyfin" spellcheck="false" /></label>{/if}
+                  {#if fields[provider.id].client}<label class="field">Trakt client ID<input bind:value={forms[provider.id].clientId} placeholder="Trakt API client ID" spellcheck="false" /></label>{/if}
+                  <label class="field">{fields[provider.id].token}<input type="password" bind:value={forms[provider.id].token} placeholder="Paste your token" autocomplete="off" spellcheck="false" /></label>
+                {/if}
+                <div class="provider-actions">
+                  <button class="panel-secondary" disabled={busy !== ''} onclick={() => save(provider)}>Save and connect</button>
+                  {#if provider.configured}<button class="text-link" disabled={busy !== ''} onclick={() => refresh(provider)}>Check connection</button><button class="text-link" disabled={busy !== ''} onclick={() => run(provider.id, () => activity.disconnect(provider.id))}>Disconnect</button>{/if}
+                  <button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button>
+                </div>
+              </div>
+            {:else}
+              <div class="provider-actions"><button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button></div>
+            {/if}
+            {#if provider.lastError}<p class="provider-advanced-note">{provider.lastError}</p>{/if}
+          </div>
+        </details>
       </article>
     {/each}
   </div>
@@ -137,23 +158,31 @@
 {/if}
 
 <style>
-  .activity-danger { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
+  .activity-danger { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
   .provider-list { display: grid; gap: 14px; }
-  .provider-row { border: 1px solid #ffffff16; background: #ffffff05; border-radius: 14px; padding: 18px; display: grid; gap: 14px; }
-  .provider-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: center; }
-  .provider-title { display: grid; gap: 3px; min-width: 0; }
-  .provider-title strong { font-size: 15px; }
-  .provider-title span { color: var(--muted); font-size: 12px; line-height: 1.5; }
-  .provider-state { border: 1px solid #ffffff25; border-radius: 99px; padding: 5px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
-  .state-connected, .state-available { color: #8fe3bd; border-color: #8fe3bd66; }
-  .state-notValidated, .state-needsSetup { color: #ffd28d; border-color: #ffd28d66; }
-  .state-error { color: #ff9e9e; border-color: #ff9e9e66; }
-  .state-disabled { color: #999aa5; }
-  .provider-flags { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
-  .provider-caps { color: #8d8f9c; font-size: 11px; margin-right: auto; }
-  .setting-toggle.compact { padding: 0; gap: 8px; font-size: 12px; }
-  .setting-toggle.compact input { width: 17px; height: 17px; }
-  .provider-config { display: grid; gap: 4px; }
-  .provider-config .field { margin-top: 8px; }
-  .provider-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 6px; }
+  .provider-row { border: 1px solid #ffffff11; background: #0c0f16; border-radius: 16px; padding: clamp(16px, 1.5vw, 24px); display: grid; gap: 14px; }
+  .provider-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+  .provider-title { display: grid; gap: 4px; min-width: 0; }
+  .provider-title strong { font-size: clamp(15px, 1vw, 18px); overflow-wrap: anywhere; }
+  .provider-title span { color: #99a1b2; font-size: clamp(12px, .78vw, 14px); line-height: 1.5; }
+  .provider-state { border: 1px solid #ffffff25; border-radius: 99px; padding: 5px 10px; font-size: clamp(10px, .66vw, 12px); font-weight: 650; white-space: nowrap; }
+  .state-connected, .state-available { color: #8fe3bd; border-color: #8fe3bd55; background: #8fe3bd0e; }
+  .state-notValidated, .state-needsSetup { color: #ffd28d; border-color: #ffd28d55; background: #ffd28d0c; }
+  .state-error { color: #ff9e9e; border-color: #ff9e9e55; background: #ff9e9e0c; }
+  .state-disabled { color: #9aa2b1; background: #ffffff05; }
+  .provider-flags { display: grid; gap: 12px; }
+  .provider-advanced { padding-top: 12px; border-top: 1px solid #ffffff0d; }
+  .provider-advanced summary { width: fit-content; cursor: pointer; color: #c7ccd8; font-size: clamp(12px, .78vw, 14px); font-weight: 600; }
+  .provider-advanced summary:hover { color: #fff; }
+  .provider-advanced summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .provider-advanced-body { display: grid; gap: 12px; margin-top: 12px; }
+  .provider-advanced-note { margin: 0; color: #8f97a8; font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
+  .provider-caps { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; color: #8f97a8; font-size: clamp(11px, .72vw, 13px); line-height: 1.5; }
+  .provider-caps span { color: #6f7889; font-weight: 600; }
+  .provider-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+  .setting-toggle.compact { width: auto; min-height: 44px; padding: 8px 13px; gap: 14px; border: 1px solid #ffffff12; border-radius: 10px; background: #ffffff05; font-size: clamp(12px, .76vw, 14px); }
+  .provider-config { display: grid; gap: 0; padding: clamp(14px, 1.2vw, 20px); border: 1px solid #ffffff0a; border-radius: 12px; background: #090c12; }
+  .provider-config .field { margin-top: 14px; }
+  .provider-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+  .provider-actions .panel-secondary, .provider-actions .text-link { margin-top: 0; }
 </style>

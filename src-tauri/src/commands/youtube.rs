@@ -6,9 +6,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const URL: &str = "https://www.youtube.com/tv";
 const YOUTUBE_ORIGIN: &str = "https://www.youtube.com";
@@ -19,6 +19,14 @@ const SCRIPT: &str = include_str!("../../resources/youtube/inject.js");
 pub struct Bridge {
     url: tokio::sync::OnceCell<String>,
     window: tokio::sync::Mutex<()>,
+    feed: std::sync::Mutex<Vec<FeedItem>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedItem {
+    pub id: String,
+    pub title: String,
 }
 
 #[derive(Deserialize)]
@@ -173,6 +181,42 @@ async fn playback(
     reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
 }
 
+async fn feed(
+    State(app): State<AppHandle>,
+    headers: HeaderMap,
+    Json(items): Json<Vec<FeedItem>>,
+) -> Response {
+    if !origin_allowed(&headers) {
+        return reply(StatusCode::FORBIDDEN, "text/plain", Vec::new());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let items: Vec<FeedItem> = items
+        .into_iter()
+        .filter(|item| checked_id(&item.id).is_ok())
+        .filter(|item| !item.title.trim().is_empty())
+        .filter(|item| seen.insert(item.id.clone()))
+        .take(24)
+        .map(|item| FeedItem { title: item.title.trim().to_string(), ..item })
+        .collect();
+    if items.is_empty() {
+        return reply(StatusCode::NO_CONTENT, "text/plain", Vec::new());
+    }
+    if let Ok(mut feed) = app.state::<Bridge>().feed.lock() {
+        *feed = items.clone();
+    }
+    let _ = app.emit("youtube-feed", &items);
+    reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
+}
+
+#[tauri::command]
+pub async fn youtube_feed(state: tauri::State<'_, Bridge>) -> Result<Vec<FeedItem>, String> {
+    Ok(state
+        .feed
+        .lock()
+        .map_err(|_| "The YouTube feed is unavailable.".to_string())?
+        .clone())
+}
+
 async fn preflight(headers: HeaderMap) -> Response {
     let mut response = StatusCode::NO_CONTENT.into_response();
     if origin_allowed(&headers) {
@@ -221,8 +265,9 @@ async fn start_bridge(app: AppHandle) -> Result<String, String> {
             &format!("/{token}/playback"),
             post(playback).options(preflight),
         )
+        .route(&format!("/{token}/feed"), post(feed).options(preflight))
         .fallback(preflight)
-        .layer(DefaultBodyLimit::max(8192))
+        .layer(DefaultBodyLimit::max(16384))
         .with_state(app);
     tauri::async_runtime::spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
@@ -369,6 +414,15 @@ pub async fn open_video(
         crate::activity::record_launch(&app, "YouTube");
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn youtube_open_video(
+    app: AppHandle,
+    video_id: String,
+    fullscreen: bool,
+) -> Result<(), String> {
+    open_video(app, &video_id, fullscreen).await
 }
 
 pub fn close(app: &AppHandle) {

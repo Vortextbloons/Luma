@@ -39,6 +39,11 @@ pub fn reuse(app: &AppHandle, name: &str) -> bool {
         return false;
     };
     platform::restore(window);
+    if pid.is_none() {
+        if let Some(pid) = platform::pid(window) {
+            track(app, name, pid);
+        }
+    }
     true
 }
 
@@ -157,6 +162,14 @@ mod platform {
 
     pub fn running(pid: u32) -> bool {
         snapshot().contains_key(&pid)
+    }
+
+    pub fn pid(window: Window) -> Option<u32> {
+        let mut pid = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(window, Some(&mut pid));
+        }
+        (pid != 0).then_some(pid)
     }
 
     pub fn minimize(window: Window) {
@@ -330,6 +343,9 @@ mod platform {
     }
     pub fn running(_: u32) -> bool {
         false
+    }
+    pub fn pid(_: Window) -> Option<u32> {
+        None
     }
     pub fn minimize(_: Window) {}
     pub fn titled(_: &str) -> Option<Window> {

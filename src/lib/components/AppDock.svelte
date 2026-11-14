@@ -2,15 +2,20 @@
   import type { AppId } from '../types';
   import { appProviders } from '../services/activity';
   import ProviderIcon from './activity/ProviderIcon.svelte';
-  let { order, launch, customize }: { order: AppId[]; launch: (id: AppId) => void; customize: () => void } = $props();
+  let { order, launch, customize, preview }: {
+    order: AppId[];
+    launch: (id: AppId) => void;
+    customize: () => void;
+    preview?: (id: AppId) => void;
+  } = $props();
   const className = (id: AppId) => id.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '-');
 </script>
 
 <section id="apps" class="content-row apps-row">
-  <div class="row-heading"><div><h2>Your apps</h2><p>Running on your Windows PC</p></div><button class="text-link" onclick={customize}>Rearrange apps <span>→</span></button></div>
+  <div class="row-heading"><div><h2>Your apps</h2><p>Running on your Windows PC</p></div><button class="text-link" onclick={customize}>Edit apps <span>→</span></button></div>
   <div class="app-track">
     {#each order as id (id)}
-      <button class={`app-card ${className(id)}`} onclick={() => launch(id)}>
+      <button class={`app-card ${className(id)}`} onclick={() => launch(id)} onmouseenter={() => preview?.(id)} onfocus={() => preview?.(id)}>
         {#if id === 'Custom'}
           <span class="plus-logo" aria-hidden="true">＋</span>
         {:else}

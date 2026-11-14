@@ -35,7 +35,6 @@ pub fn run() {
             stremio::load(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                server::initialize(handle.clone()).await;
                 if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
                 tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
                 if !std::env::args().any(|arg| arg == "--background") {
@@ -79,10 +78,12 @@ pub fn run() {
             frame::frame_status,
             frame::configure_frame,
             frame::frame_pairing,
-            server::remote_status,
-            server::configure_remote,
+            frame::phone_pairing,
+            frame::open_phone_remote,
             server::update_app_state,
             youtube::open_youtube,
+            youtube::youtube_feed,
+            youtube::youtube_open_video,
             activity::manager::activity_snapshot,
             activity::manager::refresh_provider,
             activity::manager::open_activity,
@@ -105,7 +106,6 @@ pub fn run() {
         .expect("error while running Luma");
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            server::stop(app);
             media::stop(app);
         }
     });

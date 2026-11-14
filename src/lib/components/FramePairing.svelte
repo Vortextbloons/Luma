@@ -2,14 +2,38 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   let { native }: { native: boolean } = $props();
-  type Status = { enabled: boolean; paired: boolean; addresses: string[]; pcName: string; code: string | null };
+  type Status = { enabled: boolean; paired: boolean; addresses: string[]; pcName: string; code: string | null; phonePaired: boolean; phoneUrl: string; phoneCode: string | null };
+  type Device = 'phone' | 'frame';
   let status = $state<Status | null>(null);
   let busy = $state(false);
   let error = $state('');
+  let device = $state<Device>('phone');
+  const badge = $derived(status?.enabled
+    ? status.paired && status.phonePaired
+      ? 'Display Box and phone paired'
+      : status.paired
+        ? 'Display Box paired'
+        : status.phonePaired
+          ? 'Phone paired'
+          : 'Ready to pair'
+    : 'Remote control off');
+  const tone = $derived(!status?.enabled ? 'is-muted' : status.paired || status.phonePaired ? 'is-good' : 'is-warn');
   async function run(command: string, args?: Record<string, unknown>) {
     busy = true;
     error = '';
     try { status = await invoke<Status>(command, args); }
+    catch (reason) { error = String(reason); }
+    finally { busy = false; }
+  }
+  async function toggleRemote(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    await run('configure_frame', { enabled: input.checked });
+    if (status?.enabled !== input.checked) input.checked = Boolean(status?.enabled);
+  }
+  async function openRemote() {
+    busy = true;
+    error = '';
+    try { await invoke('open_phone_remote'); }
     catch (reason) { error = String(reason); }
     finally { busy = false; }
   }
@@ -28,24 +52,105 @@
 </script>
 
 <section class="settings-group">
-  <h3>Display Box</h3>
-  <p class="panel-description">Use your frame as a remote for Luma. Spotify audio plays on this PC. Pairing and this setting survive restarts.</p>
+  <div class="settings-group-head">
+    <h3>Phone &amp; Display Box remote</h3>
+    {#if status}<span class={`settings-badge ${tone}`}>{badge}</span>{/if}
+  </div>
+  <p class="panel-description">Use a phone or Display Box to control Luma from another screen. Luma remembers paired devices after a restart.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if status}
-    <p class="remote-status">{status.enabled ? status.paired ? 'Enabled · Frame paired' : 'Enabled · Ready to pair' : 'Disabled'}</p>
-    <p class="panel-description">PC name: {status.pcName}. Spotify Connect must use this name for Music controls.</p>
+    <label class="setting-toggle">
+      <span class="setting-toggle-copy"><span>Allow remote control</span><small>Paired devices can control Luma while it is running.</small></span>
+      <input type="checkbox" checked={status.enabled} disabled={busy} onchange={toggleRemote} />
+    </label>
     {#if status.enabled}
-      <p class="panel-description">On the frame, open Settings → Luma mode. Enter this PC address:</p>
-      {#each status.addresses as address (address)}<p class="address">{address}</p>{/each}
-      <button class="panel-secondary" disabled={busy} onclick={() => run('frame_pairing')}>{status.code ? 'Create new code' : 'Pair a frame'}</button>
-      {#if status.code}<p class="pair-code" aria-label="Pairing code">{status.code}</p><p class="panel-description">Valid for five minutes. Pairing a frame replaces the previous pairing.</p>{/if}
+      <div class="remote-choice" role="group" aria-label="Choose a device">
+        <button class:selected={device === 'phone'} aria-pressed={device === 'phone'} onclick={() => device = 'phone'}>
+          <strong>Phone</strong><span>Test on this PC, or use a phone on this Wi-Fi.</span>
+        </button>
+        <button class:selected={device === 'frame'} aria-pressed={device === 'frame'} onclick={() => device = 'frame'}>
+          <strong>Display Box</strong><span>Use a Luma Display Box frame.</span>
+        </button>
+      </div>
+      {#if device === 'phone'}
+        <div class="frame-connect">
+          <ol class="remote-steps">
+            <li>On this PC, choose <strong>Open remote in browser</strong> below.</li>
+            <li>On a phone, connect to the same Wi-Fi as this PC and open the address above.</li>
+          </ol>
+          {#if status.addresses.length}
+            <code class="address">{status.phoneUrl}</code>
+          {:else}
+            <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
+          {/if}
+          <div class="remote-launch"><button class="panel-secondary" disabled={busy} onclick={openRemote}>Open remote in browser</button></div>
+          <p class="remote-note">The browser opens http://localhost:9877 on this PC. Keep Luma running; closing its window leaves it in the tray.</p>
+          <p class="remote-note">Then choose <strong>Pair a phone</strong> below and enter the code shown here in that browser.</p>
+          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New phone code' : status.phonePaired ? 'Pair another phone' : 'Pair a phone'}</button>
+          {#if status.phoneCode}
+            <div class="frame-code">
+              <span class="frame-code-label">Phone pairing code</span>
+              <p class="pair-code" aria-label="Phone pairing code">{status.phoneCode}</p>
+              <p class="panel-description">Enter this code on the phone or this PC's browser. It is valid for five minutes.</p>
+            </div>
+          {/if}
+          {#if status.phonePaired}<p class="remote-paired">This browser is paired. It can connect whenever remote control is on and Luma is running.</p>{/if}
+        </div>
+      {:else}
+        <div class="frame-connect">
+          <ol class="remote-steps">
+            <li>On your Display Box, open Settings → Luma mode.</li>
+            <li>Enter this PC address on the Display Box.</li>
+          </ol>
+          {#if status.addresses.length}
+            <div class="frame-addresses">{#each status.addresses as address (address)}<code class="address">{address}</code>{/each}</div>
+          {:else}
+            <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
+          {/if}
+          <p class="remote-note">Then choose <strong>Pair Display Box</strong> below and enter the code shown here on the Display Box.</p>
+          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('frame_pairing')}>{status.code ? 'New Display Box code' : status.paired ? 'Pair another Display Box' : 'Pair Display Box'}</button>
+          {#if status.code}
+            <div class="frame-code">
+              <span class="frame-code-label">Display Box pairing code</span>
+              <p class="pair-code" aria-label="Display Box pairing code">{status.code}</p>
+              <p class="panel-description">Enter this code on the Display Box. It is valid for five minutes. Pairing again replaces the current Display Box.</p>
+            </div>
+          {/if}
+          {#if status.paired}<p class="remote-paired">A Display Box is paired. It can connect whenever remote control is on and Luma is running.</p>{/if}
+        </div>
+      {/if}
+      <details class="remote-help">
+        <summary tabindex="0">Can't connect?</summary>
+        <p>Make sure the phone or Display Box is on the same private Wi-Fi network as this PC. If Windows asks, allow Luma through the firewall on private networks. Remote control uses HTTP on port 9877.</p>
+      </details>
+    {:else}
+      <p class="remote-note">Turn on remote control to pair a phone or Display Box.</p>
     {/if}
-    <button class="text-link" disabled={busy} onclick={() => run('configure_frame', { enabled: !status?.enabled })}>{status.enabled ? 'Disable Display Box access' : 'Enable Display Box access'}</button>
-    <p class="panel-description">Use a trusted private Wi-Fi network. Local remote traffic uses HTTP on port 9877. Allow Luma through Windows Firewall on private networks if the frame cannot connect.</p>
   {:else if !native}<p class="panel-description">Available in the desktop application.</p>{/if}
 </section>
 
 <style>
-  .pair-code { font-family: monospace; font-size: 2.5rem; font-weight: 600; letter-spacing: .22em; margin: 1rem 0; color: var(--accent, #a59bff); }
-  .address { font-family: monospace; font-size: 1.25rem; margin: .75rem 0; }
+  .remote-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+  .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid #ffffff12; border-radius: 13px; background: #ffffff04; color: #c7ccd8; text-align: left; }
+  .remote-choice button:hover { background: #ffffff09; border-color: #ffffff22; }
+  .remote-choice button.selected { border-color: var(--accent); background: var(--accent-soft); color: #fff; }
+  .remote-choice strong { font-size: clamp(14px, .95vw, 17px); }
+  .remote-choice span { color: #8f97a8; font-size: clamp(11px, .75vw, 13px); line-height: 1.45; }
+  .remote-choice button.selected span { color: #c8cbd8; }
+  .frame-connect { padding: clamp(16px, 1.5vw, 24px); border: 1px solid #ffffff10; border-radius: 14px; background: #0b0e15; }
+  .remote-launch { margin: 18px 0 14px; }
+  .remote-steps { display: grid; gap: 7px; margin: 0 0 14px; padding-left: 20px; color: #b6bdca; font-size: clamp(13px, .88vw, 16px); line-height: 1.55; }
+  .frame-addresses { display: grid; gap: 8px; margin: 0 0 16px; }
+  .address { display: block; width: fit-content; max-width: 100%; padding: 9px 12px; border: 1px solid #ffffff14; border-radius: 9px; background: #ffffff06; color: #dfe3eb; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: clamp(13px, .95vw, 17px); overflow-wrap: anywhere; }
+  .remote-note { margin: 0 0 16px; color: #a6a7b2; font-size: clamp(13px, .88vw, 16px); line-height: 1.6; }
+  .remote-paired { margin: 16px 0 0; color: #9ad9b4; font-size: clamp(12px, .85vw, 15px); line-height: 1.5; }
+  .frame-code { margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
+  .frame-code-label { color: #8f97a8; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+  .pair-code { margin: 10px 0 12px; color: var(--accent); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: clamp(38px, 4.2vw, 76px); font-weight: 700; line-height: 1; letter-spacing: .16em; }
+  .frame-code .panel-description { margin: 0; }
+  .remote-help { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff0d; color: #a6a7b2; font-size: clamp(12px, .85vw, 15px); line-height: 1.6; }
+  .remote-help summary { width: fit-content; cursor: pointer; color: #c7ccd8; font-weight: 600; }
+  .remote-help summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .remote-help p { margin: 10px 0 0; max-width: 70ch; }
+  @media (max-width: 640px) { .remote-choice { grid-template-columns: 1fr; } }
 </style>

@@ -68,7 +68,7 @@ export function createSpotify() {
     stops.push(await onSpotifyPlayback(state => { playback = state; }));
     stops.push(await onSpotifyConnection(state => { connection = state; }));
     timer = setInterval(() => {
-      if (playback.playing) tick = Date.now();
+      if (playback.playing && !document.hidden) tick = Date.now();
     }, 500);
     try { clientId = await spotifyClientId(); } catch { clientId = ''; }
     await refresh();

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { StremioStatus } from '../types';
   import { stremioDisconnect, stremioLinkCancel, stremioLinkPoll, stremioLinkStart, stremioOpenLink, stremioStatus, stremioSync } from '../services/tauri';
+  import ProviderIcon from './activity/ProviderIcon.svelte';
 
   let { native }: { native: boolean } = $props();
   let status = $state<StremioStatus | null>(null);
@@ -11,6 +12,8 @@
   let timer: number | undefined;
 
   const waiting = $derived(status?.linking ?? null);
+  const stateLabel = $derived(!native ? 'Desktop only' : !status ? 'Checking' : status.connected ? 'Connected' : status.linking ? 'Pairing' : 'Not connected');
+  const stateTone = $derived(!native || !status ? 'is-muted' : status.connected ? 'is-good' : status.linking ? 'is-warn' : 'is-muted');
 
   function stopPolling() {
     if (timer !== undefined) { window.clearInterval(timer); timer = undefined; }
@@ -51,7 +54,7 @@
       error = '';
       if (status.connected) {
         stopPolling();
-        note = 'Stremio connected and library synchronized.';
+        note = 'Stremio connected and your library is up to date.';
       }
     } catch (cause) {
       error = String(cause);
@@ -81,7 +84,7 @@
     busy = true; error = ''; note = '';
     try {
       status = await stremioSync();
-      note = 'Stremio library synchronized.';
+      note = 'Your Stremio library is up to date.';
     } catch (cause) {
       error = String(cause);
       try { status = await stremioStatus(); } catch { /* keep the last known state */ }
@@ -103,7 +106,11 @@
 </script>
 
 <section class="settings-group">
-  <h3>Stremio</h3>
+  <div class="settings-service-head">
+    <ProviderIcon provider="stremio" />
+    <div class="settings-service-title"><h3>Stremio</h3><p>Library, Continue Watching, and playback progress.</p></div>
+    <span class={`settings-badge ${stateTone}`}>{stateLabel}</span>
+  </div>
   {#if !native}
     <p class="panel-description">Stremio account connection is available in the desktop application.</p>
   {:else if !status}
@@ -111,8 +118,10 @@
   {:else if status.connected}
     <div class="stremio-account"><span class="stremio-dot" aria-hidden="true"></span><div><strong>{status.email || 'Stremio account'}</strong><p>Connected</p></div></div>
     <p class="panel-description">Last synchronized {when(status.lastSync)}. {status.items.length} titles in your library, {status.continueWatching.length} in progress. Playback progress comes from Stremio's synchronized library. Stremio Web opens inside Luma; sign in there once to watch.</p>
-    <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync Now'}</button>
-    <button class="text-link" disabled={busy} onclick={disconnect}>Disconnect account</button>
+    <div class="settings-actions">
+      <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync now'}</button>
+      <button class="text-link" disabled={busy} onclick={disconnect}>Disconnect account</button>
+    </div>
     <p class="panel-description">Disconnecting removes only Luma's saved credential. Your Stremio account and its library are not modified.</p>
   {:else if waiting}
     <div class="stremio-link">
@@ -120,13 +129,15 @@
       <span class="stremio-code" aria-label={`Stremio link code ${waiting.code}`}>{waiting.code}</span>
       <img class="stremio-qr" src={waiting.qr} alt="QR code for the Stremio device link" />
       <p class="stremio-link-url">{waiting.link}</p>
-      <button class="panel-secondary" disabled={busy} onclick={openLink}>Open link.stremio.com</button>
-      <button class="text-link" disabled={busy} onclick={cancel}>Cancel</button>
+      <div class="settings-actions">
+        <button class="panel-secondary is-primary" disabled={busy} onclick={openLink}>Open link.stremio.com</button>
+        <button class="text-link" disabled={busy} onclick={cancel}>Cancel</button>
+      </div>
       <p class="panel-description" role="status">Waiting for approval…</p>
     </div>
   {:else}
     <p class="panel-description">Connect your Stremio account to see Continue Watching and your library in Luma. Luma uses Stremio's device-link service, so your password is never requested or stored.</p>
-    <button class="panel-secondary" disabled={busy} onclick={connect}>{busy ? 'Requesting code…' : 'Connect account'}</button>
+    <button class="panel-secondary is-primary" disabled={busy} onclick={connect}>{busy ? 'Requesting code…' : 'Connect account'}</button>
   {/if}
   {#if error}<p class="stremio-error" role="alert">{error}</p>{/if}
   {#if note}<p class="stremio-note" role="status">{note}</p>{/if}

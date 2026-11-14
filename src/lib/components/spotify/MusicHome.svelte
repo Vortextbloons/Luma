@@ -58,7 +58,7 @@
     </div>
     <div class="music-status">
       <span class:inactive={!playback.playerAvailable} class="music-status-led" aria-hidden="true"></span>
-      <span>{connection.authenticated ? (connection.displayName ? `Connected as ${connection.displayName}` : 'Spotify account connected') : playback.playerAvailable ? 'Windows media controls' : connection.processRunning ? 'Spotify is running' : 'Spotify is not active'}</span>
+      <span>{connection.authenticated ? (connection.displayName ? `Connected as ${connection.displayName}` : 'Spotify account connected') : playback.playerAvailable ? 'Spotify controls ready' : connection.processRunning ? 'Spotify is running' : 'Spotify is not active'}</span>
       {#if connection.authenticated}<button class="text-link" disabled={spotify.homeLoading} onclick={() => spotify.loadHome(true)}>{spotify.homeLoading ? 'Refreshing…' : 'Refresh library'}</button>{/if}
       <button class="text-link" onclick={onsettings}>Manage Spotify</button>
     </div>
@@ -74,15 +74,15 @@
   {#if connection.starting}
     <section class="music-starting">
       <span class="music-pulse" aria-hidden="true"></span>
-      <div><h2>Starting Spotify in the background</h2><p>Luma is waiting for a Windows media session. Spotify may briefly show a window while it starts.</p></div>
+      <div><h2>Starting Spotify in the background</h2><p>Luma is waiting for Spotify to be ready. Spotify may briefly show a window while it starts.</p></div>
     </section>
   {:else if !connection.processRunning && !connection.playerAvailable}
     <section class="music-starting">
       <div>
         <h2>{connection.installed ? 'Spotify is not running' : 'Spotify was not found'}</h2>
-        <p>{connection.installed ? 'Start Spotify minimized and let Luma take over the controls.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
+        <p>{connection.installed ? 'Start Spotify and Luma will handle the playback controls.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
       </div>
-      {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify in background</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Open settings</button>{/if}
+      {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Open settings</button>{/if}
     </section>
   {/if}
 
@@ -151,7 +151,7 @@
       <div>
         <span class="panel-kicker">OPTIONAL</span>
         <h2>Connect your Spotify account</h2>
-        <p>Adds playlists, saved music, search, recent listening, and device controls. Playback stays in the Spotify desktop app. The Windows media controls above work without signing in.</p>
+        <p>Adds playlists, saved music, search, recent listening, and device controls. Playback stays in the Spotify desktop app. The controls above work without signing in.</p>
       </div>
       <div class="music-account-actions">
         <button class="btn btn-glass" onclick={onsettings}>Set up Spotify</button>
