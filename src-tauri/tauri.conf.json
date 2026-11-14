@@ -24,8 +24,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https://images.metahub.space https://live.metahub.space https://i.ytimg.com https://*.ytimg.com https://*.ggpht.com https://*.googleusercontent.com; connect-src ipc: http://ipc.localhost https://v3-cinemeta.strem.io https://cinemeta-catalogs.strem.io; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
-      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://images.metahub.space https://live.metahub.space https://i.ytimg.com https://*.ytimg.com https://*.ggpht.com https://*.googleusercontent.com; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420 https://v3-cinemeta.strem.io https://cinemeta-catalogs.strem.io; object-src 'none'; base-uri 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https:; connect-src ipc: http://ipc.localhost https://v3-cinemeta.strem.io https://cinemeta-catalogs.strem.io; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420 https://v3-cinemeta.strem.io https://cinemeta-catalogs.strem.io; object-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {

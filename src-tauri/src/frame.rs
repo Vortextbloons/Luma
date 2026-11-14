@@ -164,7 +164,7 @@ async fn command(
         "stremio" => apps::launch_app("Stremio".into(), app.state::<apps::Apps>(), app.clone()),
         "custom" => apps::launch_app("Custom".into(), app.state::<apps::Apps>(), app.clone()),
         "spotify" => apps::launch_app("Spotify".into(), app.state::<apps::Apps>(), app.clone()),
-        "toggle" | "previous" | "next" => media::media_control(app, request.command).await,
+        "toggle" | "previous" | "next" => media::control(&app, &request.command).await,
         "volumeup" | "volumedown" | "mute" => volume(&request.command),
         _ => return Err(StatusCode::BAD_REQUEST),
     };

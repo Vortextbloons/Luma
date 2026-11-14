@@ -6,7 +6,91 @@ use std::{
 };
 use tauri::{Manager, State};
 
-const IDS: [&str; 6] = ["Spotify", "Stremio", "Netflix", "Disney+", "Prime Video", "Custom"];
+struct Service {
+    id: &'static str,
+    executables: &'static [(&'static str, &'static str)],
+    url: Option<&'static str>,
+}
+
+const SERVICES: &[Service] = &[
+    Service {
+        id: "Spotify",
+        url: None,
+        executables: &[
+            ("APPDATA", r"Spotify\Spotify.exe"),
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Spotify.exe"),
+            ("LOCALAPPDATA", r"Programs\Spotify\Spotify.exe"),
+            ("ProgramFiles", r"Spotify\Spotify.exe"),
+            ("ProgramFiles(x86)", r"Spotify\Spotify.exe"),
+        ],
+    },
+    Service {
+        id: "Stremio",
+        url: None,
+        executables: &[
+            ("LOCALAPPDATA", r"Programs\Stremio\stremio-shell-ng.exe"),
+            ("LOCALAPPDATA", r"Programs\Stremio\Stremio.exe"),
+            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\Stremio.exe"),
+            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\stremio.exe"),
+            ("LOCALAPPDATA", r"Programs\LNV\Stremio-4\stremio.exe"),
+            ("ProgramFiles", r"Stremio\Stremio.exe"),
+            ("ProgramFiles(x86)", r"Stremio\Stremio.exe"),
+        ],
+    },
+    Service {
+        id: "Netflix",
+        url: Some("https://www.netflix.com/browse"),
+        executables: &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Netflix.exe"),
+            ("LOCALAPPDATA", r"Programs\Netflix\Netflix.exe"),
+        ],
+    },
+    Service {
+        id: "Disney+",
+        url: Some("https://www.disneyplus.com/"),
+        executables: &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Disney+.exe"),
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\DisneyPlus.exe"),
+        ],
+    },
+    Service {
+        id: "Prime Video",
+        url: Some("https://www.primevideo.com/"),
+        executables: &[
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\AmazonPrimeVideo.exe"),
+            ("LOCALAPPDATA", r"Microsoft\WindowsApps\PrimeVideo.exe"),
+        ],
+    },
+    Service {
+        id: "Apple TV+",
+        url: Some("https://tv.apple.com/"),
+        executables: &[],
+    },
+    Service {
+        id: "Hulu",
+        url: Some("https://www.hulu.com/"),
+        executables: &[],
+    },
+    Service {
+        id: "Max",
+        url: Some("https://play.max.com/"),
+        executables: &[],
+    },
+    Service {
+        id: "Peacock",
+        url: Some("https://www.peacocktv.com/"),
+        executables: &[],
+    },
+    Service {
+        id: "Custom",
+        url: None,
+        executables: &[],
+    },
+];
+
+fn service(id: &str) -> Option<&'static Service> {
+    SERVICES.iter().find(|service| service.id == id)
+}
 
 #[derive(Default)]
 pub struct Apps(pub Mutex<BTreeMap<String, String>>);
@@ -38,7 +122,7 @@ fn validate(path: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-fn detect(name: &str) -> Option<PathBuf> {
+pub(crate) fn detect(name: &str) -> Option<PathBuf> {
     known_paths(name)
         .into_iter()
         .find(|candidate| validate(&candidate.to_string_lossy()).is_ok())
@@ -46,38 +130,11 @@ fn detect(name: &str) -> Option<PathBuf> {
 }
 
 fn known_paths(name: &str) -> Vec<PathBuf> {
-    let relative: &[(&str, &str)] = match name {
-        "Spotify" => &[
-            ("APPDATA", r"Spotify\Spotify.exe"),
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Spotify.exe"),
-            ("LOCALAPPDATA", r"Programs\Spotify\Spotify.exe"),
-            ("ProgramFiles", r"Spotify\Spotify.exe"),
-            ("ProgramFiles(x86)", r"Spotify\Spotify.exe"),
-        ],
-        "Stremio" => &[
-            ("LOCALAPPDATA", r"Programs\Stremio\stremio-shell-ng.exe"),
-            ("LOCALAPPDATA", r"Programs\Stremio\Stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\Stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-5\stremio.exe"),
-            ("LOCALAPPDATA", r"Programs\LNV\Stremio-4\stremio.exe"),
-            ("ProgramFiles", r"Stremio\Stremio.exe"),
-            ("ProgramFiles(x86)", r"Stremio\Stremio.exe"),
-        ],
-        "Netflix" => &[
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Netflix.exe"),
-            ("LOCALAPPDATA", r"Programs\Netflix\Netflix.exe"),
-        ],
-        "Disney+" => &[
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\Disney+.exe"),
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\DisneyPlus.exe"),
-        ],
-        "Prime Video" => &[
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\AmazonPrimeVideo.exe"),
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\PrimeVideo.exe"),
-        ],
-        _ => return Vec::new(),
+    let Some(service) = service(name) else {
+        return Vec::new();
     };
-    relative
+    service
+        .executables
         .iter()
         .filter_map(|(variable, suffix)| {
             std::env::var_os(variable).map(|root| PathBuf::from(root).join(suffix))
@@ -262,7 +319,7 @@ pub fn load(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     *app.state::<Apps>().0.lock().map_err(|e| e.to_string())? = paths
         .into_iter()
-        .filter(|(id, _)| IDS.contains(&id.as_str()))
+        .filter(|(id, _)| service(id).is_some())
         .collect();
     Ok(())
 }
@@ -270,19 +327,20 @@ pub fn load(app: &tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn app_paths(apps: State<Apps>) -> Result<BTreeMap<String, String>, String> {
     let paths = apps.0.lock().map_err(|e| e.to_string())?;
-    Ok(IDS
+    Ok(SERVICES
         .iter()
-        .map(|id| ((*id).into(), paths.get(*id).cloned().unwrap_or_default()))
+        .map(|service| (service.id.into(), paths.get(service.id).cloned().unwrap_or_default()))
         .collect())
 }
 
 #[tauri::command]
 pub fn detect_apps() -> Vec<DetectedApp> {
-    IDS.iter()
-        .filter(|id| **id != "Custom")
-        .map(|name| DetectedApp {
-            name: (*name).into(),
-            path: detect(name).map(|p| p.to_string_lossy().into_owned()),
+    SERVICES
+        .iter()
+        .filter(|service| !service.executables.is_empty())
+        .map(|service| DetectedApp {
+            name: service.id.into(),
+            path: detect(service.id).map(|p| p.to_string_lossy().into_owned()),
         })
         .collect()
 }
@@ -293,7 +351,7 @@ pub fn save_app_paths(
     apps: State<Apps>,
     paths: BTreeMap<String, String>,
 ) -> Result<(), String> {
-    if paths.keys().any(|id| !IDS.contains(&id.as_str())) {
+    if paths.keys().any(|id| service(id).is_none()) {
         return Err("Unknown application.".into());
     }
     for path in paths.values().filter(|p| !p.is_empty()) {
@@ -312,9 +370,7 @@ pub fn save_app_paths(
 
 #[tauri::command]
 pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Result<(), String> {
-    if !IDS.contains(&name.as_str()) {
-        return Err("Application is not approved.".into());
-    }
+    let service = service(&name).ok_or("Application is not approved.")?;
     let configured = apps
         .0
         .lock()
@@ -322,25 +378,88 @@ pub fn launch_app(name: String, apps: State<Apps>, app: tauri::AppHandle) -> Res
         .get(&name)
         .cloned()
         .unwrap_or_default();
-    let executable = if configured.is_empty() {
-        detect(&name).ok_or_else(|| {
-            format!("{name} was not found. Install it or set its executable path in Settings.")
-        })?
+    if name == "Spotify" {
+        if !crate::integrations::spotify::process::running() {
+            let detected = if configured.is_empty() {
+                detect(&name)
+            } else {
+                Some(validate(&configured)?)
+            };
+            let executable = detected.ok_or(
+                "Spotify was not found. Install it or set its executable path in Settings.",
+            )?;
+            crate::integrations::spotify::process::launch_path_minimized(&executable)?;
+        }
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
+    if crate::commands::session::reuse(&app, &name) {
+        if let Some(window) = app.get_webview_window("main") {
+            window.minimize().map_err(|e| e.to_string())?;
+        }
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
+    let detected = if configured.is_empty() {
+        detect(&name)
     } else {
-        validate(&configured)?
+        Some(validate(&configured)?)
+    };
+    let (executable, arguments) = match detected {
+        Some(executable) => (executable, Vec::new()),
+        None => {
+            let Some(url) = service.url else {
+                return Err(format!(
+                    "{name} was not found. Install it or set its executable path in Settings."
+                ));
+            };
+            let browser = edge().ok_or_else(|| {
+                format!("Microsoft Edge is required to open {name}. Install Edge or set an executable path in Settings.")
+            })?;
+            (browser, edge_arguments(&app, service.id, url)?)
+        }
     };
     let mut command = std::process::Command::new(&executable);
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
     }
-    command
+    let child = command
+        .args(&arguments)
         .spawn()
         .map_err(|e| format!("Could not start {name}: {e}"))?;
+    crate::commands::session::track(&app, &name, child.id());
     crate::activity::record_launch(&app, &name);
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn edge() -> Option<PathBuf> {
+    ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(|variable| {
+            std::env::var_os(variable)
+                .map(|root| PathBuf::from(root).join(r"Microsoft\Edge\Application\msedge.exe"))
+        })
+        .find(|candidate| candidate.is_file())
+}
+
+fn edge_arguments(app: &tauri::AppHandle, id: &str, url: &str) -> Result<Vec<String>, String> {
+    let profile = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("services")
+        .join(id.to_lowercase().replace('+', "plus").replace(' ', "-"));
+    Ok([
+        format!("--app={url}"),
+        format!("--user-data-dir={}", profile.display()),
+        "--no-first-run".into(),
+        "--no-default-browser-check".into(),
+        "--start-maximized".into(),
+    ]
+    .to_vec())
 }
 
 #[cfg(test)]

@@ -43,14 +43,18 @@ pub fn installed() -> bool {
     crate::commands::apps::detect("Spotify").is_some()
 }
 
-#[cfg(windows)]
 pub fn launch_minimized() -> Result<(), String> {
+    let executable = crate::commands::apps::detect("Spotify")
+        .ok_or("Spotify is not installed or its path is unknown.")?;
+    launch_path_minimized(&executable)
+}
+
+#[cfg(windows)]
+pub fn launch_path_minimized(executable: &std::path::Path) -> Result<(), String> {
     use windows::{
         core::PCWSTR,
         Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWMINNOACTIVE},
     };
-    let executable =
-        crate::commands::apps::detect("Spotify").ok_or("Spotify is not installed or its path is unknown.")?;
     let directory = executable.parent().map(|path| path.to_path_buf());
     let operation = wide("open");
     let file = wide(&executable.to_string_lossy());
@@ -76,7 +80,7 @@ pub fn launch_minimized() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-pub fn launch_minimized() -> Result<(), String> {
+pub fn launch_path_minimized(_: &std::path::Path) -> Result<(), String> {
     Err("Starting Spotify in the background requires Windows.".into())
 }
 

@@ -49,24 +49,6 @@ pub struct PlaybackState {
     pub error: Option<String>,
 }
 
-impl PlaybackState {
-    pub fn track(&self) -> Option<Track> {
-        let title = self.title.clone().filter(|value| !value.trim().is_empty())?;
-        Some(Track {
-            id: self.track_id.clone(),
-            uri: self
-                .track_id
-                .as_ref()
-                .map(|id| format!("spotify:track:{id}")),
-            title,
-            artist: self.artist.clone().unwrap_or_default(),
-            album: self.album.clone().unwrap_or_default(),
-            artwork_url: self.artwork_url.clone(),
-            duration_ms: self.duration_ms,
-        })
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionState {

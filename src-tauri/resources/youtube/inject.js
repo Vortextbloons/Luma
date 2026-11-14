@@ -573,6 +573,22 @@
     }
   }, true);
 
+  function pausePlayback() {
+    const video = document.querySelector('video');
+    if (video && !video.paused) video.pause();
+  }
+
+  function pauseWhenUnfocused() {
+    if (!document.hasFocus()) pausePlayback();
+  }
+
+  document.addEventListener('play', event => {
+    if (!document.hasFocus()) event.target.pause();
+  }, true);
+  document.addEventListener('visibilitychange', pauseWhenUnfocused);
+  window.addEventListener('blur', pausePlayback);
+  setInterval(pauseWhenUnfocused, 1000);
+
   const buttonOffset = 32768;
   const axisThreshold = 0.5;
   const axisButtons = [[19, 20], [17, 18], [23, 24], [21, 22]];

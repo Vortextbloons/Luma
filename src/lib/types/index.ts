@@ -1,4 +1,4 @@
-export type AppId = 'YouTube' | 'Spotify' | 'Stremio' | 'Custom';
+export type AppId = 'YouTube' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'Custom';
 export type ExecutableAppId = Exclude<AppId, 'YouTube'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
 export interface Settings {
@@ -6,7 +6,7 @@ export interface Settings {
   density: 'comfortable' | 'compact';
   fullscreen: boolean;
   wallpaper: string;
-  sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean };
+  sections: { popular: boolean; apps: boolean; featured: boolean; continue: boolean; recent: boolean; recentApps: boolean };
   paths: Record<ExecutableAppId, string>;
   order: AppId[];
 }
@@ -14,14 +14,10 @@ export interface MediaItem {
   id: string; title: string; subtitle: string; poster: string; backdrop: string; description: string;
   year: string; runtime: string; rating: string;
 }
-export type ActivityType = 'movie' | 'episode' | 'video' | 'track' | 'application';
-export interface ActivityItem {
-  id: string; provider: string; type: ActivityType; title: string; subtitle: string | null;
-  artwork: string | null; lastActivityAt: string; progressSeconds: number | null;
-  durationSeconds: number | null; completed: boolean | null;
-  resumeKind: 'direct' | 'content' | 'service' | 'none';
-}
-export interface ActivitySnapshot { items: ActivityItem[]; trackingEnabled: boolean; generatedAt: string }
+export type {
+  ActivityItem, ActivitySnapshot, ActivityType, OpenOutcome, ProgressSource, ProviderConfigInput,
+  ProviderState, ProviderStatus, RefreshResult, ResumeKind,
+} from './activity';
 export interface StremioItem {
   id: string; name: string; kind: string; poster: string; progress: number;
   timeOffset: number; duration: number; lastWatched: string | null;

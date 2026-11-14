@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, ExecutableAppId, MediaState, NavigationCommand, RemoteStatus, StremioStatus } from '../types';
+import type { ActivitySnapshot, ExecutableAppId, MediaState, NavigationCommand, OpenOutcome, RemoteStatus, StremioStatus } from '../types';
 
 export const native = isTauri();
 export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', { name });
@@ -11,7 +11,7 @@ export const remoteStatus = () => invoke<RemoteStatus>('remote_status');
 export const configureRemote = (lan: boolean, origin: string) => invoke<RemoteStatus>('configure_remote', { lan, origin });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
 export const activitySnapshot = () => invoke<ActivitySnapshot>('activity_snapshot');
-export const openActivity = (id: string, fullscreen: boolean) => invoke<{ kind: string; message: string }>('open_activity', { id, fullscreen });
+export const openActivity = (id: string, fullscreen: boolean) => invoke<OpenOutcome>('open_activity', { id, fullscreen });
 export const stremioStatus = () => invoke<StremioStatus>('stremio_status');
 export const stremioLinkStart = () => invoke<StremioStatus>('stremio_link_start');
 export const stremioLinkPoll = () => invoke<StremioStatus>('stremio_link_poll');

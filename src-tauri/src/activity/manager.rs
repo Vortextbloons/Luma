@@ -120,7 +120,10 @@ impl Activity {
                 "Tracks playback observed in Luma's YouTube window. No Google account access.".into()
             }
             (ProviderKind::Spotify, _) => {
-                "Reads the current Windows media session. Spotify account history is not requested.".into()
+                "Tracks the current Spotify playback session observed by Luma. Not full listening history.".into()
+            }
+            (ProviderKind::Launcher, _) if provider.id == "stremio" => {
+                "Launcher tracking here. Connect a Stremio account under Integrations for account library progress.".into()
             }
             (ProviderKind::Launcher, _) => {
                 "Launcher only. Luma records the app open and does not claim watch-history access.".into()
@@ -203,12 +206,17 @@ impl Activity {
         Ok(Some(item))
     }
 
-    pub fn record_spotify(&self, title: &str, artist: &str) -> Result<Option<ActivityItem>, String> {
+    pub fn record_spotify(
+        &self,
+        title: &str,
+        artist: &str,
+        track_id: Option<&str>,
+    ) -> Result<Option<ActivityItem>, String> {
         let title = title.trim();
         if title.is_empty() || !self.tracking_enabled()? || !self.provider_enabled("spotify")? {
             return Ok(None);
         }
-        let item = super::providers::spotify::activity(title, artist, &now());
+        let item = super::providers::spotify::activity(title, artist, track_id, &now());
         if let Some(latest) = self.storage.latest_for_provider("spotify")? {
             if latest.id == item.id {
                 if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&latest.last_activity_at) {
@@ -313,8 +321,10 @@ impl Activity {
                 )?;
             }
         }
-        if matches!(info.kind, ProviderKind::Plex | ProviderKind::Jellyfin | ProviderKind::Trakt)
-            && input.token.is_some()
+        if input.server_url.is_some()
+            || input.user_id.is_some()
+            || input.client_id.is_some()
+            || input.token.is_some()
         {
             self.storage.remove_preference(&provider_success_key(provider))?;
             self.storage.remove_preference(&provider_error_key(provider))?;
@@ -429,6 +439,21 @@ impl Activity {
                 message: "YouTube video opened.".into(),
             });
         }
+        if item.resume_kind == ResumeKind::Service {
+            let name = item
+                .launch_target
+                .clone()
+                .ok_or("This item does not name a service to open.")?;
+            if name == "YouTube" {
+                commands::youtube::open_youtube(app.clone(), fullscreen).await?;
+            } else {
+                apps::launch_app(name, app.state::<apps::Apps>(), app.clone())?;
+            }
+            return Ok(OpenOutcome {
+                kind: ResumeKind::Service,
+                message: format!("{} opened.", item.title),
+            });
+        }
         let target = item
             .launch_target
             .as_deref()
@@ -514,11 +539,11 @@ pub fn record_youtube(app: &AppHandle, report: &PlaybackReport) {
     }
 }
 
-pub fn record_spotify(app: &AppHandle, title: &str, artist: &str) {
+pub fn record_spotify(app: &AppHandle, title: &str, artist: &str, track_id: Option<&str>) {
     let Some(activity) = app.try_state::<Activity>() else {
         return;
     };
-    match activity.record_spotify(title, artist) {
+    match activity.record_spotify(title, artist, track_id) {
         Ok(Some(_)) => publish(app),
         Ok(None) => {}
         Err(error) => eprintln!("Activity Spotify: {error}"),

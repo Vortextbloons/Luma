@@ -1,15 +1,21 @@
 <script lang="ts">
   import BackgroundSettings from './BackgroundSettings.svelte';
   import FramePairing from './FramePairing.svelte';
+  import StremioIntegration from './StremioIntegration.svelte';
+  import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
+  import ActivitySettings from './activity/ActivitySettings.svelte';
+  import type { ActivityState } from '../state/activity.svelte';
   import type { ExecutableAppId, RemoteStatus, Settings } from '../types';
   import { moveApp } from '../state/settings.svelte';
-  let { settings, remote, native, close, fullscreen, savePaths, network, detect, message, report }: {
+  let { settings, remote, native, close, fullscreen, savePaths, network, detect, message, report, activity, startCategory = 'Display' }: {
     message: string; detect: () => Promise<void>; settings: Settings; remote: RemoteStatus; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
-    network: (lan: boolean, origin: string) => Promise<void>; report: (message: string) => void;
+    network: (lan: boolean, origin: string) => Promise<void>; report: (message: string) => void; activity: ActivityState;
+    startCategory?: string;
   } = $props();
   let category = $state('Display');
-  const categories = ['Display', 'Appearance', 'Apps', 'Remote & Startup'];
+  $effect(() => { category = startCategory; });
+  const categories = ['Display', 'Appearance', 'Activity', 'Apps', 'Integrations', 'Remote & Startup'];
   let origin = $state('');
   let busy = $state(false);
   let reveal = $state(false);
@@ -42,9 +48,14 @@
   <section class="settings-group"><h3>Display</h3><button class="panel-secondary" disabled={!native} onclick={fullscreen}>{settings.fullscreen ? 'Switch to windowed mode' : 'Switch to fullscreen'}</button><label class="field">Layout density<select bind:value={settings.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label></section>
       {:else if category === 'Appearance'}
   <section class="settings-group"><h3>Accent color</h3><div class="swatches">{#each [{ id: 'violet', color: '#a59bff' }, { id: 'blue', color: '#72bfff' }, { id: 'mint', color: '#88e6c5' }, { id: 'peach', color: '#ffae92' }] as accent (accent.id)}<button class={['swatch', { 'is-active': settings.accent === accent.id }]} style:--sw={accent.color} aria-label={accent.id} aria-pressed={settings.accent === accent.id} onclick={() => settings.accent = accent.id as Settings['accent']}></button>{/each}</div><label class="field">Background image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={wallpaper} /></label><button class="text-link" onclick={() => settings.wallpaper = ''}>Reset background</button></section>
-  <section class="settings-group"><h3>Home screen sections</h3>{#each [{ id: 'popular', label: 'Popular movies' }, { id: 'apps', label: 'Your apps' }, { id: 'featured', label: 'Featured for you' }] as section (section.id)}<label class="setting-toggle"><span>{section.label}</span><input type="checkbox" bind:checked={settings.sections[section.id as keyof Settings['sections']]} /></label>{/each}</section>
+  <section class="settings-group"><h3>Home screen sections</h3>{#each [{ id: 'continue', label: 'Continue Watching' }, { id: 'recent', label: 'Recently played' }, { id: 'recentApps', label: 'Recently used apps' }, { id: 'popular', label: 'Popular movies' }, { id: 'apps', label: 'Your apps' }, { id: 'featured', label: 'Featured for you' }] as section (section.id)}<label class="setting-toggle"><span>{section.label}</span><input type="checkbox" bind:checked={settings.sections[section.id as keyof Settings['sections']]} /></label>{/each}</section>
+      {:else if category === 'Activity'}
+  <ActivitySettings {activity} {native} />
       {:else if category === 'Apps'}
-  <section class="settings-group"><h3>Application paths and tile order</h3><p class="panel-description">Leave Spotify or Stremio blank to detect a standard installation. Custom apps require a local .exe path. No arguments or shell commands.</p><button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await detect(); } finally { busy = false; } }}>Find installed apps</button>{#each settings.order as id, index (id)}<div class="mb-5">{#if id === 'YouTube'}<p class="panel-description">YouTube TV opens in its own Luma window and has no executable path.</p>{:else}<label class="field">{id}<input bind:value={settings.paths[id as ExecutableAppId]} placeholder="C:\Program Files\App\App.exe" spellcheck="false" /></label>{/if}<div class="flex gap-3"><button class="text-link" disabled={index === 0} onclick={() => moveApp(settings, id, -1)}>← Earlier</button><button class="text-link" disabled={index === settings.order.length - 1} onclick={() => moveApp(settings, id, 1)}>Later →</button></div></div>{/each}<button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await savePaths(); } finally { busy = false; } }}>Save approved app paths</button></section>
+  <section class="settings-group"><h3>Application paths and tile order</h3><p class="panel-description">Leave a path blank to detect a standard installation. Services with no local app, such as Apple TV+, Hulu, Max, and Peacock, open in a Microsoft Edge app window with their own profile. Custom apps require a local .exe path. Luma never passes shell commands.</p><button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await detect(); } finally { busy = false; } }}>Find installed apps</button>{#each settings.order as id, index (id)}<div class="mb-5">{#if id === 'YouTube'}<p class="panel-description">YouTube TV opens in its own Luma window and has no executable path.</p>{:else}<label class="field">{id}<input bind:value={settings.paths[id as ExecutableAppId]} placeholder="C:\Program Files\App\App.exe" spellcheck="false" /></label>{/if}<div class="flex gap-3"><button class="text-link" disabled={index === 0} onclick={() => moveApp(settings, id, -1)}>← Earlier</button><button class="text-link" disabled={index === settings.order.length - 1} onclick={() => moveApp(settings, id, 1)}>Later →</button></div></div>{/each}<button class="panel-secondary" disabled={!native || busy} onclick={async () => { busy = true; try { await savePaths(); } finally { busy = false; } }}>Save approved app paths</button></section>
+      {:else if category === 'Integrations'}
+  <SpotifyIntegration {native} />
+  <StremioIntegration {native} />
       {:else}
   <BackgroundSettings {native} />
   <FramePairing {native} />

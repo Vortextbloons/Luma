@@ -1,15 +1,15 @@
 <script lang="ts">
   import type { ActivityItem, MediaItem } from '../types';
+  import { actionLabel, progressPercent, providerName } from '../services/activity';
   let { wallpaper, item, activity, launch, resume, details }: {
     wallpaper: string; item: MediaItem | null; activity: ActivityItem | null;
     launch: () => void; resume: () => void; details: () => void;
   } = $props();
-  const providers: Record<string, string> = { youtube: 'YouTube', spotify: 'Spotify', plex: 'Plex', jellyfin: 'Jellyfin', trakt: 'Trakt', stremio: 'Stremio', local: 'This PC' };
-  const progress = $derived(activity?.progressSeconds && activity.durationSeconds ? Math.min(100, Math.round((activity.progressSeconds / activity.durationSeconds) * 100)) : 0);
+  const percent = $derived(activity ? Math.round(progressPercent(activity) ?? 0) : 0);
   const artwork = $derived(activity?.artwork || wallpaper || item?.backdrop || '');
-  const label = $derived(activity ? (providers[activity.provider] ?? activity.provider) : 'Popular on Stremio');
+  const label = $derived(activity ? providerName(activity.provider) : 'Popular on Stremio');
   const eyebrow = $derived(activity ? (activity.type === 'track' ? 'LAST PLAYED' : 'CONTINUE WATCHING') : 'TRENDING NOW');
-  const action = $derived(activity ? (activity.type === 'track' ? 'Open Spotify' : activity.resumeKind === 'direct' ? 'Resume' : 'Open') : 'Open Stremio');
+  const action = $derived(activity ? actionLabel(activity) : 'Open Stremio');
 </script>
 
 <section class="hero" aria-labelledby={activity || item ? 'hero-title' : undefined}>
@@ -22,7 +22,7 @@
     <div class="metadata">
       <span class="meta-chip">{activity.type === 'track' ? 'TRACK' : activity.type.toUpperCase()}</span>
       {#if activity.subtitle}<span>{activity.subtitle}</span>{/if}
-      {#if progress > 0}<span class="meta-divider"></span><span>{progress}% watched</span>{/if}
+      {#if percent > 0}<span class="meta-divider"></span><span>{percent}% watched</span>{/if}
     </div>
     <p class="hero-desc">{activity.type === 'track' ? 'Your most recent listen on Spotify.' : 'Pick up right where you left off.'}</p>
     <div class="hero-actions"><button class="btn btn-primary" onclick={resume}><span aria-hidden="true">▶</span> {action}</button></div>

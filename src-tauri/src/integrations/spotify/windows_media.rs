@@ -19,16 +19,27 @@ mod platform {
         Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
     };
 
-    pub struct Apartment;
+    pub struct Apartment {
+        initialized: bool,
+    }
     impl Apartment {
         pub fn new() -> Result<Self, String> {
-            unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(|error| error.to_string())?;
-            Ok(Self)
+            match unsafe { RoInitialize(RO_INIT_MULTITHREADED) } {
+                Ok(()) => Ok(Self { initialized: true }),
+                Err(error)
+                    if error.code() == windows::Win32::Foundation::RPC_E_CHANGED_MODE =>
+                {
+                    Ok(Self { initialized: false })
+                }
+                Err(error) => Err(error.to_string()),
+            }
         }
     }
     impl Drop for Apartment {
         fn drop(&mut self) {
-            unsafe { RoUninitialize() }
+            if self.initialized {
+                unsafe { RoUninitialize() }
+            }
         }
     }
 
@@ -267,19 +278,17 @@ mod platform {
             .as_ref()
             .and_then(|playback| playback.Controls().ok());
         let timeline = session.GetTimelineProperties().ok();
-        let duration_ms = timeline.as_ref().ok().and_then(|timeline| {
+        let duration_ms = timeline.as_ref().and_then(|timeline| {
             let start = timeline.StartTime().ok()?.Duration;
             let end = timeline.EndTime().ok()?.Duration;
             (end > start).then(|| ((end - start) / 10_000) as u64)
         });
         let mut position_ms = timeline
             .as_ref()
-            .ok()
             .and_then(|timeline| timeline.Position().ok())
             .map(|position| milliseconds(position.Duration));
         let updated = timeline
             .as_ref()
-            .ok()
             .and_then(|timeline| timeline.LastUpdatedTime().ok())
             .map(|value| value.UniversalTime)
             .filter(|value| *value > 0);
@@ -311,9 +320,9 @@ mod platform {
                 }
                 .to_string()
             });
-        let shuffle = controls
+        let shuffle = playback
             .as_ref()
-            .and_then(|controls| controls.IsShuffleActive().ok())
+            .and_then(|playback| playback.IsShuffleActive().ok())
             .and_then(|value| value.Value().ok());
 
         Ok(PlaybackState {
@@ -397,8 +406,6 @@ mod platform {
                 session.TryChangeAutoRepeatModeAsync(mode)
             }
             Command::Toggle
-            | Command::Play
-            | Command::Pause
             | Command::Previous
             | Command::Next
             | Command::Seek(_)

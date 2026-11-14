@@ -1,3 +1,4 @@
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -6,12 +7,21 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Manager, State};
-use url::Url;
 
 const API_URL: &str = "https://api.strem.io/api";
 const LINK_URL: &str = "https://link.stremio.com";
 const CREDENTIAL_TARGET: &str = "Luma/Stremio";
-const LINK_TIMEOUT: Duration = Duration::from_secs(600);
+const LINK_TIMEOUT: Duration = Duration::from_secs(300);
+const URI_COMPONENT_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'!')
+    .remove(b'~')
+    .remove(b'*')
+    .remove(b'\'')
+    .remove(b'(')
+    .remove(b')');
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,6 +92,7 @@ impl Default for Stremio {
         Self {
             inner: Mutex::new(Inner::default()),
             client: reqwest::Client::builder()
+                .user_agent(concat!("Luma/", env!("CARGO_PKG_VERSION")))
                 .timeout(Duration::from_secs(30))
                 .build()
                 .expect("valid Stremio HTTP client"),
@@ -188,6 +199,24 @@ struct LinkAuthKey {
     auth_key: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiAuthResponse {
+    auth_key: String,
+}
+
+async fn login_with_token(
+    client: &reqwest::Client,
+    token: &str,
+) -> Result<ApiAuthResponse, RemoteError> {
+    post(
+        client,
+        "loginWithToken",
+        json!({ "type": "LoginWithToken", "token": token }),
+    )
+    .await
+}
+
 async fn read_link(client: &reqwest::Client, code: &str) -> Result<Option<String>, RemoteError> {
     let response = client
         .get(format!("{LINK_URL}/api/v2/read?type=Read&code={code}"))
@@ -258,6 +287,15 @@ fn map_item(item: ApiLibraryItem) -> StremioItem {
     }
 }
 
+fn map_library(items: Vec<Value>) -> Vec<StremioItem> {
+    items
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<ApiLibraryItem>(value).ok())
+        .filter(|item| !item.removed)
+        .map(map_item)
+        .collect()
+}
+
 fn sort_key(item: &StremioItem) -> &str {
     item.last_watched
         .as_deref()
@@ -284,7 +322,11 @@ fn build_status(inner: &Inner) -> StremioStatus {
             qr: pending.qr.clone(),
         });
     let mut items = inner.cache.items.clone();
-    items.sort_by(|a, b| sort_key(b).cmp(sort_key(a)).then_with(|| b.name.cmp(&a.name)));
+    items.sort_by(|a, b| {
+        sort_key(b)
+            .cmp(sort_key(a))
+            .then_with(|| b.name.cmp(&a.name))
+    });
     StremioStatus {
         connected: inner.auth_key.is_some(),
         email: inner.cache.email.clone(),
@@ -358,27 +400,31 @@ async fn synchronize(
     state: &Stremio,
     auth_key: &str,
 ) -> Result<(), String> {
-    let user = post::<ApiUser>(
-        &state.client,
-        "getUser",
-        json!({ "authKey": auth_key }),
-    );
-    let items = post::<Vec<ApiLibraryItem>>(
+    let user = post::<ApiUser>(&state.client, "getUser", json!({ "authKey": auth_key }));
+    let items = post::<Vec<Value>>(
         &state.client,
         "datastoreGet",
-        json!({ "authKey": auth_key, "collection": "libraryItem", "all": true }),
+        json!({ "authKey": auth_key, "collection": "libraryItem", "ids": [], "all": true }),
     );
     let (user, items) = tokio::try_join!(user, items).map_err(|error| {
         if error.expired() {
-            let _ = credential_delete();
-            remove_cache(app);
-            if let Ok(mut inner) = state.inner.lock() {
-                if inner.auth_key.as_deref() == Some(auth_key) {
-                    inner.auth_key = None;
-                    inner.cache = Cache::default();
+            let current = state
+                .inner
+                .lock()
+                .ok()
+                .is_some_and(|inner| inner.auth_key.as_deref() == Some(auth_key));
+            if current {
+                let _ = credential_delete();
+                remove_cache(app);
+                if let Ok(mut inner) = state.inner.lock() {
+                    if inner.auth_key.as_deref() == Some(auth_key) {
+                        inner.auth_key = None;
+                        inner.cache = Cache::default();
+                    }
                 }
             }
-            "Your Stremio session has expired. Disconnect and reconnect in Settings → Integrations → Stremio.".to_string()
+            "Your Stremio session has expired. Reconnect in Settings → Integrations → Stremio."
+                .to_string()
         } else {
             error.message()
         }
@@ -386,11 +432,7 @@ async fn synchronize(
     let cache = Cache {
         email: user.email,
         last_sync: Some(now_millis()),
-        items: items
-            .into_iter()
-            .filter(|item| !item.removed)
-            .map(map_item)
-            .collect(),
+        items: map_library(items),
     };
     {
         let mut inner = lock(state)?;
@@ -398,8 +440,9 @@ async fn synchronize(
             return Err("The Stremio account changed during synchronization.".into());
         }
         inner.cache = cache.clone();
+        save_cache(app, &cache)?;
     }
-    save_cache(app, &cache)
+    Ok(())
 }
 
 #[tauri::command]
@@ -447,20 +490,31 @@ pub async fn stremio_link_poll(
             None => return Err("Start connecting a Stremio account first.".into()),
         }
     };
-    let auth_key = read_link(&state.client, &code)
+    let link_token = read_link(&state.client, &code)
         .await
         .map_err(|error| error.message())?;
-    let Some(auth_key) = auth_key else {
+    let Some(link_token) = link_token else {
         let inner = lock(&state)?;
         return Ok(build_status(&inner));
     };
-    credential_write(&auth_key)?;
+    let session = match login_with_token(&state.client, &link_token).await {
+        Ok(session) => session,
+        Err(RemoteError::Api(error)) if error.code == 1 => {
+            let mut inner = lock(&state)?;
+            inner.pending = None;
+            return Err(
+                "The Stremio link expired before it could be completed. Start again.".into(),
+            );
+        }
+        Err(error) => return Err(error.message()),
+    };
+    credential_write(&session.auth_key)?;
     {
         let mut inner = lock(&state)?;
-        inner.auth_key = Some(auth_key.clone());
+        inner.auth_key = Some(session.auth_key.clone());
         inner.pending = None;
     }
-    synchronize(&app, &state, &auth_key).await?;
+    synchronize(&app, &state, &session.auth_key).await?;
     let inner = lock(&state)?;
     Ok(build_status(&inner))
 }
@@ -505,9 +559,9 @@ pub fn stremio_disconnect(
     app: tauri::AppHandle,
     state: State<Stremio>,
 ) -> Result<StremioStatus, String> {
+    let mut inner = lock(&state)?;
     credential_delete()?;
     remove_cache(&app);
-    let mut inner = lock(&state)?;
     inner.auth_key = None;
     inner.pending = None;
     inner.cache = Cache::default();
@@ -527,29 +581,27 @@ pub fn stremio_open(
         .find(|item| item.id == id)
         .cloned()
         .ok_or("This title is not in your synchronized Stremio library.")?;
-    open_url(&deep_link(&item)?)?;
+    open_url(&deep_link(&item))?;
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.minimize();
     }
     Ok(())
 }
 
-fn deep_link(item: &StremioItem) -> Result<String, String> {
-    let mut url = Url::parse("stremio:///").map_err(|error| error.to_string())?;
+fn deep_link(item: &StremioItem) -> String {
+    let kind = utf8_percent_encode(&item.kind, URI_COMPONENT_ENCODE_SET);
+    let id = utf8_percent_encode(&item.id, URI_COMPONENT_ENCODE_SET);
+    match item
+        .video_id
+        .as_deref()
+        .filter(|value| !value.is_empty() && *value != item.id)
     {
-        let mut path = url
-            .path_segments_mut()
-            .map_err(|_| "Could not build a Stremio link.".to_string())?;
-        path.push("detail").push(&item.kind).push(&item.id);
-        if let Some(video_id) = item
-            .video_id
-            .as_deref()
-            .filter(|value| !value.is_empty() && *value != item.id)
-        {
-            path.push(video_id);
-        }
+        Some(video_id) => format!(
+            "stremio:///detail/{kind}/{id}/{}",
+            utf8_percent_encode(video_id, URI_COMPONENT_ENCODE_SET)
+        ),
+        None => format!("stremio:///detail/{kind}/{id}"),
     }
-    Ok(url.to_string())
 }
 
 #[cfg(windows)]
@@ -566,9 +618,14 @@ fn credential_read() -> Result<Option<String>, String> {
     };
     let target = wide(CREDENTIAL_TARGET);
     let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
-    if let Err(error) =
-        unsafe { CredReadW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None, &mut credential) }
-    {
+    if let Err(error) = unsafe {
+        CredReadW(
+            PCWSTR(target.as_ptr()),
+            CRED_TYPE_GENERIC,
+            None,
+            &mut credential,
+        )
+    } {
         if error.code() == ERROR_NOT_FOUND.to_hresult() {
             return Ok(None);
         }
@@ -576,11 +633,15 @@ fn credential_read() -> Result<Option<String>, String> {
     }
     let value = unsafe {
         let credential = &*credential;
-        let bytes = std::slice::from_raw_parts(
-            credential.CredentialBlob,
-            credential.CredentialBlobSize as usize,
-        );
-        String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+        if credential.CredentialBlobSize == 0 {
+            Ok(String::new())
+        } else {
+            let bytes = std::slice::from_raw_parts(
+                credential.CredentialBlob,
+                credential.CredentialBlobSize as usize,
+            );
+            String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+        }
     };
     unsafe { CredFree(credential.cast()) };
     value.map(Some)
@@ -628,8 +689,7 @@ fn credential_delete() -> Result<(), String> {
 #[cfg(windows)]
 fn open_url(target: &str) -> Result<(), String> {
     use windows::{
-        core::PCWSTR,
-        Win32::UI::Shell::ShellExecuteW,
+        core::PCWSTR, Win32::UI::Shell::ShellExecuteW,
         Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
     };
     let operation = wide("open");
@@ -645,7 +705,10 @@ fn open_url(target: &str) -> Result<(), String> {
         )
     };
     if result.0 as isize <= 32 {
-        return Err("Could not open Stremio. Install it or check its stremio:// protocol registration.".into());
+        return Err(
+            "Could not open Stremio. Install it or check its stremio:// protocol registration."
+                .into(),
+        );
     }
     Ok(())
 }
@@ -711,8 +774,45 @@ mod tests {
     }
 
     #[test]
+    fn login_response_uses_the_session_key() {
+        let auth: ApiAuthResponse = serde_json::from_value(json!({
+            "authKey": "session-key",
+            "user": { "email": "viewer@example.com" }
+        }))
+        .expect("valid auth response");
+        assert_eq!(auth.auth_key, "session-key");
+    }
+
+    #[test]
+    fn library_mapping_skips_invalid_and_removed_items() {
+        let items = vec![
+            json!({
+                "_id": "tt123",
+                "name": "Example",
+                "type": "movie",
+                "state": { "timeOffset": 0, "duration": 1000 }
+            }),
+            json!({ "name": "Incomplete" }),
+            json!({
+                "_id": "tt456",
+                "name": "Removed",
+                "type": "movie",
+                "removed": true,
+                "state": { "timeOffset": 0, "duration": 1000 }
+            }),
+        ];
+        let mapped = map_library(items);
+        assert_eq!(mapped.len(), 1);
+        assert_eq!(mapped[0].id, "tt123");
+    }
+
+    #[test]
     fn continue_watching_matches_upstream_rules() {
-        let items = vec![item("movie", "movie", 500), item("other", "other", 500), item("new", "series", 0)];
+        let items = vec![
+            item("movie", "movie", 500),
+            item("other", "other", 500),
+            item("new", "series", 0),
+        ];
         let watching = continue_watching(&items);
         assert_eq!(watching.len(), 1);
         assert_eq!(watching[0].id, "movie");
@@ -723,11 +823,11 @@ mod tests {
         let mut series = item("tt123", "series", 1);
         series.video_id = Some("tt123:1:2".into());
         assert_eq!(
-            deep_link(&series).unwrap(),
-            "stremio:///detail/series/tt123/tt123:1:2"
+            deep_link(&series),
+            "stremio:///detail/series/tt123/tt123%3A1%3A2"
         );
         assert_eq!(
-            deep_link(&item("tt456", "movie", 1)).unwrap(),
+            deep_link(&item("tt456", "movie", 1)),
             "stremio:///detail/movie/tt456"
         );
     }

@@ -9,11 +9,16 @@ fn fingerprint(title: &str, artist: &str) -> u64 {
     hash
 }
 
-pub fn activity(title: &str, artist: &str, now: &str) -> ActivityItem {
+pub fn activity(title: &str, artist: &str, track_id: Option<&str>, now: &str) -> ActivityItem {
+    let stable = track_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("spotify:track:{value}"))
+        .unwrap_or_else(|| format!("spotify:track:{:016x}", fingerprint(title, artist)));
     ActivityItem {
-        id: format!("spotify:track:{:016x}", fingerprint(title, artist)),
+        id: stable,
         provider: "spotify".into(),
-        provider_item_id: None,
+        provider_item_id: track_id.map(str::to_string),
         profile_id: None,
         item_type: ActivityType::Track,
         title: title.trim().into(),
@@ -40,8 +45,8 @@ mod tests {
 
     #[test]
     fn observed_tracks_are_stable_and_never_claim_progress() {
-        let first = activity("Night Drive", "The Example", "2026-01-01T00:00:00.000Z");
-        let second = activity("night drive", "the example", "2026-01-02T00:00:00.000Z");
+        let first = activity("Night Drive", "The Example", Some("track-1"), "2026-01-01T00:00:00.000Z");
+        let second = activity("night drive", "the example", Some("track-1"), "2026-01-02T00:00:00.000Z");
         assert_eq!(first.id, second.id);
         assert_eq!(first.progress_seconds, None);
         assert_eq!(first.progress_source, ProgressSource::Unknown);

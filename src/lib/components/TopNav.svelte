@@ -13,7 +13,7 @@
 <header class="topbar">
   <span class="brand"><span class="brand-mark">L</span> luma<span class="brand-sub">TV</span></span>
   <nav class="nav-pill" aria-label="Main navigation">
-    {#each ['Home', 'Watch', 'Music', 'Apps'] as tab (tab)}
+    {#each ['Home', 'Watch', 'Library', 'Music', 'Apps'] as tab (tab)}
       <button id={tab === 'Home' ? 'home-button' : undefined} class={['nav-btn', { 'is-active': active === tab }]} aria-current={active === tab ? 'page' : undefined} onclick={() => navigate(tab)}>{tab}</button>
     {/each}
   </nav>

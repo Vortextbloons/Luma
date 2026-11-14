@@ -2,11 +2,14 @@ mod activity;
 mod background;
 mod frame;
 mod commands;
+mod integrations;
 mod remote;
 
-use commands::{apps, media, stremio, youtube};
+use commands::{apps, media, session, stremio, youtube};
+use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -16,13 +19,17 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().args(["--background"]).build())
         .plugin(tauri_plugin_opener::init())
         .manage(apps::Apps::default())
+        .manage(session::Session::default())
         .manage(media::Media::default())
         .manage(server::Remote::default())
         .manage(frame::Frame::default())
         .manage(youtube::Bridge::default())
         .manage(stremio::Stremio::default())
+        .manage(spotify::player::Player::default())
+        .manage(spotify::windows_media::Media::default())
         .setup(|app| {
             background::setup(app)?;
+            app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?);
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             stremio::load(app.handle());
@@ -30,6 +37,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::initialize(handle.clone()).await;
                 if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
+                spotify::initialize(handle.clone()).await;
                 if !std::env::args().any(|arg| arg == "--background") {
                     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                     youtube::prepare(handle).await;
@@ -54,6 +62,20 @@ pub fn run() {
             apps::detect_apps,
             media::media_state,
             media::media_control,
+            spotify::spotify_status,
+            spotify::spotify_playback,
+            spotify::spotify_control,
+            spotify::spotify_play,
+            spotify::spotify_transfer,
+            spotify::spotify_home,
+            spotify::spotify_search,
+            spotify::spotify_queue,
+            spotify::spotify_devices,
+            spotify::spotify_client_id,
+            spotify::spotify_set_client_id,
+            spotify::spotify_connect,
+            spotify::spotify_disconnect,
+            spotify::spotify_start,
             frame::frame_status,
             frame::configure_frame,
             frame::frame_pairing,
