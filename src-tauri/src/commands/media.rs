@@ -6,6 +6,9 @@ pub fn stop(app: &tauri::AppHandle) {
 }
 
 pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+    if app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false)) {
+        return crate::commands::sports::control(app, action).await;
+    }
     if !matches!(action, "toggle" | "previous" | "next") {
         return Err("Unknown playback command.".into());
     }
@@ -20,7 +23,28 @@ pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String>
     spotify::control(app, &auth, action, None).await
 }
 
+fn visible_player(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    ["youtube", "stremio"].into_iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .find(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false))
+}
+
+pub fn has_video(app: &tauri::AppHandle) -> bool {
+    visible_player(app).is_some() || app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false))
+}
+
+pub async fn music(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+    if !matches!(action, "toggle" | "previous" | "next") {
+        return Err("Unknown music command.".into());
+    }
+    let auth = app.state::<Auth>();
+    spotify::control(app, &auth, action, None).await
+}
+
 pub async fn timeline(app: &tauri::AppHandle, position: Option<f64>) -> Result<serde_json::Value, String> {
+    if app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false)) {
+        return crate::commands::sports::timeline(app, position).await;
+    }
     let script = format!("({})({})", include_str!("../../resources/timeline.js"), serde_json::to_string(&position).map_err(|error| error.to_string())?);
     let mut windows: Vec<_> = ["youtube", "stremio"].into_iter()
         .filter_map(|label| app.get_webview_window(label))

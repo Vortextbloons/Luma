@@ -7,6 +7,7 @@
   import { api } from "../lib/api";
   import { themeColors, themeLabel } from "../lib/appearance";
   import { control, setControlMode } from "../lib/control.svelte";
+  import { music, setMusicEnabled } from "../lib/music.svelte";
   import { installEnvironment, installSteps, isStandalone } from "../lib/install";
   import { disconnect, refresh, send, session, setSoundLevel, setSoundPreset, setTheme } from "../lib/session.svelte";
   import type { SettingChoice } from "../lib/types";
@@ -33,7 +34,7 @@
 
   const remoteCategories: Category[] = [
     { id: "controls", group: "This remote", title: "Controls", blurb: "Touchpad or directional pad", heading: "Controls", description: "Choose how this phone's pad drives Luma. Other remotes keep their own setting." },
-    { id: "browser", group: "This remote", title: "This browser", blurb: "Theme and fullscreen", heading: "This browser", description: "Appearance and window options saved on this device." },
+    { id: "browser", group: "This remote", title: "This browser", blurb: "Theme, fullscreen, music", heading: "This browser", description: "Appearance and window options saved on this device." },
     { id: "connection", group: "This remote", title: "Connection", blurb: "Pairing and this session", heading: "Connection", description: "The link between this browser and your PC." },
   ];
 
@@ -522,6 +523,22 @@
             </button>
           </div>
           {#if browserNote}<p class="row-note" role="status">{browserNote}</p>{/if}
+        </section>
+
+        <section class="group">
+          <h3>Music</h3>
+          <div class="row">
+            <span class="row-copy">
+              <b>Music controls</b>
+              <small>Show the now-playing card with Spotify art, play, and skip. Music keeps playing while a movie is on.</small>
+            </span>
+            <SettingSwitch
+              checked={music.enabled}
+              label="Music controls"
+              onchange={setMusicEnabled}
+            />
+          </div>
+          <p class="row-note">Saved on this phone. The Music view on the PC is separate and always available.</p>
         </section>
       {/if}
 

@@ -68,6 +68,8 @@ Edge app windows have no tabs, address bar, or browser chrome, and each service 
 
 The Music view controls the Spotify desktop app on this PC. Playback and track information arrive through Windows' GlobalSystemMediaTransportControlsSessionManager, so Spotify must be running and exposing a compatible media session. Unsupported actions are disabled, and missing sessions are reported.
 
+Music plays independently of video. Opening Spotify does not close a running movie or Stremio window, and the Music view is only raised when nothing else is playing. Both remotes show a music strip whenever Spotify has a session, with a play/pause, previous, and next control that target Spotify rather than the movie. The same strip appears on the Display Box TV Remote tab; the frame keeps its own App Remote integration for music it plays locally, while the strip controls the PC.
+
 An optional Spotify account connection adds playlists, saved albums, liked songs, search, recently played, queue and device transfer. Luma uses the user's own Spotify developer app for this: sign in to the Spotify Developer Dashboard, create a Web API app, register the redirect URI `http://127.0.0.1:8888/callback` (Spotify does not allow `localhost`), and paste the Client ID into Settings → Apps & Services → Accounts → Spotify. No client secret is needed. Connection uses PKCE with a local loopback callback, and tokens are stored in Windows Credential Manager under `Luma/Spotify/OAuth`. Playback control through the account requires Spotify Premium. Luma does not bundle a Spotify streaming engine.
 
 ## Movie catalog
@@ -117,8 +119,11 @@ The frame keeps its existing protocol on port 9877 and authenticates with `Autho
 
 - `POST /pair` accepts `{ "code": "123456" }` and returns `{ "token": "...", "pcName": "..." }`.
 - `GET /state` returns the PC name, connection state, appearance, app order, and sound state.
-- `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; volume commands are `volumeup`, `volumedown`, and `mute`.
+- `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; music-only commands are `musictoggle`, `musicprevious`, and `musicnext`; volume commands are `volumeup`, `volumedown`, and `mute`.
 - `GET /apps` returns the app catalog in the current dock order; the order is shared with the web remote and the TV.
+- `GET /phone/music/art` returns the current album artwork as image bytes for remotes that can draw it. It is not part of the state payload; the socket frames are capped at 4 KB.
+
+`toggle`, `previous`, and `next` keep their original meaning: they follow whatever is in front, so a visible movie wins and Spotify receives them only when no video is open. The `music*` commands always target the Spotify media session regardless of what is on screen, so music can be paused, skipped, and resumed while a movie keeps playing. Music commands do not wake the launcher or hide the pointer. The state payload carries a compact `music` object (`playing`, `title`, `artist`, `hasArtwork`, `positionMs`, `durationMs`, `updatedAt`, and capability flags) and omits it when no Spotify session exists. Remotes interpolate playback position from `positionMs` and `updatedAt` instead of receiving a tick every second.
 
 Frame credentials are persistent and are not replaced by web remote pairing. This protocol rejects requests that include an Origin header. Commands cannot carry executable paths or shell arguments. Settings can forget the frame or web remote separately; **Forget all remotes** clears both credentials.
 

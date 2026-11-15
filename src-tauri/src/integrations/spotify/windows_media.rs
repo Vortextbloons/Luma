@@ -53,6 +53,7 @@ mod platform {
         timeline_token: Option<i64>,
         artwork_key: String,
         artwork: Option<String>,
+        artwork_raw: Option<(String, Vec<u8>)>,
     }
     impl Watch {
         fn clear_session(&mut self) {
@@ -69,6 +70,7 @@ mod platform {
             }
             self.artwork_key.clear();
             self.artwork = None;
+            self.artwork_raw = None;
         }
     }
     impl Drop for Watch {
@@ -153,7 +155,7 @@ mod platform {
             .is_some()
     }
 
-    fn artwork(reference: &windows::Storage::Streams::IRandomAccessStreamReference) -> Option<String> {
+    fn artwork(reference: &windows::Storage::Streams::IRandomAccessStreamReference) -> Option<(String, String, Vec<u8>)> {
         let stream = reference.OpenReadAsync().ok()?.get().ok()?;
         let size = stream.Size().ok()?;
         if size == 0 || size > 3_000_000 {
@@ -177,7 +179,8 @@ mod platform {
                 _ => "image/jpeg".into(),
             }
         };
-        Some(format!("data:{content_type};base64,{}", encode(&bytes)))
+        let data_url = format!("data:{content_type};base64,{}", encode(&bytes));
+        Some((data_url, content_type, bytes))
     }
 
     fn milliseconds(value: i64) -> u64 {
@@ -264,11 +267,13 @@ mod platform {
         let key = format!("{title}\u{1f}{artist}\u{1f}{album}");
         if watch.artwork_key != key {
             watch.artwork_key = key;
-            watch.artwork = properties
+            let art = properties
                 .as_ref()
                 .ok()
                 .and_then(|properties| properties.Thumbnail().ok())
                 .and_then(|reference| artwork(&reference));
+            watch.artwork = art.as_ref().map(|(data_url, _, _)| data_url.clone());
+            watch.artwork_raw = art.map(|(_, content_type, bytes)| (content_type, bytes));
         }
 
         let playback = session.GetPlaybackInfo().ok();
@@ -431,6 +436,13 @@ mod platform {
             *watch = Watch::default();
         }
     }
+
+    pub fn current_artwork(app: &tauri::AppHandle) -> Option<(String, Vec<u8>)> {
+        use tauri::Manager;
+        let media = app.state::<Media>();
+        let watch = media.0.lock().ok()?;
+        watch.artwork_raw.clone()
+    }
 }
 
 #[cfg(not(windows))]
@@ -457,9 +469,12 @@ mod platform {
         Err("Spotify media controls require Windows.".into())
     }
     pub fn stop(_: &tauri::AppHandle) {}
+    pub fn current_artwork(_: &tauri::AppHandle) -> Option<(String, Vec<u8>)> {
+        None
+    }
 }
 
-pub use platform::{available, control, snapshot, start, stop, Media};
+pub use platform::{available, control, current_artwork, snapshot, start, stop, Media};
 
 mod base64_helper {
     const ALPHABET: &[u8; 64] =

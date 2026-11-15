@@ -16,6 +16,7 @@
   import WidgetHost from './lib/components/WidgetHost.svelte';
   import MusicHome from './lib/components/spotify/MusicHome.svelte';
   import NowPlaying from './lib/components/spotify/NowPlaying.svelte';
+  import SportsHome from './lib/components/SportsHome.svelte';
   import { spotify } from './lib/state/spotify.svelte';
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
   import StremioLibrary from './lib/components/StremioLibrary.svelte';
@@ -87,6 +88,7 @@
   let featured = $state.raw<MediaItem[]>([]);
   let playerOpen = $state(false);
   let musicHome = $state<MusicHome>();
+  let sportsHome = $state<SportsHome>();
   let player = $state<NowPlaying>();
   let launching = $state<AppId | null>(null);
   let stremioPairing = $state(false);
@@ -416,6 +418,7 @@
     if (panel) { void playSound('back'); panel = false; void refreshStremio(); }
     else if (details) { void playSound('back'); details = null; }
     else if (playerOpen) { void playSound('back'); if (!player?.closeOverlay()) closePlayer(); return; }
+    else if (tab === 'Sports' && sportsHome?.closeDetail()) { void playSound('back'); return; }
     else if (tab === 'Music' && musicHome?.closeDetail()) { void playSound('back'); return; }
     else { void playSound('back'); home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
@@ -474,7 +477,7 @@
     }
     navigation.keydown(event);
   }
-  const tabOrder = ['Home', 'Watch', 'Library', 'Music', 'Apps'];
+  const tabOrder = ['Home', 'Watch', 'Sports', 'Library', 'Music', 'Apps'];
   let previousTab = 0;
   function animateView(view: string) {
     const index = Math.max(0, tabOrder.indexOf(view));
@@ -669,6 +672,7 @@
       actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
+  {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} />{/if}
   {#if tab === 'Apps'}
     <header class="page-head">
       <div><span class="eyebrow">ON THIS PC</span><h1>Apps</h1><p>Open your streaming apps and keep the ones you use most in reach.</p></div>

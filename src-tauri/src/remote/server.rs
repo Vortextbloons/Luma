@@ -203,6 +203,27 @@ pub struct AppState {
     appearance: Option<Appearance>,
     app_order: Vec<String>,
     settings: Vec<SettingChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    music: Option<MusicState>,
+}
+
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicState {
+    pub playing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    pub has_artwork: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub updated_at: u64,
+    pub can_toggle: bool,
+    pub can_skip_next: bool,
+    pub can_skip_previous: bool,
 }
 
 impl AppState {
@@ -357,7 +378,7 @@ fn should_wake(visible: bool, external_session: bool) -> bool {
 }
 
 pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
-    let visible = ["main", "youtube", "stremio"].iter().any(|label|
+    let visible = ["main", "youtube", "stremio", "sports"].iter().any(|label|
         app.get_webview_window(label).is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)));
     if should_wake(visible, crate::commands::session::active(app)) {
         let window = crate::background::main_window(app).await?;
@@ -370,7 +391,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     crate::commands::session::close_steam(app);
     crate::remote::pointer::stop_all(app);
     crate::remote::pointer::show_cursor(app);
-    for label in ["main", "youtube", "stremio"] {
+    for label in ["main", "youtube", "stremio", "sports"] {
         if let Some(window) = app.get_webview_window(label) {
             if label != "main" { let _ = window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause())"); }
             window.hide().map_err(|error| error.to_string())?;
@@ -379,6 +400,7 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     crate::background::unload(app, "main");
     crate::background::unload(app, "youtube");
     crate::background::unload(app, "stremio");
+    crate::background::unload(app, "sports");
     let _ = crate::tv::restore_audio_sync();
     Ok(())
 }
@@ -410,6 +432,10 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
         | NavigationCommand::Right
         | NavigationCommand::Activate
         | NavigationCommand::Back => crate::remote::pointer::hide_cursor(app),
+    }
+    if app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false)) {
+        crate::commands::sports::forward(app, command.as_str());
+        return;
     }
     let handled = crate::commands::session::route(app, command.as_str());
     let embedded = if handled {
@@ -448,19 +474,12 @@ fn show_main(handled: bool, embedded: bool, command: NavigationCommand) -> bool 
 }
 
 pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
-    crate::commands::session::release(app)?;
-    for label in ["stremio", "youtube"] {
-        if app
-            .get_webview_window(label)
-            .is_some_and(|window| window.is_visible().unwrap_or(false))
-        {
-            if label == "stremio" {
-                crate::commands::stremio::close(app);
-            } else {
-                youtube::close(app);
-            }
-        }
+    let watching = crate::commands::media::has_video(app) || crate::commands::session::active(app)
+        || app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false));
+    if watching {
+        return Ok(());
     }
+    crate::commands::session::release(app)?;
     crate::background::show(app);
     app.emit_to("main", "open-music", ())
         .map_err(|error| error.to_string())?;
@@ -476,6 +495,7 @@ pub struct Remote {
     state: Mutex<AppState>,
     appearance: tokio::sync::watch::Sender<Option<Appearance>>,
     app_order: tokio::sync::watch::Sender<Vec<String>>,
+    music: tokio::sync::watch::Sender<Option<MusicState>>,
 }
 
 impl Default for Remote {
@@ -491,9 +511,11 @@ impl Default for Remote {
                 appearance: None,
                 app_order: Vec::new(),
                 settings: setting_catalog(),
+                music: None,
             }),
             appearance: tokio::sync::watch::channel(None).0,
             app_order: tokio::sync::watch::channel(Vec::new()).0,
+            music: tokio::sync::watch::channel(None).0,
         }
     }
 }
@@ -508,10 +530,21 @@ impl Remote {
     pub(crate) fn subscribe_app_order(&self) -> tokio::sync::watch::Receiver<Vec<String>> {
         self.app_order.subscribe()
     }
+
+    pub(crate) fn subscribe_music(&self) -> tokio::sync::watch::Receiver<Option<MusicState>> {
+        self.music.subscribe()
+    }
+
+    pub(crate) fn publish_music(&self, state: Option<MusicState>) {
+        if let Ok(mut current) = self.state.try_lock() {
+            current.music = state.clone();
+        }
+        self.music.send_replace(state);
+    }
 }
 
 fn active_window(app: &tauri::AppHandle) -> Option<(&'static str, tauri::WebviewWindow)> {
-    let windows: Vec<_> = [("main", "Luma"), ("youtube", "YouTube"), ("stremio", "Stremio")]
+    let windows: Vec<_> = [("main", "Luma"), ("youtube", "YouTube"), ("stremio", "Stremio"), ("sports", "Sports")]
         .into_iter()
         .filter_map(|(label, name)| {
             let window = app.get_webview_window(label)?;
@@ -550,6 +583,22 @@ pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> 
     Ok(state.clone())
 }
 
+pub(crate) fn sync_music(app: &tauri::AppHandle, state: &crate::integrations::spotify::models::PlaybackState) {
+    let music = (state.player_available || state.title.is_some()).then(|| MusicState {
+        playing: state.playing,
+        title: state.title.clone().filter(|value| !value.trim().is_empty()),
+        artist: state.artist.clone().filter(|value| !value.trim().is_empty()),
+        has_artwork: state.artwork_url.is_some(),
+        position_ms: state.position_ms,
+        duration_ms: state.duration_ms,
+        updated_at: state.updated_at,
+        can_toggle: state.can_toggle,
+        can_skip_next: state.can_skip_next,
+        can_skip_previous: state.can_skip_previous,
+    });
+    app.state::<Remote>().publish_music(music);
+}
+
 pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(result) = crate::commands::session::fullscreen(app) {
         return result;
@@ -568,7 +617,7 @@ pub fn update_app_state(
     fullscreen: bool,
     sound: SoundPreset,
 ) -> Result<(), String> {
-    if !["Home", "Watch", "Music", "Apps", "Settings", "Details"].contains(&view.as_str()) {
+    if !["Home", "Watch", "Sports", "Library", "Music", "Apps", "Settings", "Details"].contains(&view.as_str()) {
         return Err("Invalid view.".into());
     }
     let mut state = remote.state.lock().map_err(|e| e.to_string())?;
@@ -726,11 +775,35 @@ mod tests {
             appearance: None,
             app_order: Vec::new(),
                 settings: Vec::new(),
+            music: None,
         };
         let value = serde_json::to_value(state).unwrap();
         assert_eq!(value["window"], "YouTube");
         assert_eq!(value["windowFullscreen"], true);
         assert_eq!(value["sound"], "real");
+    }
+
+    #[test]
+    fn music_state_is_compact_and_omits_nothing_the_remotes_read() {
+        let music = super::MusicState {
+            playing: true,
+            title: Some("Song".into()),
+            artist: Some("Artist".into()),
+            has_artwork: true,
+            position_ms: Some(1000),
+            duration_ms: Some(200_000),
+            updated_at: 42,
+            can_toggle: true,
+            can_skip_next: true,
+            can_skip_previous: false,
+        };
+        let value = serde_json::to_value(&music).unwrap();
+        assert_eq!(value["playing"], true);
+        assert_eq!(value["title"], "Song");
+        assert_eq!(value["hasArtwork"], true);
+        assert_eq!(value["canSkipPrevious"], false);
+        assert!(value.get("artworkUrl").is_none());
+        assert!(serde_json::to_vec(&music).unwrap().len() < 512);
     }
 
     #[test]

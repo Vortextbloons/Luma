@@ -29,6 +29,9 @@ const ROLE_FOR_COMMAND: Record<string, SoundRole> = {
   mute: "volume",
   fullscreen: "press",
   stop: "press",
+  musictoggle: "toggle",
+  musicnext: "press",
+  musicprevious: "press",
 };
 
 export interface SoundFeedback {

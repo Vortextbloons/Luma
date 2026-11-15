@@ -46,6 +46,12 @@
     <path d="M5 5l10 7L5 19z" fill="currentColor" stroke="none" />
   {:else if name === "play"}
     <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none" />
+  {:else if name === "pause"}
+    <path d="M9 5h2.5v14H9zM13.5 5H16v14h-2.5z" fill="currentColor" stroke="none" />
+  {:else if name === "music"}
+    <path d="M9 18V6l11-2v12" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="17" cy="16" r="3" />
   {:else if name === "volume-down"}
     <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none" />
     <path d="M15.5 8.5a5 5 0 0 1 0 7" />
@@ -62,6 +68,8 @@
     <path d="m6 6 12 12M18 6 6 18" />
   {:else if name === "expand"}
     <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3" />
+  {:else if name === "collapse"}
+    <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M3 16h3a2 2 0 0 1 2 2v3" />
   {:else if name === "phone"}
     <rect x="6" y="2.5" width="12" height="19" rx="3" />
     <path d="M10.5 18.5h3" />

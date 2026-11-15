@@ -10,7 +10,7 @@ mod remote;
 mod sound;
 mod customization;
 
-use commands::{apps, media, services, session, steam, stremio, youtube};
+use commands::{apps, media, services, session, sports, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
@@ -141,6 +141,11 @@ pub fn run() {
             server::update_app_state,
             server::update_appearance,
             server::update_settings,
+            sports::sports_listing,
+            sports::sports_open,
+            sports::sports_scoreboard,
+            sports::sports_artwork,
+            sports::sports_update_score,
             youtube::open_youtube,
             youtube::youtube_feed,
             youtube::youtube_open_video,

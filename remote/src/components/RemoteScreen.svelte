@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import InstallHint from "./InstallHint.svelte";
   import MoreMenu from "./MoreMenu.svelte";
+  import MusicCard from "./MusicCard.svelte";
   import OfflineBanner from "./OfflineBanner.svelte";
   import RemoteKey from "./RemoteKey.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
@@ -89,6 +90,8 @@
 
     <Deck onsend={command} />
   </main>
+
+  <MusicCard onsend={command} />
 
   <SettingsDialog open={settingsOpen} onclose={closeSettings} />
   <TextDialog open={textOpen} onclose={closeText} />

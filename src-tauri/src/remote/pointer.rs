@@ -62,7 +62,7 @@ fn velocity(x: f32, y: f32) -> (f32, f32) {
 }
 
 fn cursor(app: &tauri::AppHandle, script: &str) {
-    for label in ["main", "youtube", "stremio"] {
+    for label in ["main", "youtube", "stremio", "sports"] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.eval(script);
         }
@@ -181,6 +181,11 @@ pub fn show_cursor(app: &tauri::AppHandle) {
 
 pub(crate) fn hides_cursor(command: &str) -> bool {
     !matches!(command, "stop" | "click" | "fullscreen")
+        && !is_music(command)
+}
+
+pub(crate) fn is_music(command: &str) -> bool {
+    matches!(command, "musictoggle" | "musicprevious" | "musicnext")
 }
 
 pub fn click(app: &tauri::AppHandle) -> Result<(), String> {
@@ -352,7 +357,7 @@ mod physical {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp, hides_cursor, velocity, DEAD_ZONE};
+    use super::{clamp, hides_cursor, is_music, velocity, DEAD_ZONE};
 
     #[test]
     fn joystick_dead_zone_suppresses_drift() {
@@ -385,6 +390,17 @@ mod tests {
             "next", "volumeup", "volumedown", "mute", "youtube", "netflix",
         ] {
             assert!(hides_cursor(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn music_commands_leave_the_cursor_and_the_launcher_alone() {
+        for command in ["musictoggle", "musicnext", "musicprevious"] {
+            assert!(is_music(command), "{command}");
+            assert!(!hides_cursor(command), "{command}");
+        }
+        for command in ["toggle", "next", "previous", "home", "stop"] {
+            assert!(!is_music(command), "{command}");
         }
     }
 

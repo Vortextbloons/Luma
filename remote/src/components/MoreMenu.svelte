@@ -1,12 +1,15 @@
 <script lang="ts">
   import { tick } from "svelte";
   import Icon from "./Icon.svelte";
+  import { session } from "../lib/session.svelte";
 
   let { onsend }: { onsend: (command: string) => Promise<unknown> | unknown } = $props();
 
   let open = $state(false);
   let trigger = $state<HTMLButtonElement>();
   let menu = $state<HTMLDivElement>();
+
+  let fullscreen = $derived(session.state?.windowFullscreen === true);
 
   function close(restoreFocus = true): void {
     if (!open) return;
@@ -19,9 +22,9 @@
     else open = true;
   }
 
-  async function stop(): Promise<void> {
+  async function run(command: string): Promise<void> {
     close(true);
-    await onsend("stop");
+    await onsend(command);
   }
 
   $effect(() => {
@@ -81,7 +84,11 @@
 
   {#if open}
     <div bind:this={menu} id="more-menu" class="more-menu" role="menu" aria-label="More actions">
-      <button type="button" role="menuitem" class="more-item" onclick={stop}>
+      <button type="button" role="menuitem" class="more-item" onclick={() => run("fullscreen")}>
+        <Icon name={fullscreen ? "collapse" : "expand"} className="size-[17px]" />
+        <span>{fullscreen ? "Exit PC fullscreen" : "Fullscreen PC"}</span>
+      </button>
+      <button type="button" role="menuitem" class="more-item is-danger" onclick={() => run("stop")}>
         <Icon name="stop" className="size-[17px]" />
         <span>Stop Luma</span>
       </button>
@@ -114,15 +121,24 @@
     border: 0;
     border-radius: 10px;
     background: transparent;
-    color: var(--danger);
+    color: var(--text-dim);
     font-size: 13.5px;
     font-weight: 650;
     text-align: left;
   }
 
+  .more-item.is-danger {
+    color: var(--danger);
+  }
+
   .more-item:hover,
   .more-item:focus-visible {
     outline: none;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  .more-item.is-danger:hover,
+  .more-item.is-danger:focus-visible {
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
 </style>

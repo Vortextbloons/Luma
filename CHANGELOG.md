@@ -2,6 +2,17 @@
 
 Notable changes to Luma, newest first. The Release workflow publishes the matching section as the GitHub release notes and in-app update notes.
 
+## Unreleased
+
+### Added
+
+- Music keeps playing while a movie or Stremio runs, instead of closing the video window when Spotify opens.
+- A music strip on the web remote and the Display Box TV Remote tab with album art, play/pause, previous, and next, controlling Spotify on the PC without disturbing the movie.
+
+### Changed
+
+- Play/pause, previous, and next follow the window in front as before; the new music controls always target Spotify.
+
 ## [0.4.0] - 2026-11-14
 
 ### Added

@@ -15,12 +15,15 @@ export type IconName =
   | "previous"
   | "next"
   | "play"
+  | "pause"
+  | "music"
   | "volume-down"
   | "volume-up"
   | "mute"
   | "stop"
   | "close"
   | "expand"
+  | "collapse"
   | "phone"
   | "wifi-off"
   | "check"
@@ -54,6 +57,19 @@ export interface SettingChoice {
   value: string;
 }
 
+export interface MusicState {
+  playing: boolean;
+  title?: string;
+  artist?: string;
+  hasArtwork: boolean;
+  positionMs?: number;
+  durationMs?: number;
+  updatedAt: number;
+  canToggle: boolean;
+  canSkipNext: boolean;
+  canSkipPrevious: boolean;
+}
+
 export interface RemoteState {
   view: string;
   fullscreen: boolean;
@@ -63,6 +79,7 @@ export interface RemoteState {
   appearance?: Appearance;
   appOrder: string[];
   settings: SettingChoice[];
+  music?: MusicState | null;
 }
 
 export interface StateResponse {
@@ -82,6 +99,7 @@ export interface SocketReply {
   state?: RemoteState;
   appearance?: Appearance;
   appOrder?: string[];
+  music?: MusicState | null;
 }
 
 export interface AppEntry {

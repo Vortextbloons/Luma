@@ -1,4 +1,5 @@
 pub mod document;
+pub mod history;
 pub mod server;
 
 use document::{Config, Document};
@@ -60,6 +61,7 @@ impl Store {
 
     fn from_connection(mut connection: Connection) -> Result<Self, Error> {
         connection.execute_batch("CREATE TABLE IF NOT EXISTS customization (id INTEGER PRIMARY KEY CHECK(id = 1), document TEXT NOT NULL, previous TEXT);")?;
+        history::create(&connection)?;
         Self::migrate(&mut connection)?;
         Ok(Self(Ok(Mutex::new(connection)), Mutex::new(None)))
     }
@@ -67,15 +69,20 @@ impl Store {
     fn migrate(connection: &mut Connection) -> Result<(), Error> {
         let transaction = connection.transaction()?;
         let saved: Option<(String, Option<String>)> = transaction.query_row("SELECT document, previous FROM customization WHERE id = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-        if let Some((raw, previous)) = saved {
+        let mut current = None;
+        let mut previous = None;
+        if let Some((raw, previous_raw)) = saved {
             let document = Self::decode(&raw)?;
-            let previous_document = previous.as_deref().map(Self::decode).transpose()?;
-            let document = serde_json::to_string(&document).map_err(|error| Error::new("invalid_document", error))?;
-            let previous_document = previous_document.as_ref().map(serde_json::to_string).transpose().map_err(|error| Error::new("invalid_document", error))?;
-            if document != raw || previous_document != previous {
-                transaction.execute("UPDATE customization SET document = ?1, previous = ?2 WHERE id = 1", params![document, previous_document])?;
+            let previous_document = previous_raw.as_deref().map(Self::decode).transpose()?;
+            let canonical = serde_json::to_string(&document).map_err(|error| Error::new("invalid_document", error))?;
+            let previous_canonical = previous_document.as_ref().map(serde_json::to_string).transpose().map_err(|error| Error::new("invalid_document", error))?;
+            if canonical != raw || previous_canonical != previous_raw {
+                transaction.execute("UPDATE customization SET document = ?1, previous = ?2 WHERE id = 1", params![canonical, previous_canonical])?;
             }
+            current = Some(document);
+            previous = previous_document;
         }
+        history::migrate(&transaction, current.as_ref(), previous.as_ref())?;
         transaction.commit()?;
         Ok(())
     }
@@ -119,6 +126,7 @@ impl Store {
         let document = Document { version: 3, revision: 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("INSERT INTO customization (id, document) VALUES (1, ?1)", [raw])?;
+        history::record(&transaction, &document)?;
         transaction.commit()?;
         Ok(document)
     }
@@ -149,14 +157,25 @@ impl Store {
             return Err(Error::new("conflict", "Customization changed elsewhere. Read the current revision before applying your changes."));
         }
         let config = edit(current.config.clone())?;
+        let document = Self::write(&transaction, &current, config)?;
+        transaction.commit()?;
+        Ok(document)
+    }
+
+    fn write(transaction: &Connection, current: &Document, config: Config) -> Result<Document, Error> {
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
-        if config == current.config { return Ok(current); }
+        if config == current.config { return Ok(current.clone()); }
         if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
         let document = Document { version: 3, revision: current.revision + 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", [raw])?;
-        transaction.commit()?;
+        history::record(transaction, &document)?;
         Ok(document)
+    }
+
+    pub fn history(&self) -> Result<Vec<history::HistoryEntry>, Error> {
+        let connection = self.connection()?;
+        history::list(&connection)
     }
 
     pub fn restore(&self, expected_revision: u64) -> Result<Document, Error> {
@@ -165,12 +184,8 @@ impl Store {
         let transaction = connection.transaction()?;
         let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before restoring customization."))?;
         if current.revision != expected_revision { return Err(Error::new("conflict", "Customization changed elsewhere.")); }
-        let raw: Option<String> = transaction.query_row("SELECT previous FROM customization WHERE id = 1", [], |row| row.get(0))?;
-        let previous = Self::decode(&raw.ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?)?;
-        if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 3, revision: current.revision + 1, config: previous.config };
-        let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
-        transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", params![raw])?;
+        let previous = history::previous(&transaction, current.revision)?.ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?;
+        let document = Self::write(&transaction, &current, previous.config)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -182,16 +197,46 @@ impl Store {
         let transaction = connection.transaction()?;
         let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before restoring a layout."))?;
         if current.revision != expected_revision { return Err(Error::new("conflict", "The saved layout changed. Reload it before restoring.")); }
-        let raw: Option<String> = transaction.query_row("SELECT previous FROM customization WHERE id = 1", [], |row| row.get(0))?;
-        let previous = Self::decode(&raw.ok_or_else(|| Error::new("no_previous", "No previous layout is available."))?)?;
+        let previous = history::previous(&transaction, current.revision)?.ok_or_else(|| Error::new("no_previous", "No previous layout is available."))?;
         let mut config = current.config.clone();
         config.home = previous.config.home;
         config.home_columns = previous.config.home_columns;
-        if config == current.config { return Ok(current); }
-        if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 3, revision: current.revision + 1, config };
-        let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
-        transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", params![raw])?;
+        let document = Self::write(&transaction, &current, config)?;
+        transaction.commit()?;
+        *preview = None;
+        Ok(document)
+    }
+
+    pub fn restore_version(&self, expected_revision: u64, revision: u64) -> Result<Document, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before restoring customization."))?;
+        if current.revision != expected_revision { return Err(Error::new("conflict", "Customization changed elsewhere.")); }
+        let selected = history::find(&transaction, revision)?.ok_or_else(|| Error::new("no_version", "That saved version is no longer available."))?;
+        let document = Self::write(&transaction, &current, selected.config)?;
+        transaction.commit()?;
+        *preview = None;
+        Ok(document)
+    }
+
+    pub fn reset_appearance(&self, expected_revision: u64) -> Result<Document, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before resetting appearance."))?;
+        if current.revision != expected_revision { return Err(Error::new("conflict", "Customization changed elsewhere.")); }
+        let defaults = Config::default();
+        let mut config = current.config.clone();
+        config.theme = defaults.theme;
+        config.density = defaults.density;
+        config.app_tile_shape = defaults.app_tile_shape;
+        config.text_size = defaults.text_size;
+        config.reduced_motion = defaults.reduced_motion;
+        config.home_columns = defaults.home_columns;
+        config.home = defaults.home;
+        config.widgets = defaults.widgets;
+        let document = Self::write(&transaction, &current, config)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -304,6 +349,29 @@ pub async fn customization_restore_layout(app: tauri::AppHandle, expected_revisi
 }
 
 #[tauri::command]
+pub async fn customization_history(app: tauri::AppHandle) -> Result<Vec<history::HistoryEntry>, Error> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Store>().history()).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_restore_version(app: tauri::AppHandle, expected_revision: u64, revision: u64) -> Result<Document, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = app.state::<Store>().restore_version(expected_revision, revision)?;
+        publish(&app, &document);
+        Ok(document)
+    }).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_reset_appearance(app: tauri::AppHandle, expected_revision: u64) -> Result<Document, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = app.state::<Store>().reset_appearance(expected_revision)?;
+        publish(&app, &document);
+        Ok(document)
+    }).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
 pub async fn customization_read(app: tauri::AppHandle) -> Result<Option<Document>, Error> {
     tauri::async_runtime::spawn_blocking(move || app.state::<Store>().read()).await.map_err(|error| Error::new("storage", error))?
 }
@@ -374,6 +442,151 @@ mod tests {
         assert_eq!(restored.config.home, first.config.home);
         assert_eq!(restored.config.home_columns, first.config.home_columns);
         assert_eq!(restored.config.order, first.config.order);
+        assert_eq!(store.history().unwrap()[0].config, restored.config);
+    }
+
+    #[test]
+    fn history_retains_the_last_ten_documents_including_current() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        let themes = ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx"];
+        let mut document = first;
+        for index in 0..11 {
+            let mut config = document.config.clone();
+            config.theme = themes[index % themes.len()].into();
+            document = store.commit(Commit { expected_revision: document.revision, config }).unwrap();
+        }
+        let history = store.history().unwrap();
+        assert_eq!(history.len(), 10);
+        assert_eq!(history[0].revision, document.revision);
+        assert_eq!(history[0].config, document.config);
+        assert!(history.windows(2).all(|pair| pair[0].revision == pair[1].revision + 1));
+        assert_eq!(history.last().unwrap().revision, document.revision - 9);
+        assert!(history.iter().all(|entry| entry.saved_at.is_some()));
+    }
+
+    #[test]
+    fn every_committed_write_path_records_one_history_entry() {
+        let store = store();
+        store.initialize(Config::default()).unwrap();
+        assert_eq!(store.history().unwrap().len(), 1);
+        let edited = store.edit(|config| config.density = "compact".into()).unwrap();
+        assert_eq!(store.history().unwrap().len(), 2);
+        assert_eq!(store.history().unwrap()[0].config, edited.config);
+        let mut candidate = edited.config.clone();
+        candidate.app_tile_shape = "square".into();
+        candidate.home_columns = 2;
+        let preview = store.stage(Commit { expected_revision: edited.revision, config: candidate }).unwrap();
+        let kept = store.keep(&preview.id).unwrap();
+        assert_eq!(store.history().unwrap().len(), 3);
+        assert_eq!(store.history().unwrap()[0].revision, kept.revision);
+        let restored = store.restore(kept.revision).unwrap();
+        assert_eq!(store.history().unwrap().len(), 4);
+        let layout = store.restore_layout(restored.revision).unwrap();
+        assert_eq!(layout.config.home_columns, 2);
+        let history = store.history().unwrap();
+        assert_eq!(history.len(), 5);
+        assert_eq!(history[0].revision, layout.revision);
+        assert_eq!(history[0].config, layout.config);
+    }
+
+    #[test]
+    fn restoring_a_selected_version_creates_a_new_revision_without_deleting_the_replaced_state() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        let mut config = first.config.clone();
+        config.home_columns = 2;
+        let second = store.commit(Commit { expected_revision: first.revision, config }).unwrap();
+        let mut config = second.config.clone();
+        config.theme = "onyx".into();
+        let third = store.commit(Commit { expected_revision: second.revision, config }).unwrap();
+        assert_eq!(store.restore_version(second.revision, first.revision).unwrap_err().code, "conflict");
+        assert_eq!(store.restore_version(third.revision, 99).unwrap_err().code, "no_version");
+        let restored = store.restore_version(third.revision, first.revision).unwrap();
+        assert_eq!(restored.revision, 4);
+        assert_eq!(restored.config, first.config);
+        let history = store.history().unwrap();
+        assert_eq!(history.iter().map(|entry| entry.revision).collect::<Vec<_>>(), vec![4, 3, 2, 1]);
+        assert_eq!(history[0].config, first.config);
+        assert_eq!(history[1].config, third.config);
+        let reverted = store.restore_version(restored.revision, third.revision).unwrap();
+        assert_eq!(reverted.config, third.config);
+        assert_eq!(store.history().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn reset_appearance_only_reverts_visual_home_and_widget_defaults() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        let mut config = first.config.clone();
+        config.theme = "onyx".into();
+        config.density = "compact".into();
+        config.app_tile_shape = "square".into();
+        config.text_size = "larger".into();
+        config.reduced_motion = true;
+        config.interface_sounds = "roku".into();
+        config.sound_level = "soft".into();
+        config.home_columns = 2;
+        config.home.reverse();
+        config.home[0].visible = false;
+        config.home[1].span = 1;
+        config.widgets.spotify = document::Widget { enabled: false, placement: "bottom-left".into() };
+        config.order.swap(0, 1);
+        let customized = store.commit(Commit { expected_revision: first.revision, config }).unwrap();
+        let defaults = Config::default();
+        assert_eq!(store.reset_appearance(customized.revision - 1).unwrap_err().code, "conflict");
+        let reset = store.reset_appearance(customized.revision).unwrap();
+        assert_eq!(reset.revision, customized.revision + 1);
+        assert_eq!(reset.config.theme, defaults.theme);
+        assert_eq!(reset.config.density, defaults.density);
+        assert_eq!(reset.config.app_tile_shape, defaults.app_tile_shape);
+        assert_eq!(reset.config.text_size, defaults.text_size);
+        assert_eq!(reset.config.reduced_motion, defaults.reduced_motion);
+        assert_eq!(reset.config.home_columns, defaults.home_columns);
+        assert_eq!(reset.config.home, defaults.home);
+        assert_eq!(reset.config.widgets, defaults.widgets);
+        assert_eq!(reset.config.order, customized.config.order);
+        assert_eq!(reset.config.interface_sounds, "roku");
+        assert_eq!(reset.config.sound_level, "soft");
+        assert_eq!(store.history().unwrap()[0].config, reset.config);
+        assert_eq!(store.reset_appearance(reset.revision).unwrap(), reset);
+        assert_eq!(store.history().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn no_op_and_failed_writes_insert_no_history() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        assert_eq!(store.commit(Commit { expected_revision: first.revision, config: first.config.clone() }).unwrap(), first);
+        assert_eq!(store.reset_appearance(first.revision).unwrap(), first);
+        assert_eq!(store.history().unwrap().len(), 1);
+        store.connection().unwrap().execute_batch("CREATE TRIGGER reject_history BEFORE INSERT ON versions BEGIN SELECT RAISE(ABORT, 'disk full'); END;").unwrap();
+        let mut config = first.config.clone();
+        config.theme = "onyx".into();
+        assert_eq!(store.commit(Commit { expected_revision: first.revision, config }).unwrap_err().code, "storage");
+        assert_eq!(store.read().unwrap().unwrap(), first);
+        assert_eq!(store.history().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn unsupported_history_entries_are_preserved_but_not_offered() {
+        let path = std::env::temp_dir().join(format!("luma-customization-history-{}-{}.sqlite3", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let current;
+        let future = serde_json::to_string(&Document { version: 99, revision: 2, config: Config::default() }).unwrap();
+        {
+            let store = Store::from_connection(Connection::open(&path).unwrap()).unwrap();
+            current = store.initialize(Config::default()).unwrap();
+            store.connection().unwrap().execute("INSERT INTO versions (revision, saved_at, document) VALUES (2, NULL, ?1)", [&future]).unwrap();
+        }
+        {
+            let store = Store::from_connection(Connection::open(&path).unwrap()).unwrap();
+            assert_eq!(store.read().unwrap().unwrap(), current);
+            assert_eq!(store.history().unwrap().len(), 1);
+            assert_eq!(store.history().unwrap()[0].revision, current.revision);
+            let saved: String = store.connection().unwrap().query_row("SELECT document FROM versions WHERE revision = 2", [], |row| row.get(0)).unwrap();
+            assert_eq!(saved, future);
+        }
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -443,6 +656,7 @@ mod tests {
         let kept = store.keep(&preview.id).unwrap();
         assert_eq!(kept.revision, 2);
         assert_eq!(kept.config, candidate);
+        assert_eq!(store.history().unwrap().len(), 2);
         assert!(store.preview().unwrap().is_none());
         assert_eq!(store.restore(2).unwrap().config, original.config);
     }
@@ -533,6 +747,11 @@ mod tests {
         let migrated = store.read().unwrap().unwrap();
         assert_eq!(migrated.revision, 5);
         assert_eq!(migrated.config, config);
+        let history = store.history().unwrap();
+        assert_eq!(history.iter().map(|entry| entry.revision).collect::<Vec<_>>(), vec![5, 4]);
+        assert_eq!(history[0].config, config);
+        assert_eq!(history[1].config, Config::default());
+        assert!(history.iter().all(|entry| entry.saved_at.is_none()));
         let restored = store.restore(5).unwrap();
         assert_eq!(restored.version, 3);
         assert_eq!(restored.revision, 6);

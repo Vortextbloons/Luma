@@ -156,6 +156,7 @@ pub fn hide_to_tray(app: tauri::AppHandle) {
     unload(&app, "main");
     unload(&app, "youtube");
     unload(&app, "stremio");
+    unload(&app, "sports");
     tauri::async_runtime::spawn(async move {
         let _ = crate::tv::restore_audio().await;
     });
@@ -224,7 +225,7 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
             if window.is_minimized()? {
                 window.unminimize()?;
             }
-            for label in ["main", "youtube", "stremio"] {
+            for label in ["main", "youtube", "stremio", "sports"] {
                 if label != window.label() {
                     if let Some(other) = window.app_handle().get_webview_window(label) {
                         if other.is_visible()? {
@@ -232,7 +233,7 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
                                 pause(&other);
                             }
                             other.hide()?;
-                            if label != "main" && !retains_views() {
+                            if label == "sports" || (label != "main" && !retains_views()) {
                                 unload(window.app_handle(), label);
                             }
                         }

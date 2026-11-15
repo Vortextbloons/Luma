@@ -15,7 +15,7 @@
 <header class="topbar">
   <span class="brand"><img class="brand-image" src={logo} alt="" /> luma<span class="brand-sub">TV</span></span>
   <nav class="nav-pill" aria-label="Main navigation">
-    {#each ['Home', 'Watch', 'Library', 'Music', 'Apps'] as tab (tab)}
+    {#each ['Home', 'Watch', 'Sports', 'Library', 'Music', 'Apps'] as tab (tab)}
       <button id={tab === 'Home' ? 'home-button' : undefined} class={['nav-btn', { 'is-active': active === tab }]} aria-current={active === tab ? 'page' : undefined} onclick={() => navigate(tab)}>{tab}</button>
     {/each}
   </nav>

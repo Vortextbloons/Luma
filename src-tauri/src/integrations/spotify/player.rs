@@ -275,6 +275,7 @@ fn publish(app: &tauri::AppHandle, mut state: PlaybackState) {
     state.connected = app
         .try_state::<Auth>()
         .is_some_and(|auth| auth.authenticated());
+    crate::remote::server::sync_music(app, &state);
     let artwork = state.artwork_url.take();
     let mut artwork_changed = false;
     if let Some(player) = app.try_state::<Player>() {

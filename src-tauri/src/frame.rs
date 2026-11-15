@@ -302,7 +302,8 @@ struct Command {
     command: String,
 }
 async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), String>> {
-    if !["stop", "click", "fullscreen"].contains(&command) {
+    let music = crate::remote::pointer::is_music(command);
+    if !music && !["stop", "click", "fullscreen"].contains(&command) {
         if let Err(error) = server::wake(app).await { return Some(Err(error)); }
     }
     if crate::remote::pointer::hides_cursor(command) {
@@ -319,6 +320,9 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
         "stop" => server::stop(app),
         "click" => crate::remote::pointer::click(app),
         "toggle" | "previous" | "next" => media::control(app, command).await,
+        "musictoggle" => media::music(app, "toggle").await,
+        "musicprevious" => media::music(app, "previous").await,
+        "musicnext" => media::music(app, "next").await,
         "volumeup" | "volumedown" | "mute" => volume(command),
         "youtube" => youtube::open_youtube(app.clone(), true).await,
         _ => match apps::app_command(command) {
@@ -550,6 +554,20 @@ async fn app_icon(
         .body(Body::from(entry.icon))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
+async fn phone_music_art(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    let (content_type, bytes) = crate::integrations::spotify::windows_media::current_artwork(&app)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Response::builder()
+        .header("content-type", content_type)
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
 async fn phone_sound(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -650,6 +668,7 @@ async fn phone_socket(
         let mut last_state: Option<String> = None;
         let mut appearance = app.state::<server::Remote>().subscribe_appearance();
         let mut app_order = app.state::<server::Remote>().subscribe_app_order();
+        let mut music = app.state::<server::Remote>().subscribe_music();
         loop {
             tokio::select! {
                 message = socket.recv() => {
@@ -698,6 +717,12 @@ async fn phone_socket(
                     if changed.is_err() { break; }
                     let order = app_order.borrow_and_update().clone();
                     let response = serde_json::json!({ "appOrder": order });
+                    if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
+                }
+                changed = music.changed() => {
+                    if changed.is_err() { break; }
+                    let value = music.borrow_and_update().clone();
+                    let response = serde_json::json!({ "music": value });
                     if socket.send(Message::Text(response.to_string().into())).await.is_err() { break; }
                 }
             }
@@ -790,6 +815,7 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/settings", post(phone_setting))
         .route("/phone/ws", get(phone_socket))
         .route("/phone/command", post(phone_command))
+        .route("/phone/music/art", get(phone_music_art))
         .route("/phone/sound/{preset}/{role}", get(phone_sound))
         .route("/pointer", post(pointer))
         .route("/text", post(remote_text))

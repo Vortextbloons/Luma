@@ -5,7 +5,7 @@ import { resetScreen } from "./screen.svelte";
 import { createCommandSocket, type CommandSocket } from "./socket";
 import { createSoundFeedback } from "./sound";
 import { clearToast, say } from "./toast.svelte";
-import type { Appearance, RemoteState, SoundPreset, StateResponse } from "./types";
+import type { Appearance, MusicState, RemoteState, SoundPreset, StateResponse } from "./types";
 
 const PAIRED_KEY = "luma-paired";
 const PRESETS: SoundPreset[] = ["real", "google", "roku", "off"];
@@ -154,6 +154,7 @@ export function applyState(state: RemoteState): void {
     appearance: state.appearance ?? previous?.appearance,
     settings: Array.isArray(state.settings) ? state.settings : previous?.settings ?? [],
     appOrder: Array.isArray(state.appOrder) ? state.appOrder : previous?.appOrder ?? [],
+    music: state.music !== undefined ? state.music : previous?.music ?? null,
   };
   const sounds = state.settings?.find(item => item.key === "interfaceSounds")?.value;
   const preset = sounds && PRESETS.includes(sounds as SoundPreset)
@@ -175,6 +176,11 @@ function applyAppearanceMessage(appearance: Appearance): void {
   if (!validAppearance(appearance)) return;
   applySessionAppearance(appearance);
   if (session.state) session.state = { ...session.state, appearance };
+}
+
+export function applyMusic(music: MusicState | null): void {
+  if (!session.state) return;
+  session.state = { ...session.state, music };
 }
 
 export function setTheme(choice: string): void {
@@ -242,6 +248,7 @@ export async function send(command: string): Promise<SendResult> {
       const reply = await socket.request(command);
       if (reply.appearance) applyAppearanceMessage(reply.appearance);
       if (reply.appOrder) syncAppOrder(reply.appOrder);
+      if (reply.music !== undefined) applyMusic(reply.music);
       if (reply.state) applyState(reply.state);
       if (reply.error) {
         say(reply.error, true);
@@ -322,6 +329,7 @@ function connectSocket(): void {
     onMessage: reply => {
       if (reply.appearance) applyAppearanceMessage(reply.appearance);
       if (reply.appOrder) syncAppOrder(reply.appOrder);
+      if (reply.music !== undefined) applyMusic(reply.music);
       if (reply.state) applyState(reply.state);
       setOnline(true);
     },
