@@ -11,3 +11,5 @@ dist-ssr
 .idea
 AGENTS.md
 src-tauri/tauri.release.conf.json
+docs/CUSTOMIZATION-ROADMAP.md
+docs/CUSTOMIZATION.md

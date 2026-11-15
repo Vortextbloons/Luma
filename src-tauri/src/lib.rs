@@ -8,6 +8,7 @@ mod credentials;
 mod integrations;
 mod remote;
 mod sound;
+mod customization;
 
 use commands::{apps, media, services, session, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
@@ -45,6 +46,16 @@ pub fn run() {
         .manage(spotify::player::Player::default())
         .manage(spotify::windows_media::Media::default())
         .setup(|app| {
+            app.manage(customization::Store::open(app.handle()));
+            if let Ok(Some(document)) = app.state::<customization::Store>().read() {
+                customization::publish(app.handle(), &document);
+            }
+            let customization_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = customization::server::start(customization_handle).await {
+                    eprintln!("Customization server: {error}");
+                }
+            });
             #[cfg(windows)]
             app.manage(network::watch(app.handle())?);
             tv::load(app.handle()).map_err(std::io::Error::other)?;
@@ -69,6 +80,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            customization::customization_read,
+            customization::customization_initialize,
+            customization::customization_commit,
             updates_enabled,
             tv::tv_setup,
             tv::tv_setup_warning,
@@ -114,8 +128,8 @@ pub fn run() {
             frame::phone_remote_qr,
             frame::open_phone_remote,
             server::update_app_state,
+            media::report_timeline,
             server::update_appearance,
-            server::update_app_order,
             server::update_settings,
             youtube::open_youtube,
             youtube::youtube_feed,

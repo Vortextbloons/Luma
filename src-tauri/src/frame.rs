@@ -394,6 +394,22 @@ async fn phone_disconnect(headers: HeaderMap) -> Result<Response, StatusCode> {
     );
     Ok(response)
 }
+async fn phone_playback(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    payload: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if payload.is_some() { same_origin(&headers)?; }
+    phone_authorized(&app, &headers)?;
+    let position = match payload {
+        Some(Json(value)) => Some(value.get("position").and_then(serde_json::Value::as_f64).filter(|value| value.is_finite() && *value >= 0.0).ok_or(StatusCode::BAD_REQUEST)?),
+        None => None,
+    };
+    match media::timeline(&app, position).await {
+        Ok(timeline) => Ok(Json(serde_json::json!({ "timeline": timeline }))),
+        Err(error) => Ok(Json(serde_json::json!({ "error": error }))),
+    }
+}
 async fn phone_state(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -474,7 +490,7 @@ async fn phone_layout(
     if request.order.len() > 32 || request.order.iter().any(|name| name.len() > 64) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    server::set_app_order(&app, request.order, true)
+    server::set_app_order(&app, request.order)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(serde_json::json!({"accepted": true, "state": state})))
@@ -729,6 +745,7 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/pair", post(phone_pair))
         .route("/phone/disconnect", post(phone_disconnect))
         .route("/phone/state", get(phone_state))
+        .route("/phone/playback", get(phone_playback).post(phone_playback))
         .route("/phone/layout", post(phone_layout))
         .route("/phone/settings", post(phone_setting))
         .route("/phone/ws", get(phone_socket))

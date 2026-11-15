@@ -28,7 +28,8 @@
   import RecentlyPlayed from './lib/components/activity/RecentlyPlayed.svelte';
   import RecentApps from './lib/components/activity/RecentApps.svelte';
   import { remoteSettings, applyRemoteSetting } from './lib/services/settings';
-  import { createSettings, normalizeAppOrder } from './lib/state/settings.svelte';
+  import { createSettings } from './lib/state/settings.svelte';
+  import { createCustomizationSync, customizationConfig } from './lib/services/customization';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
@@ -51,6 +52,7 @@
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
+  const customization = createCustomizationSync(settings, value => message = value);
   let movieQuery = $state('');
   let movieResults = $state.raw<MediaItem[]>([]);
   let searching = $state(false);
@@ -283,6 +285,9 @@
     setSoundSettings(settings.interfaceSounds, settings.soundLevel);
   });
   $effect(() => {
+    if (native) customization.update(customizationConfig(settings));
+  });
+  $effect(() => {
     try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, widgets: settings.widgets, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
   });
@@ -292,10 +297,6 @@
   });
   $effect(() => {
     if (native) void invoke('update_settings', { settings: remoteSettings(settings) }).catch(error => message = String(error));
-  });
-  $effect(() => {
-    if (!native) return;
-    invoke('update_app_order', { order: settings.order }).catch(() => {});
   });
   $effect(() => {
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen, sound: settings.interfaceSounds }).catch(error => message = String(error));
@@ -319,6 +320,8 @@
     async function start() {
       if (!native) { message = 'Browser preview. Native app launching, fullscreen, web remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
+        await customization.start();
+        if (disposed) return;
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
@@ -326,9 +329,6 @@
         track(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
         track(await listen<{ key: string; value: string }>('app-setting', event => {
           if (!disposed) applyRemoteSetting(settings, event.payload);
-        }));
-        track(await listen<string[]>('app-order', event => {
-          if (!disposed) settings.order = normalizeAppOrder(event.payload);
         }));
         const stopNavigation = await onNavigation(navigation.dispatch);
         if (disposed) { stopNavigation(); return; }
@@ -383,6 +383,7 @@
     }
     void reveal();
     return () => {
+      customization.dispose();
       disposed = true;
       cleanup.splice(0).forEach(stop => stop());
       window.removeEventListener('pointerdown', unlock, true);

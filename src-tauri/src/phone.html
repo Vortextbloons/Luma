@@ -291,6 +291,9 @@
   .deck-label { font-size: 10.5px; font-weight: 600; line-height: 1.25; color: var(--dim); }
   .deck-group.transport .deck-label { padding: 0 4px; }
   .deck-group.volume .deck-label { padding-left: 4px; }
+  .movie-timeline { min-width: 0; padding: 4px; }
+  #movie-position { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--accent); }
+  #movie-time { color: var(--muted); font-size: 12px; line-height: 1.4; }
   .deck-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; min-width: 0; }
   .deck-keys button {
     min-height: 50px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
@@ -459,9 +462,94 @@
   }
   .settings-close svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
   .settings-close:active { background: rgba(255, 255, 255, .12); color: var(--text); }
+  #settings-dialog { width: min(940px, calc(100% - 32px)); height: min(88dvh, 780px); max-height: min(88dvh, 780px); }
+  .settings-layout { display: grid; grid-template-columns: 238px minmax(0, 1fr); flex: 1; min-height: 0; }
+  .settings-nav {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 14px 12px 18px; overflow-y: auto; overscroll-behavior: contain;
+    border-right: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  }
+  .settings-nav-group {
+    margin: 14px 10px 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+  }
+  .settings-nav-group:first-child { margin-top: 2px; }
+  .settings-category {
+    position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    width: 100%; min-height: 54px; padding: 10px 12px;
+    border: 1px solid transparent; border-radius: 12px;
+    background: transparent; color: var(--muted); text-align: left;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .settings-category::before {
+    content: ''; position: absolute; left: 0; top: 20%; bottom: 20%; width: 3px; border-radius: 99px;
+    background: transparent; transition: background .16s ease, box-shadow .16s ease;
+  }
+  .settings-category-copy { display: grid; gap: 2px; min-width: 0; }
+  .settings-category b { font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; color: var(--text-dim); }
+  .settings-category small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+  .settings-category-mark {
+    color: var(--dim); font-size: 18px; line-height: 1;
+    opacity: 0; transform: translateX(-4px);
+    transition: opacity .16s ease, transform .16s ease;
+  }
+  .settings-category:hover { background: rgba(255, 255, 255, .05); border-color: var(--line); }
+  .settings-category:hover .settings-category-mark { opacity: .7; transform: none; }
+  .settings-category.is-current {
+    background: linear-gradient(90deg, var(--accent-soft), rgba(255, 255, 255, .04) 62%, transparent);
+    border-color: var(--line-strong); color: var(--text);
+    box-shadow: inset 0 1px rgba(255, 255, 255, .08);
+  }
+  .settings-category.is-current::before { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  .settings-category.is-current b { color: var(--text); }
+  .settings-category.is-current small { color: var(--text-dim); }
+  .settings-category.is-current .settings-category-mark { opacity: 1; transform: none; color: var(--accent); }
+  .settings-content {
+    min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 18px 26px 26px; scroll-padding-top: 16px;
+  }
+  .settings-note {
+    position: sticky; top: 0; z-index: 3; margin: 0 0 14px;
+    padding: 10px 13px; border: 1px solid var(--line-strong); border-radius: 11px;
+    background: color-mix(in srgb, var(--surface-3) 96%, transparent);
+    color: var(--text-dim); font-size: 12.5px; line-height: 1.45;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .35); backdrop-filter: blur(10px);
+  }
+  .settings-note:empty { display: none; }
+  .settings-note[data-tone="good"] { color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
+  .settings-note[data-tone="bad"] { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+  .settings-panel { display: grid; gap: 14px; animation: fade-in .18s ease; }
+  .settings-panel[hidden] { display: none; }
+  .settings-panel-head { display: grid; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .settings-panel-head h2 {
+    margin: 0; font-size: clamp(24px, 3.4vw, 30px); font-weight: 650;
+    letter-spacing: -.035em; line-height: 1.05;
+  }
+  .settings-panel-head h2:focus { outline: none; }
+  .settings-panel-head p { margin: 0; max-width: 62ch; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+  .settings-panel-tag {
+    width: max-content; padding: 4px 9px; border: 1px solid var(--line-strong); border-radius: 99px;
+    background: rgba(255, 255, 255, .05); color: var(--dim);
+    font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  }
+  .settings-back {
+    display: none; align-items: center; gap: 6px; width: max-content; min-height: 36px; margin-bottom: 4px;
+    padding: 0 11px 0 8px; border: 1px solid var(--line); border-radius: 99px;
+    background: rgba(255, 255, 255, .05); color: var(--text-dim);
+    font-size: 12px; font-weight: 650;
+  }
+  .settings-back svg {
+    width: 14px; height: 14px; fill: none; stroke: currentColor;
+    stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .settings-back:active { background: rgba(255, 255, 255, .12); color: var(--text); }
   .settings-body { padding: 4px 22px 18px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
-  .settings-group { padding: 12px 0 4px; border-top: 1px solid var(--line); }
-  .settings-group:first-child { border-top: 0; padding-top: 6px; }
+  .settings-group {
+    padding: 16px 16px 6px; border: 1px solid var(--line); border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, .012));
+    box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+  }
   .settings-heading {
     margin: 0 0 2px; padding: 0 2px;
     font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
@@ -548,18 +636,44 @@
   .layout-buttons .layout-fixed { display: grid; place-items: center; min-width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
   .layout-note { min-height: 18px; margin: 10px 2px 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
   .layout-footer { display: flex; justify-content: flex-end; padding: 0 22px 18px; }
-  .settings-tabs { display: flex; gap: 8px; padding: 0 22px 16px; }
-  .settings-tabs button { flex: 1; min-height: 48px; }
-  .app-setting-field { display: grid; gap: 7px; padding: 12px 0; font-size: 14px; }
-  .app-setting-field small { color: var(--muted); line-height: 1.5; }
-  .app-setting-field select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); font: inherit; }
+  .app-setting-field {
+    display: grid; gap: 7px; padding: 12px 2px; font-size: 13.5px;
+    border-top: 1px solid var(--line);
+  }
+  .app-setting-field:first-child { padding-top: 4px; border-top: 0; }
+  .app-setting-field b { font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
+  .app-setting-field small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .app-setting-field select {
+    width: 100%; min-height: 46px; padding: 10px 12px;
+    border: 1px solid var(--line-strong); border-radius: 11px;
+    background: var(--surface-2); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600;
+  }
   .settings-close { min-width: 44px; min-height: 44px; }
   .settings-dialog :is(button, select, input):focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-  @media (max-width: 480px) {
-    .settings-dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); margin: auto 0 0; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom); }
-    .settings-body { padding: 4px 20px 24px; }
+  @media (max-width: 719px) {
+    #settings-dialog {
+      width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; margin: 0;
+      padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+      border: 0; border-radius: 0;
+    }
+    .settings-head { padding: 16px 18px 14px; }
+    .settings-layout { display: flex; flex-direction: column; }
+    .settings-nav { flex: 1; padding: 8px 14px 24px; border-right: 0; }
+    .settings-content { display: none; flex: 1; padding: 16px 18px 28px; }
+    #settings-dialog.is-detail .settings-nav { display: none; }
+    #settings-dialog.is-detail .settings-content { display: block; }
+    .settings-back { display: inline-flex; }
+    .settings-panel-head { padding-bottom: 12px; }
+    .settings-panel-head h2 { font-size: 26px; }
     .settings-row { gap: 16px; }
     .settings-pill { min-height: 44px; }
+  }
+  @media (max-width: 480px) {
+    .layout-dialog {
+      width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+      margin: auto 0 0; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom);
+    }
+    .settings-body { padding: 4px 20px 24px; }
     .theme-select { max-width: 150px; }
   }
 </style>
@@ -662,6 +776,11 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14"/><path class="fill" d="M5 5l10 7L5 19z"/></svg>
               </button>
             </div>
+            <div class="movie-timeline">
+              <label for="movie-position" class="deck-label">Playback position</label>
+              <input id="movie-position" type="range" min="0" max="1" step="1" value="0" disabled>
+              <div id="movie-time">Start a movie in a supported player to seek.</div>
+            </div>
           </section>
           <section class="deck-group volume" aria-labelledby="deck-volume">
             <span id="deck-volume" class="deck-label">PC volume</span>
@@ -707,68 +826,174 @@
   <header class="settings-head">
     <div>
       <h2 id="settings-title">Settings</h2>
-      <p class="settings-sub">Your remote and your Luma app</p>
+      <p class="settings-sub">This remote and your Luma app</p>
     </div>
     <button type="button" id="settings-close" class="settings-close" aria-label="Close settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
     </button>
   </header>
-  <nav class="settings-tabs" aria-label="Settings scope">
-    <button type="button" class="settings-pill" id="remote-settings-tab" aria-pressed="true">This remote</button>
-    <button type="button" class="settings-pill" id="app-settings-tab" aria-pressed="false">Luma app</button>
-  </nav>
-  <div class="settings-body">
-    <div id="remote-settings-panel">
-    <p class="settings-sub">Saved on this device. Other remotes are not affected.</p>
-    <section class="settings-group">
-      <h3 class="settings-heading">Controls</h3>
-      <label class="settings-row" for="joystick-toggle">
-        <span><b>Joystick controls</b><small>Drag inside the ring to move the PC pointer. Click selects.</small></span>
-        <input id="joystick-toggle" type="checkbox" class="switch">
-      </label>
-    </section>
-    <section class="settings-group">
-      <h3 class="settings-heading">This browser</h3>
-      <div class="settings-row">
-        <span><b>Theme</b><small>Follow the TV or keep a theme on this phone.</small></span>
-        <div class="theme-picker">
-          <button type="button" id="theme-select" class="theme-select" aria-haspopup="listbox" aria-expanded="false">Follow TV</button>
-          <div id="theme-menu" class="theme-menu" role="listbox" aria-label="Remote theme" hidden></div>
-        </div>
-      </div>
-      <div class="settings-row">
-        <span><b>Fullscreen</b><small id="fullscreen-note" role="status">Fills this browser window. The PC screen is not affected.</small></span>
-        <button type="button" id="fullscreen-toggle" class="settings-pill" aria-pressed="false">Enter</button>
-      </div>
-    </section>
-    <section class="settings-group">
-      <h3 class="settings-heading">Connection</h3>
-      <div class="settings-row">
-        <div><b>Current session</b><small>Disconnect this browser from the PC.</small></div>
-        <button type="button" id="disconnect" class="settings-pill">Disconnect</button>
-      </div>
-      <p id="disconnect-notice" role="alert"></p>
-    </section>
+  <div class="settings-layout">
+    <nav id="settings-nav" class="settings-nav" aria-label="Settings categories">
+      <p class="settings-nav-group">This remote</p>
+      <button type="button" class="settings-category" data-category="remote-controls">
+        <span class="settings-category-copy"><b>Controls</b><small>Joystick and touch input</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="remote-browser">
+        <span class="settings-category-copy"><b>This browser</b><small>Theme and fullscreen</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="remote-connection">
+        <span class="settings-category-copy"><b>Connection</b><small>Pairing and this session</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <p class="settings-nav-group">Luma app</p>
+      <button type="button" class="settings-category" data-category="app-display">
+        <span class="settings-category-copy"><b>Display</b><small>Cards and spacing</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="app-theme">
+        <span class="settings-category-copy"><b>Theme</b><small>Background and accent</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="app-sound">
+        <span class="settings-category-copy"><b>Sound</b><small>Interface sounds and level</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="app-order">
+        <span class="settings-category-copy"><b>App order</b><small>Arrange the dock everywhere</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="settings-category" data-category="pc-actions">
+        <span class="settings-category-copy"><b>PC actions</b><small>Fullscreen on the PC</small></span>
+        <span class="settings-category-mark" aria-hidden="true">›</span>
+      </button>
+    </nav>
+    <div id="settings-content" class="settings-content">
+      <p id="app-settings-note" class="settings-note" role="status" aria-live="polite"></p>
+      <section class="settings-panel" data-panel="remote-controls">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">This remote</span>
+          <h2 tabindex="-1">Controls</h2>
+          <p>Choose how this phone drives Luma. Other remotes keep their own controls.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Pointer</h3>
+          <label class="settings-row" for="joystick-toggle">
+            <span><b>Joystick controls</b><small>Drag inside the ring to move the PC pointer. Click selects.</small></span>
+            <input id="joystick-toggle" type="checkbox" class="switch">
+          </label>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="remote-browser">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">This remote</span>
+          <h2 tabindex="-1">This browser</h2>
+          <p>Appearance and window options saved on this device.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Appearance</h3>
+          <div class="settings-row">
+            <span><b>Theme</b><small>Follow the TV or keep a theme on this phone.</small></span>
+            <div class="theme-picker">
+              <button type="button" id="theme-select" class="theme-select" aria-haspopup="listbox" aria-expanded="false">Follow TV</button>
+              <div id="theme-menu" class="theme-menu" role="listbox" aria-label="Remote theme" hidden></div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-group">
+          <h3 class="settings-heading">Window</h3>
+          <div class="settings-row">
+            <span><b>Fullscreen</b><small id="fullscreen-note" role="status">Fills this browser window. The PC screen is not affected.</small></span>
+            <button type="button" id="fullscreen-toggle" class="settings-pill" aria-pressed="false">Enter</button>
+          </div>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="remote-connection">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">This remote</span>
+          <h2 tabindex="-1">Connection</h2>
+          <p>The link between this browser and your PC.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Current session</h3>
+          <div class="settings-row">
+            <div><b>Disconnect this browser</b><small>Pair again with a new code from Settings on the PC.</small></div>
+            <button type="button" id="disconnect" class="settings-pill">Disconnect</button>
+          </div>
+          <p id="disconnect-notice" role="alert"></p>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="app-display">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">Luma app</span>
+          <h2 tabindex="-1">Display</h2>
+          <p>Choose how cards and rows fill the TV. Changes apply to every connected display.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Cards and layout</h3>
+          <div id="app-settings-display"><p class="settings-sub">Connecting to Luma...</p></div>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="app-theme">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">Luma app</span>
+          <h2 tabindex="-1">Theme</h2>
+          <p>The background, surfaces, and accent used across Luma.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">App theme</h3>
+          <div id="app-settings-theme"><p class="settings-sub">Connecting to Luma...</p></div>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="app-sound">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">Luma app</span>
+          <h2 tabindex="-1">Sound</h2>
+          <p>Short feedback for focus, select, back, and app launch.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Interface sounds</h3>
+          <div id="app-settings-sound"><p class="settings-sub">Connecting to Luma...</p></div>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="app-order">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">Luma app</span>
+          <h2 tabindex="-1">App order</h2>
+          <p>Arrange the app dock on Luma, the Display Box, and this remote.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Dock</h3>
+          <div class="settings-row">
+            <span><b>App order</b><small>Move apps and choose which ones appear.</small></span>
+            <button type="button" id="layout-open" class="settings-pill">Edit</button>
+          </div>
+        </section>
+      </section>
+      <section class="settings-panel" data-panel="pc-actions">
+        <header class="settings-panel-head">
+          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
+          <span class="settings-panel-tag">Luma app</span>
+          <h2 tabindex="-1">PC actions</h2>
+          <p>Control the Luma window running on your PC.</p>
+        </header>
+        <section class="settings-group">
+          <h3 class="settings-heading">Window</h3>
+          <div class="settings-row">
+            <span><b>Fullscreen app</b><small>Toggles full screen on the app Luma is controlling.</small></span>
+            <button type="button" id="pc-fullscreen" class="settings-pill" data-command="fullscreen" aria-label="Toggle fullscreen for the PC window">Toggle</button>
+          </div>
+        </section>
+      </section>
     </div>
-    <div id="app-settings-panel" hidden>
-      <p class="settings-sub">Changes apply to Luma on the PC, TV, and connected displays.</p>
-      <div id="app-settings-fields"><p class="settings-sub">Connecting to Luma...</p></div>
-      <p id="app-settings-note" role="status" aria-live="polite"></p>
-    <section class="settings-group">
-      <h3 class="settings-heading">Layout</h3>
-      <div class="settings-row">
-        <span><b>App order</b><small>Arrange apps on Luma, the Display Box, and this remote.</small></span>
-        <button type="button" id="layout-open" class="settings-pill">Edit</button>
-      </div>
-    </section>
-    <section class="settings-group">
-      <h3 class="settings-heading">PC actions</h3>
-      <div class="settings-row">
-        <span><b>Fullscreen app</b><small>Toggles full screen on the app Luma is controlling.</small></span>
-        <button type="button" id="pc-fullscreen" class="settings-pill" data-command="fullscreen" aria-label="Toggle fullscreen for the PC window">Toggle</button>
-      </div>
-    </section>
-  </div>
   </div>
 </dialog>
 <dialog id="layout-dialog" class="settings-dialog layout-dialog" aria-labelledby="layout-title">
@@ -1035,22 +1260,26 @@
 
   let settingsSignature = '';
   let settingsSaving = false;
+  function settingsSelects() {
+    return ['theme', 'display', 'sound'].flatMap(group => [...(document.getElementById(`app-settings-${group}`)?.querySelectorAll('select') ?? [])]);
+  }
   function syncSettings(choices) {
     if (!Array.isArray(choices) || settingsSaving) return;
     const signature = JSON.stringify(choices);
     if (signature === settingsSignature) return;
     settingsSignature = signature;
-    const container = document.getElementById('app-settings-fields');
-    const focused = container.contains(document.activeElement) ? document.activeElement.id : '';
-    const fragment = document.createDocumentFragment();
-    for (const group of [...new Set(choices.map(choice => choice.group))]) {
-      const section = document.createElement('section');
-      section.className = 'settings-group';
-      const heading = document.createElement('h3');
-      heading.className = 'settings-heading';
-      heading.textContent = group;
-      section.append(heading);
-      for (const choice of choices.filter(choice => choice.group === group)) {
+    const focused = document.activeElement?.id;
+    const groups = new Map();
+    for (const choice of choices) {
+      const group = String(choice.group || '').toLowerCase();
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(choice);
+    }
+    for (const [group, items] of groups) {
+      const slot = document.getElementById(`app-settings-${group}`);
+      if (!slot) continue;
+      const fragment = document.createDocumentFragment();
+      for (const choice of items) {
         const label = document.createElement('label');
         label.className = 'app-setting-field';
         const title = document.createElement('b');
@@ -1069,23 +1298,25 @@
         select.addEventListener('change', async () => {
           const note = document.getElementById('app-settings-note');
           settingsSaving = true;
-          container.querySelectorAll('select').forEach(field => field.disabled = true);
+          settingsSelects().forEach(field => field.disabled = true);
           note.textContent = 'Saving...';
+          delete note.dataset.tone;
           try {
             const { response } = await request('/phone/settings', { method: 'POST', body: JSON.stringify({ key: choice.key, value: select.value }) });
             if (!response.ok) throw new Error();
             note.textContent = 'Change sent to Luma.';
+            note.dataset.tone = 'good';
           } catch (_) {
             select.value = choice.value;
             note.textContent = 'Could not save. Check the connection and try again.';
-          } finally { container.querySelectorAll('select').forEach(field => field.disabled = false); settingsSaving = false; }
+            note.dataset.tone = 'bad';
+          } finally { settingsSelects().forEach(field => field.disabled = false); settingsSaving = false; }
         });
         label.append(title, description, select);
-        section.append(label);
+        fragment.append(label);
       }
-      fragment.append(section);
+      slot.replaceChildren(fragment);
     }
-    container.replaceChildren(fragment);
     if (focused) document.getElementById(focused)?.focus();
   }
 
@@ -1469,18 +1700,49 @@
     fullscreenNote.textContent = 'This browser cannot enlarge the remote.';
   }
 
-  for (const scope of ['remote', 'app']) {
-    document.getElementById(`${scope}-settings-tab`).addEventListener('click', () => {
-      closeThemeMenu();
-      for (const name of ['remote', 'app']) {
-        document.getElementById(`${name}-settings-panel`).hidden = name !== scope;
-        document.getElementById(`${name}-settings-tab`).setAttribute('aria-pressed', String(name === scope));
-      }
-    });
+  const settingsNav = document.getElementById('settings-nav');
+  const settingsContent = document.getElementById('settings-content');
+  const settingsCategories = [...settingsNav.querySelectorAll('.settings-category')];
+  const narrowSettings = window.matchMedia('(max-width: 719px)');
+  let settingsCategory = settingsCategories[0]?.dataset.category || '';
+  function showSettingsCategory(name, focusHeading = false) {
+    const target = settingsCategories.find(button => button.dataset.category === name);
+    if (!target) return;
+    settingsCategory = name;
+    for (const button of settingsCategories) {
+      const current = button === target;
+      button.classList.toggle('is-current', current);
+      if (current) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    }
+    for (const panel of settingsContent.querySelectorAll('.settings-panel')) {
+      panel.hidden = panel.dataset.panel !== name;
+    }
+    settingsContent.scrollTop = 0;
+    if (focusHeading) settingsContent.querySelector(`.settings-panel[data-panel="${name}"] h2`)?.focus({ preventScroll: true });
   }
+  function openSettingsCategory(name) {
+    settingsDialog.classList.add('is-detail');
+    showSettingsCategory(name, narrowSettings.matches);
+  }
+  function closeSettingsCategory() {
+    settingsDialog.classList.remove('is-detail');
+    settingsCategories.find(button => button.dataset.category === settingsCategory)?.focus();
+  }
+  showSettingsCategory(settingsCategory);
+  settingsNav.addEventListener('click', event => {
+    const button = event.target.closest('.settings-category');
+    if (button) openSettingsCategory(button.dataset.category);
+  });
+  settingsContent.addEventListener('click', event => {
+    if (event.target.closest('[data-settings-back]')) closeSettingsCategory();
+  });
   settingsButton.addEventListener('click', () => {
     closeThemeMenu();
-    if (!settingsDialog.open) settingsDialog.showModal();
+    if (!settingsDialog.open) {
+      settingsDialog.showModal();
+      settingsCategories.find(button => button.dataset.category === settingsCategory)?.focus();
+    }
   });
   document.getElementById('disconnect').addEventListener('click', async event => {
     const button = event.currentTarget;
@@ -1498,7 +1760,12 @@
     }
   });
   settingsClose.addEventListener('click', () => { closeThemeMenu(); settingsDialog.close(); });
-  settingsDialog.addEventListener('close', closeThemeMenu);
+  settingsDialog.addEventListener('cancel', event => {
+    if (!settingsDialog.classList.contains('is-detail') || !narrowSettings.matches) return;
+    event.preventDefault();
+    closeSettingsCategory();
+  });
+  settingsDialog.addEventListener('close', () => { closeThemeMenu(); settingsDialog.classList.remove('is-detail'); });
   layoutOpen.addEventListener('click', openLayout);
   layoutClose.addEventListener('click', () => layoutDialog.close());
   layoutDone.addEventListener('click', () => layoutDialog.close());
@@ -1719,6 +1986,50 @@
     if (pairCode.value.length === 6 && !pairingBusy) pairForm.requestSubmit();
   });
 
+  const moviePosition = document.getElementById('movie-position');
+  const movieTime = document.getElementById('movie-time');
+  let movieDragging = false;
+  let movieBusy = false;
+  let movieSeek;
+  const movieClock = value => `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+  function moviePreview() {
+    movieTime.textContent = `${movieClock(Number(moviePosition.value))} / ${movieClock(Number(moviePosition.max))}`;
+    moviePosition.setAttribute('aria-valuetext', movieTime.textContent);
+  }
+  async function refreshMovie(position) {
+    if (position !== undefined) movieSeek = position;
+    if (movieBusy || !paired || document.visibilityState !== 'visible') return;
+    position = movieSeek;
+    movieSeek = undefined;
+    movieBusy = true;
+    try {
+      const { response, data } = await request('/phone/playback', position === undefined ? undefined : { method: 'POST', body: JSON.stringify({ position }) });
+      if (!response.ok || data?.error) throw new Error(data?.error || 'Playback position is unavailable.');
+      if (movieDragging) return;
+      const timeline = data?.timeline;
+      moviePosition.disabled = !(timeline?.duration > 0);
+      if (moviePosition.disabled) movieTime.textContent = 'Start a movie in a supported player to seek.';
+      else {
+        moviePosition.max = String(timeline.duration);
+        moviePosition.value = String(timeline.position);
+        moviePreview();
+      }
+    } catch (error) {
+      moviePosition.disabled = true;
+      movieTime.textContent = 'Playback position is unavailable for this player.';
+      if (position !== undefined) say(error.message || 'Could not seek. Try again.', true);
+    } finally {
+      movieBusy = false;
+      if (movieSeek !== undefined) void refreshMovie(movieSeek);
+    }
+  }
+  moviePosition.addEventListener('input', () => { movieDragging = true; moviePreview(); });
+  moviePosition.addEventListener('change', () => {
+    movieDragging = false;
+    void refreshMovie(Number(moviePosition.value));
+  });
+  moviePosition.addEventListener('pointercancel', () => { movieDragging = false; });
+  setInterval(() => { if (!movieDragging) void refreshMovie(); }, 1000);
   void refresh();
   setInterval(() => {
     if (paired && document.visibilityState === 'visible') {

@@ -160,6 +160,7 @@ test('remote renders app settings from the shared catalog and restores a rejecte
   class Element {
     children = [];
     listeners = {};
+    dataset = {};
     append(...items) { this.children.push(...items); }
     replaceChildren(fragment) { this.children = fragment.children; }
     contains() { return false; }
@@ -168,11 +169,17 @@ test('remote renders app settings from the shared catalog and restores a rejecte
       return this.children.flatMap(child => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]);
     }
   }
-  const fields = new Element(), note = new Element();
+  const slots = { theme: new Element(), display: new Element(), sound: new Element() };
+  const note = new Element();
   const requests = [];
   const context = vm.createContext({
     document: {
-      getElementById: id => id === 'app-settings-fields' ? fields : note,
+      activeElement: null,
+      getElementById: id => {
+        if (id === 'app-settings-note') return note;
+        if (id.startsWith('app-settings-')) return slots[id.slice('app-settings-'.length)] ?? null;
+        return null;
+      },
       createDocumentFragment: () => new Element(),
       createElement: tag => Object.assign(new Element(), { tag }),
     },
@@ -180,7 +187,9 @@ test('remote renders app settings from the shared catalog and restores a rejecte
   });
   vm.runInContext(settingsSource, context);
   vm.runInContext(`syncSettings([{ key: 'density', group: 'Display', label: 'Layout density', description: 'Choose spacing', value: 'comfortable', options: [{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }] }])`, context);
-  const [select] = fields.querySelectorAll('select');
+  assert.equal(slots.theme.querySelectorAll('select').length, 0);
+  assert.equal(slots.sound.querySelectorAll('select').length, 0);
+  const [select] = slots.display.querySelectorAll('select');
   assert.equal(select.value, 'comfortable');
   assert.equal(select.children.length, 2);
   select.value = 'compact';

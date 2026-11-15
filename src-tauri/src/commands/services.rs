@@ -641,3 +641,20 @@ mod tests {
             .any(|argument| argument.as_str() == "--start-maximized"));
     }
 }
+
+pub(crate) async fn timeline(app: &AppHandle, script: &str) -> Result<Value, String> {
+    let state = app.state::<Services>();
+    let names: Vec<String> = state.inner.lock().map_err(|e| e.to_string())?.windows.keys().cloned().collect();
+    for name in names {
+        if !crate::commands::session::web_current(app, &name) { continue; }
+        let url = tracked(app, &name).map(|window| window.url).unwrap_or_default();
+        let mut connections = state.connections.lock().await;
+        if !connections.contains_key(&name) {
+            connections.insert(name.clone(), connect(app, &name, &url).await?);
+        }
+        let result = connections.get_mut(&name).ok_or("Player unavailable")?.eval(script).await;
+        if result.is_err() { connections.remove(&name); }
+        return result;
+    }
+    Ok(Value::Null)
+}

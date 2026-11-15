@@ -77,6 +77,16 @@ pub fn update_settings(remote: tauri::State<Remote>, settings: Vec<SettingChoice
 }
 
 pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+    if matches!(key.as_str(), "theme" | "density" | "appTileShape") {
+        let document = app.state::<crate::customization::Store>().edit(|config| match key.as_str() {
+            "theme" => config.theme = value.clone(),
+            "density" => config.density = value.clone(),
+            "appTileShape" => config.app_tile_shape = value.clone(),
+            _ => {},
+        }).map_err(|error| error.message)?;
+        crate::customization::publish(app, &document);
+        return Ok(());
+    }
     {
         let remote = app.state::<Remote>();
         let state = remote.state.lock().map_err(|error| error.to_string())?;
@@ -91,6 +101,8 @@ pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String)
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
+    #[serde(skip)]
+    customization_revision: u64,
     view: String,
     fullscreen: bool,
     sound: SoundPreset,
@@ -185,17 +197,35 @@ pub(crate) fn normalize_app_order(order: Vec<String>) -> Vec<String> {
 pub(crate) fn set_app_order(
     app: &tauri::AppHandle,
     order: Vec<String>,
-    notify_frontend: bool,
 ) -> Result<(), String> {
     let order = normalize_app_order(order);
-    {
-        let remote = app.state::<Remote>();
-        let mut state = remote.state.lock().map_err(|error| error.to_string())?;
-        state.app_order = order.clone();
-        remote.app_order.send_replace(order.clone());
+    let document = app.state::<crate::customization::Store>().edit(|config| config.order = order).map_err(|error| error.message)?;
+    crate::customization::publish(app, &document);
+    Ok(())
+}
+
+pub(crate) fn sync_customization(app: &tauri::AppHandle, document: &crate::customization::document::Document) -> Result<(), String> {
+    let remote = app.state::<Remote>();
+    let mut state = remote.state.lock().map_err(|error| error.to_string())?;
+    if document.revision < state.customization_revision { return Ok(()); }
+    state.customization_revision = document.revision;
+    let config = &document.config;
+    state.app_order = config.order.clone();
+    remote.app_order.send_replace(config.order.clone());
+    if let Some(appearance) = &mut state.appearance {
+        if let Some(theme) = appearance.themes.iter().find(|theme| theme.id == config.theme) {
+            appearance.theme = theme.id.clone();
+            appearance.tokens = theme.tokens.clone();
+        }
     }
-    if notify_frontend {
-        let _ = app.emit_to("main", "app-order", order);
+    remote.appearance.send_replace(state.appearance.clone());
+    for choice in &mut state.settings {
+        match choice.key.as_str() {
+            "theme" => choice.value = config.theme.clone(),
+            "density" => choice.value = config.density.clone(),
+            "appTileShape" => choice.value = config.app_tile_shape.clone(),
+            _ => {},
+        }
     }
     Ok(())
 }
@@ -356,6 +386,7 @@ impl Default for Remote {
     fn default() -> Self {
         Self {
             state: Mutex::new(AppState {
+                customization_revision: 0,
                 view: "Home".into(),
                 fullscreen: false,
                 sound: SoundPreset::Real,
@@ -449,11 +480,6 @@ pub fn update_app_state(
     state.fullscreen = fullscreen;
     state.sound = sound;
     Ok(())
-}
-
-#[tauri::command]
-pub fn update_app_order(app: tauri::AppHandle, order: Vec<String>) -> Result<(), String> {
-    set_app_order(&app, order, false)
 }
 
 #[tauri::command]
@@ -580,6 +606,7 @@ mod tests {
     #[test]
     fn pc_window_state_uses_the_field_names_the_remotes_read() {
         let state = super::AppState {
+            customization_revision: 0,
             view: "Home".into(),
             fullscreen: false,
             sound: SoundPreset::Real,

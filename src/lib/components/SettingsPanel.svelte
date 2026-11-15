@@ -45,12 +45,12 @@
     ] },
     { name: 'Connections', categories: [
       { name: 'Integrations', description: 'Spotify and Stremio.' },
-      { name: 'Remote & Startup', description: 'Display Box, web remote, and startup.' },
+      { name: 'Remote & Startup', description: 'Keyboard shortcut, Display Box, web remote, and startup.' },
       { name: 'Updates', description: 'Version, downloads, and restart.' },
     ] },
   ] as const;
   const categories: { name: string; description: string }[] = categoryGroups.flatMap(group => [...group.categories]);
-  let category = $derived(startCategory);
+  let category = $derived(categories.some(item => item.name === startCategory) ? startCategory : categories[0].name);
   const activeCategory = $derived(categories.find(item => item.name === category) ?? categories[0]);
   const theme = $derived(themeById(settings.theme));
   let recordingShortcut = $state(false);
@@ -197,7 +197,7 @@
         <StremioIntegration {native} />
       {:else if category === 'Updates'}
         <UpdateSettings {native} />
-      {:else}
+      {:else if category === 'Remote & Startup'}
         <section class="settings-group">
           <h3>Keyboard</h3>
           <div class="settings-row">
