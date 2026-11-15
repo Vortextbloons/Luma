@@ -15,7 +15,7 @@
   {:else}
   <div class={cinematic ? 'activity-track is-cinematic' : 'card-track'}>
     {#each items as item (item.id)}
-      <button class="media-card" aria-label={label(item)} onclick={() => open(item.id)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
+      <button data-focus-key={item.id} class="media-card" aria-label={label(item)} onclick={() => open(item.id)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
         <span class="poster">
           {#if cinematic && item.poster}<span class="poster-fill" style:background-image={`url("${item.poster}")`} aria-hidden="true"></span>{/if}
           {#if item.poster}<img src={item.poster} alt="" loading="lazy" decoding="async" />{/if}

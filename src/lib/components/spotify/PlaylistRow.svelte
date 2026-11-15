@@ -17,7 +17,7 @@
   {#if items.length}
     <div class="music-card-track">
       {#each items as item (item.id)}
-        <MusicCard artworkUrl={item.artworkUrl} title={item.title} subtitle={item.subtitle} kind={kind} onselect={() => onselect(item)} onpreview={() => onpreview?.(item)} onpreviewend={() => onpreview?.(null)} />
+        <MusicCard focusKey={item.id} artworkUrl={item.artworkUrl} title={item.title} subtitle={item.subtitle} kind={kind} onselect={() => onselect(item)} onpreview={() => onpreview?.(item)} onpreviewend={() => onpreview?.(null)} />
       {/each}
     </div>
   {:else}

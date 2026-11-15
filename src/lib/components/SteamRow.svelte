@@ -17,7 +17,7 @@
   <div class="row-heading"><div><h2>{title}</h2><p>{subtitle}</p></div></div>
   <div class="steam-track">
     {#each items as item (item.appid)}
-      <button class="steam-card" aria-label={item.playtimeMinutes > 0 ? `${item.name}, ${playtime(item.playtimeMinutes)}` : item.name} onclick={() => open(item.appid)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
+      <button data-focus-key={String(item.appid)} class="steam-card" aria-label={item.playtimeMinutes > 0 ? `${item.name}, ${playtime(item.playtimeMinutes)}` : item.name} onclick={() => open(item.appid)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
         <span class="steam-art"><img src={item.header} alt="" loading="lazy" decoding="async" onerror={event => { (event.currentTarget as HTMLImageElement).style.display = 'none'; }} /></span>
         <span class="steam-icon">
           {#if item.icon}<img src={item.icon} alt="" loading="lazy" decoding="async" />

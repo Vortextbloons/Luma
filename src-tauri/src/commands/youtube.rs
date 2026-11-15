@@ -426,11 +426,8 @@ pub async fn youtube_open_video(
 }
 
 pub fn close(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("youtube") {
-        let _ = window.eval("document.querySelector('video')?.pause();");
-    }
+    crate::background::dismiss(app, "youtube");
     crate::background::show(app);
-    crate::background::unload(app, "youtube");
 }
 
 pub fn navigate(window: &WebviewWindow, command: &str) {

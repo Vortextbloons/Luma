@@ -1,10 +1,15 @@
 ﻿use std::{
     collections::HashSet,
-    sync::{Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, OnceLock,
+    },
     time::Duration,
 };
 use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
+
+static RETAIN_VIEWS: AtomicBool = AtomicBool::new(false);
 
 fn unloading() -> &'static Mutex<HashSet<String>> {
     static UNLOADING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -36,6 +41,40 @@ pub(crate) fn unload(app: &tauri::AppHandle, label: &str) {
         }
         let _ = window.destroy();
     });
+}
+
+pub(crate) fn retains_views() -> bool {
+    RETAIN_VIEWS.load(Ordering::Relaxed)
+}
+
+fn pause(window: &tauri::WebviewWindow) {
+    let _ = window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause());");
+}
+
+pub(crate) fn dismiss(app: &tauri::AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        pause(&window);
+        let _ = window.hide();
+    }
+    if !retains_views() {
+        unload(app, label);
+    }
+}
+
+#[tauri::command]
+pub fn set_fast_app_switch(app: tauri::AppHandle, enabled: bool) {
+    RETAIN_VIEWS.store(enabled, Ordering::Relaxed);
+    if enabled {
+        return;
+    }
+    for label in ["youtube", "stremio"] {
+        if app
+            .get_webview_window(label)
+            .is_some_and(|window| !window.is_visible().unwrap_or(true))
+        {
+            unload(&app, label);
+        }
+    }
 }
 
 #[tauri::command]
@@ -189,8 +228,11 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
                 if label != window.label() {
                     if let Some(other) = window.app_handle().get_webview_window(label) {
                         if other.is_visible()? {
-                            other.hide()?;
                             if label != "main" {
+                                pause(&other);
+                            }
+                            other.hide()?;
+                            if label != "main" && !retains_views() {
                                 unload(window.app_handle(), label);
                             }
                         }

@@ -22,10 +22,15 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const PHONE_COOKIE: &str = "luma_phone";
-const PHONE_COOKIE_MAX_AGE: u32 = 30 * 24 * 60 * 60;
+const PHONE_COOKIE_MAX_AGE: u32 = 400 * 24 * 60 * 60;
 const PHONE_LOCAL_URL: &str = "http://localhost:9877/";
 const PHONE: &str = include_str!("phone.html");
-const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const MANIFEST: &str = include_str!("web/manifest.webmanifest");
+const WEB_ICON_192: &[u8] = include_bytes!("web/luma-192.png");
+const WEB_ICON_512: &[u8] = include_bytes!("web/luma-512.png");
+const WEB_ICON_MASKABLE: &[u8] = include_bytes!("web/luma-maskable-512.png");
+const WEB_ICON_APPLE: &[u8] = include_bytes!("web/apple-touch-icon.png");
+const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws:; manifest-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const DISPLAY_CREDENTIAL: &str = "display";
 const PHONE_CREDENTIAL: &str = "phone";
 
@@ -348,6 +353,31 @@ async fn phone_page() -> Response {
         .header("referrer-policy", "no-referrer")
         .body(Body::from(PHONE))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+async fn web_manifest() -> Response {
+    Response::builder()
+        .header("content-type", "application/manifest+json")
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(MANIFEST))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+async fn web_icon(
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Response, StatusCode> {
+    let bytes: &'static [u8] = match name.as_str() {
+        "luma-192.png" => WEB_ICON_192,
+        "luma-512.png" => WEB_ICON_512,
+        "luma-maskable-512.png" => WEB_ICON_MASKABLE,
+        "apple-touch-icon.png" => WEB_ICON_APPLE,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+    Response::builder()
+        .header("content-type", "image/png")
+        .header("cache-control", "private, max-age=86400")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 async fn phone_pair(
     State(app): State<tauri::AppHandle>,
@@ -739,6 +769,8 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Cannot listen on port 9877: {e}"))?;
     let router = Router::new()
         .route("/", get(phone_page))
+        .route("/manifest.webmanifest", get(web_manifest))
+        .route("/icons/{name}", get(web_icon))
         .route("/pair", post(pair))
         .route("/state", get(state))
         .route("/command", post(command))
@@ -896,13 +928,21 @@ pub fn phone_pairing(app: tauri::AppHandle) -> Result<Status, String> {
     frame_status(app)
 }
 
+fn phone_remote_url(url: &str, code: Option<&str>) -> String {
+    match code.filter(|code| !code.is_empty()) {
+        Some(code) => format!("{url}#code={code}"),
+        None => url.to_string(),
+    }
+}
+
 #[tauri::command]
 pub fn phone_remote_qr(app: tauri::AppHandle) -> Result<String, String> {
     let status = frame_status(app)?;
     if !status.enabled || status.addresses.is_empty() {
         return Err("Connect this PC to Wi-Fi and enable remote control first.".into());
     }
-    let code = qrcode::QrCode::new(status.phone_url.as_bytes()).map_err(|error| error.to_string())?;
+    let url = phone_remote_url(&status.phone_url, status.phone_code.as_deref());
+    let code = qrcode::QrCode::new(url.as_bytes()).map_err(|error| error.to_string())?;
     let svg = code.render::<qrcode::render::svg::Color>().build();
     Ok(format!("data:image/svg+xml,{}", percent_encoding::utf8_percent_encode(&svg, percent_encoding::NON_ALPHANUMERIC)))
 }
@@ -1033,10 +1073,72 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .contains("frame-ancestors 'none'"));
+            assert!(response.headers()["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .contains("manifest-src 'self'"));
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
             assert!(String::from_utf8_lossy(&body).contains("Pair this device"));
+        });
+    }
+
+    #[test]
+    fn pairing_url_carries_the_active_code_in_the_fragment() {
+        assert_eq!(
+            phone_remote_url("http://192.168.1.5:9877", Some("123456")),
+            "http://192.168.1.5:9877#code=123456"
+        );
+        assert_eq!(
+            phone_remote_url("http://192.168.1.5:9877", None),
+            "http://192.168.1.5:9877"
+        );
+        assert_eq!(
+            phone_remote_url("http://192.168.1.5:9877", Some("")),
+            "http://192.168.1.5:9877"
+        );
+    }
+
+    #[test]
+    fn web_manifest_describes_an_installable_remote() {
+        let manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(manifest["name"], "Luma Remote");
+        assert_eq!(manifest["start_url"], "/");
+        assert_eq!(manifest["scope"], "/");
+        assert_eq!(manifest["display"], "standalone");
+        let icons = manifest["icons"].as_array().unwrap();
+        assert!(icons.iter().any(|icon| icon["sizes"] == "192x192"));
+        assert!(icons.iter().any(|icon| icon["sizes"] == "512x512"));
+        assert!(icons.iter().any(|icon| icon["purpose"] == "maskable"));
+    }
+
+    #[test]
+    fn web_manifest_and_icons_are_served_as_embedded_assets() {
+        tauri::async_runtime::block_on(async {
+            let response = web_manifest().await;
+            assert_eq!(
+                response.headers()["content-type"],
+                "application/manifest+json"
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(String::from_utf8_lossy(&body).contains("Luma Remote"));
+
+            let icon = web_icon(axum::extract::Path("luma-192.png".into()))
+                .await
+                .unwrap();
+            assert_eq!(icon.headers()["content-type"], "image/png");
+            let bytes = axum::body::to_bytes(icon.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(bytes.len() > 1024);
+            assert!(
+                web_icon(axum::extract::Path("missing.png".into()))
+                    .await
+                    .is_err()
+            );
         });
     }
 }

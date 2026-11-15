@@ -8,6 +8,7 @@ export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', {
 export const closeLaunchedApp = () => invoke<void>('close_launched_app');
 export const quitLuma = () => invoke<void>('quit_app');
 export const hideToTray = () => invoke<void>('hide_to_tray');
+export const setFastAppSwitch = (enabled: boolean) => invoke<void>('set_fast_app_switch', { enabled });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
 export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');

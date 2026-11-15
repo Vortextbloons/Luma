@@ -43,7 +43,7 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 | Catalog browse | Popular and highly rated titles from Stremio's public Cinemeta feed: posters, ratings, runtime, description, and search, without starting another app first. |
 | Stremio account | Pair with a short device code, pull library and Continue Watching, open titles in Stremio's official web player inside Luma. |
 | Spotify | Playlists, saved albums, liked songs, search, device picking, and transport controls from the TV UI. |
-| Phone remote | Same Wi-Fi, six-digit pairing code, D-pad, playback, volume, and app shortcuts. A Display Box frame can pair too. |
+| Phone remote | Same Wi-Fi, scan the QR code to pair, add it to your phone's home screen, then control Luma with the D-pad, playback, volume, and app shortcuts. A Display Box frame can pair too. |
 | In-app control | While a launched app is focused, the remote can move the mouse and click inside it. Home returns you to Luma. |
 | TV layout | 10-foot typography, six themes, reorderable home rows and hero, widget placement, drag-to-reorder app dock shared with both remotes, comfortable or compact density, separate display and audio outputs. |
 | Privacy | Local SQLite history, Credential Manager for secrets, remote bound to the local network. |
@@ -79,7 +79,7 @@ npm run tauri dev
 
 - Luma starts apps and opens sites. It does not host or decrypt streams. DRM stays in whatever app or site provides the license.
 - Torrent and transcoded Stremio playback depends on Stremio Service running on the same machine.
-- The phone remote uses plain HTTP on your LAN. Only use it on networks you trust, and allow Luma through the Windows Firewall on private profiles.
+- The phone remote uses plain HTTP on your LAN. Only use it on networks you trust, and allow Luma through the Windows Firewall on private profiles. iPhone and iPad can run it from the home screen; on Android, Chrome adds a home-screen shortcut that opens in the browser until a trusted HTTPS origin is available.
 - Posters and metadata come from Stremio's public Cinemeta and MetaHub catalogs. Streaming logos belong to their owners.
 
 ---

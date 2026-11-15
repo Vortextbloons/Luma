@@ -5,8 +5,8 @@ import { stripTypeScriptTypes } from 'node:module';
 
 const source = stripTypeScriptTypes(readFileSync(new URL('./customization.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, ''));
 const { createCustomizationSync, customizationConfig } = await import(`data:text/javascript;base64,${Buffer.from(`const invoke = (...args) => globalThis.__customizationTest.invoke(...args); const listen = (...args) => globalThis.__customizationTest.listen(...args);\n${source}`).toString('base64')}`);
-const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', home: [{ id: 'hero', visible: true }], widgets: { spotify: { enabled: true, placement: 'bar' } }, order: ['Custom'] });
-const document = (revision, value = config()) => ({ version: 1, revision, config: structuredClone(value) });
+const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', home: [{ id: 'hero', component: 'hero', visible: true }], widgets: { spotify: { enabled: true, placement: 'bar' } }, order: ['Custom'] });
+const document = (revision, value = config()) => ({ version: 2, revision, config: structuredClone(value) });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 test('migration hydrates native preferences and incoming changes do not echo back', async () => {

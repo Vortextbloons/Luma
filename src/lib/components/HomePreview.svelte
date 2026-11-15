@@ -13,7 +13,7 @@
     activityItems: ActivityItem[];
     apps: AppId[];
     widget: WidgetConfig;
-    highlight: HomeRowId | null;
+    highlight: string | null;
   } = $props();
 
   const placeholders: PreviewThumb[] = [0, 1, 2, 3].map(index => ({ key: `empty-${index}`, art: null, provider: null, app: false }));
@@ -21,17 +21,17 @@
   const activityThumbs = (items: ActivityItem[]): PreviewThumb[] => sortRecent(items).slice(0, 4).map(item => ({ key: item.id, art: item.artwork, provider: item.provider, app: false }));
   const mediaThumbs = (items: MediaItem[]): PreviewThumb[] => items.slice(0, 4).map(item => ({ key: item.id, art: item.backdrop || item.poster || null, provider: null, app: false }));
 
-  function thumbsFor(id: HomeRowId): PreviewThumb[] {
-    if (id === 'hero') return [];
-    if (id === 'continue') return activityThumbs(activityItems.filter(isContinueWatching));
-    if (id === 'recent') return activityThumbs(activityItems.filter(isRecentlyPlayed));
-    if (id === 'recentApps') return activityThumbs(activityItems.filter(isApplication));
-    if (id === 'popular') return mediaThumbs(popular);
-    if (id === 'featured') return mediaThumbs(featured);
+  function thumbsFor(component: HomeRowId): PreviewThumb[] {
+    if (component === 'hero') return [];
+    if (component === 'continue') return activityThumbs(activityItems.filter(isContinueWatching));
+    if (component === 'recent') return activityThumbs(activityItems.filter(isRecentlyPlayed));
+    if (component === 'recentApps') return activityThumbs(activityItems.filter(isApplication));
+    if (component === 'popular') return mediaThumbs(popular);
+    if (component === 'featured') return mediaThumbs(featured);
     return apps.slice(0, 6).map(app => ({ key: app, art: null, provider: appProviders[app] ?? null, app: true }));
   }
 
-  const previewRows = $derived(rows.filter(row => row.visible).map(row => ({ id: row.id, label: homeRowMeta[row.id].label, thumbs: thumbsFor(row.id) })));
+  const previewRows = $derived(rows.filter(row => row.visible).map(row => ({ id: row.id, component: row.component, label: homeRowMeta[row.component].label, thumbs: thumbsFor(row.component) })));
   const hero = $derived(popular[0] ?? featured[0] ?? null);
   const heroArt = $derived(popular[0]?.backdrop || featured[0]?.backdrop || '');
 </script>
@@ -47,7 +47,7 @@
         </div>
         <div class="preview-rows">
           {#each previewRows as row (row.id)}
-            {#if row.id === 'hero'}
+            {#if row.component === 'hero'}
               <div class="hero" class:is-highlighted={highlight === row.id}>
                 {#if heroArt}<img src={heroArt} alt="" loading="lazy" decoding="async" />{/if}
                 <span class="hero-shade"></span>

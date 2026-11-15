@@ -7,7 +7,7 @@ export type SoundLevel = 'soft' | 'standard' | 'loud';
 export type HomeRowId = 'hero' | 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
 export type WidgetId = 'spotify';
 export type WidgetPlacement = 'bar' | 'top-right' | 'bottom-right' | 'bottom-left';
-export interface HomeRow { id: HomeRowId; visible: boolean; }
+export interface HomeRow { id: string; component: HomeRowId; visible: boolean; }
 export interface WidgetConfig { enabled: boolean; placement: WidgetPlacement; }
 export interface Settings {
   theme: ThemeId;
@@ -15,6 +15,7 @@ export interface Settings {
   appTileShape: 'wide' | 'square';
   homeShortcut: string;
   fullscreen: boolean;
+  fastAppSwitch: boolean;
   interfaceSounds: SoundPreset;
   soundLevel: SoundLevel;
   home: HomeRow[];

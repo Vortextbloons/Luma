@@ -15,7 +15,7 @@
   <div class="row-heading"><div><h2>{title}</h2></div></div>
   <div class="backdrop-track">
     {#each items as item (item.id)}
-      <button class="backdrop-card" aria-label={`${item.title}, ${item.subtitle}`} onclick={() => onselect(item)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
+      <button data-focus-key={item.id} class="backdrop-card" aria-label={`${item.title}, ${item.subtitle}`} onclick={() => onselect(item)} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
         <span class="backdrop-art">
           <img src={rowArt(item)} srcset={rowArtSet(item)} alt="" loading="lazy" decoding="async" />
           <span class="backdrop-fade" aria-hidden="true"></span>

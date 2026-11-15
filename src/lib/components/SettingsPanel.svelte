@@ -48,6 +48,9 @@
       { name: 'Remote & Startup', description: 'Keyboard shortcut, Display Box, web remote, and startup.' },
       { name: 'Updates', description: 'Version, downloads, and restart.' },
     ] },
+    { name: 'System', categories: [
+      { name: 'Performance', description: 'App switching and memory use.' },
+    ] },
   ] as const;
   const categories: { name: string; description: string }[] = categoryGroups.flatMap(group => [...group.categories]);
   let category = $derived(categories.some(item => item.name === startCategory) ? startCategory : categories[0].name);
@@ -197,6 +200,17 @@
         <StremioIntegration {native} />
       {:else if category === 'Updates'}
         <UpdateSettings {native} />
+      {:else if category === 'Performance'}
+        <section class="settings-group">
+          <h3>Background apps</h3>
+          <p class="panel-description">YouTube and Stremio pause when you switch away. Fast app switching keeps them loaded in the background so they can reopen without reloading.</p>
+          <div class="settings-toggle-list">
+            <label class="setting-toggle">
+              <span class="setting-toggle-copy"><span>Fast app switching</span><small>{native ? 'Keeps YouTube and Stremio in memory after you leave them. Uses more RAM while Luma runs. When off, Luma closes them to save memory.' : 'Available in the desktop application.'}</small></span>
+              <input type="checkbox" bind:checked={settings.fastAppSwitch} disabled={!native} />
+            </label>
+          </div>
+        </section>
       {:else if category === 'Remote & Startup'}
         <section class="settings-group">
           <h3>Keyboard</h3>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, WidgetConfig } from '../types';
+  import type { ActivityItem, AppId, HomeRow, MediaItem, WidgetConfig } from '../types';
   import { homeRowMeta } from '../services/home';
   import HomePreview from './HomePreview.svelte';
 
@@ -11,29 +11,34 @@
     activityItems: ActivityItem[];
     apps: AppId[];
     widget: WidgetConfig;
-    onmove: (id: HomeRowId, direction: -1 | 1) => void;
-    onmoveto: (id: HomeRowId, index: number) => void;
-    ontoggle: (id: HomeRowId) => void;
+    onmove: (id: string, direction: -1 | 1) => void;
+    onmoveto: (id: string, index: number) => void;
+    ontoggle: (id: string) => void;
     onreset: () => void;
   } = $props();
 
-  let lifted = $state<HomeRowId | null>(null);
+  let lifted = $state<string | null>(null);
   let liftOrigin = $state(0);
   let status = $state('');
-  let hovered = $state<HomeRowId | null>(null);
-  let focused = $state<HomeRowId | null>(null);
+  let hovered = $state<string | null>(null);
+  let focused = $state<string | null>(null);
   let listElement = $state<HTMLOListElement | null>(null);
 
   const highlight = $derived(hovered ?? focused);
   const visibleCount = $derived(rows.filter(row => row.visible).length);
 
-  function startLift(id: HomeRowId, index: number) {
-    lifted = id;
-    liftOrigin = index;
-    status = `${homeRowMeta[id].label} is ready to move. Use the arrow keys or the buttons, then choose Done.`;
+  function labelOf(id: string) {
+    const row = rows.find(item => item.id === id);
+    return row ? homeRowMeta[row.component].label : '';
   }
 
-  async function refocus(target: HTMLElement | null, id: HomeRowId) {
+  function startLift(id: string, index: number) {
+    lifted = id;
+    liftOrigin = index;
+    status = `${labelOf(id)} is ready to move. Use the arrow keys or the buttons, then choose Done.`;
+  }
+
+  async function refocus(target: HTMLElement | null, id: string) {
     await tick();
     const fallback = listElement?.querySelector<HTMLButtonElement>(`li[data-row="${id}"] .layout-action`);
     (target?.isConnected ? target : fallback)?.focus({ preventScroll: true });
@@ -43,17 +48,17 @@
     return document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
 
-  function move(id: HomeRowId, direction: -1 | 1) {
+  function move(id: string, direction: -1 | 1) {
     if (lifted !== id) return;
     const index = rows.findIndex(row => row.id === id);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= rows.length) {
-      status = `${homeRowMeta[id].label} is already ${direction < 0 ? 'at the top' : 'at the bottom'}.`;
+      status = `${labelOf(id)} is already ${direction < 0 ? 'at the top' : 'at the bottom'}.`;
       return;
     }
     const focusTarget = focusedElement();
     onmove(id, direction);
-    status = `${homeRowMeta[id].label} moved to position ${target + 1} of ${rows.length}.`;
+    status = `${labelOf(id)} moved to position ${target + 1} of ${rows.length}.`;
     void refocus(focusTarget, id);
   }
 
@@ -61,7 +66,7 @@
     if (!lifted) return;
     const id = lifted;
     const index = rows.findIndex(row => row.id === id);
-    status = `${homeRowMeta[id].label} saved at position ${index + 1} of ${rows.length}.`;
+    status = `${labelOf(id)} saved at position ${index + 1} of ${rows.length}.`;
     lifted = null;
   }
 
@@ -70,7 +75,7 @@
     const id = lifted;
     const focusTarget = focusedElement();
     onmoveto(id, liftOrigin);
-    status = `${homeRowMeta[id].label} returned to position ${liftOrigin + 1} of ${rows.length}. Move cancelled.`;
+    status = `${labelOf(id)} returned to position ${liftOrigin + 1} of ${rows.length}. Move cancelled.`;
     lifted = null;
     void refocus(focusTarget, id);
   }
@@ -78,7 +83,7 @@
   function toggle(row: HomeRow) {
     const wasVisible = row.visible;
     ontoggle(row.id);
-    status = `${homeRowMeta[row.id].label} ${wasVisible ? 'hidden from Home' : 'shown on Home'}.`;
+    status = `${homeRowMeta[row.component].label} ${wasVisible ? 'hidden from Home' : 'shown on Home'}.`;
   }
 
   function reset() {
@@ -90,7 +95,7 @@
     if (id) void refocus(focusTarget, id);
   }
 
-  function rowKeydown(event: KeyboardEvent, id: HomeRowId) {
+  function rowKeydown(event: KeyboardEvent, id: string) {
     if (lifted !== id) return;
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -104,13 +109,13 @@
     move(id, event.key === 'ArrowUp' ? -1 : 1);
   }
 
-  function rowBlur(event: FocusEvent, id: HomeRowId) {
+  function rowBlur(event: FocusEvent, id: string) {
     const next = event.relatedTarget as Node | null;
     if (next && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(next)) return;
     if (focused === id) focused = null;
   }
 
-  function rowLeave(id: HomeRowId) {
+  function rowLeave(id: string) {
     if (hovered === id) hovered = null;
   }
 </script>
@@ -145,24 +150,24 @@
           >
             <span class="layout-index" aria-hidden="true">{index + 1}</span>
             <div class="layout-copy">
-              <strong>{homeRowMeta[row.id].label}{#if !row.visible}<span class="settings-badge is-muted">Hidden</span>{/if}</strong>
-              <small>{homeRowMeta[row.id].detail}</small>
+              <strong>{homeRowMeta[row.component].label}{#if !row.visible}<span class="settings-badge is-muted">Hidden</span>{/if}</strong>
+              <small>{homeRowMeta[row.component].detail}</small>
             </div>
             <div class="layout-controls">
               <label class="layout-visibility">
-                <input type="checkbox" checked={row.visible} aria-label={`Show ${homeRowMeta[row.id].label} on Home`} onchange={() => toggle(row)} />
+                <input type="checkbox" checked={row.visible} aria-label={`Show ${homeRowMeta[row.component].label} on Home`} onchange={() => toggle(row)} />
                 <span>Visible</span>
               </label>
               {#if lifted === row.id}
                 <div class="layout-nudge">
-                  <button onclick={() => move(row.id, -1)} aria-label={`Move ${homeRowMeta[row.id].label} up`}>↑</button>
-                  <button onclick={() => move(row.id, 1)} aria-label={`Move ${homeRowMeta[row.id].label} down`}>↓</button>
+                  <button onclick={() => move(row.id, -1)} aria-label={`Move ${homeRowMeta[row.component].label} up`}>↑</button>
+                  <button onclick={() => move(row.id, 1)} aria-label={`Move ${homeRowMeta[row.component].label} down`}>↓</button>
                 </div>
               {/if}
               <button
                 class="layout-action"
                 class:is-done={lifted === row.id}
-                aria-label={lifted === row.id ? `Finish moving ${homeRowMeta[row.id].label}` : `Move ${homeRowMeta[row.id].label}`}
+                aria-label={lifted === row.id ? `Finish moving ${homeRowMeta[row.component].label}` : `Move ${homeRowMeta[row.component].label}`}
                 onclick={() => lifted === row.id ? commit() : startLift(row.id, index)}
               >{lifted === row.id ? 'Done' : 'Move'}</button>
             </div>

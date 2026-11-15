@@ -1,6 +1,6 @@
 ﻿import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
-import { createNavigation } from './navigation.ts';
+import { createNavigation, preserveHomeFocus } from './navigation.ts';
 
 const original = { document: globalThis.document, input: globalThis.HTMLInputElement, select: globalThis.HTMLSelectElement };
 class Input {}
@@ -234,4 +234,97 @@ after(() => {
   if (original.document === undefined) delete globalThis.document; else globalThis.document = original.document;
   if (original.input === undefined) delete globalThis.HTMLInputElement; else globalThis.HTMLInputElement = original.input;
   if (original.select === undefined) delete globalThis.HTMLSelectElement; else globalThis.HTMLSelectElement = original.select;
+});
+
+function homeFocusFixture() {
+  const previousDocument = globalThis.document;
+  const previousObserver = globalThis.MutationObserver;
+  const listeners = new Map();
+  let notify;
+  let disconnected = false;
+  const rows = [];
+  const body = {};
+  const doc = {
+    body, activeElement: body,
+    addEventListener: (name, callback) => listeners.set(name, callback),
+    removeEventListener: name => listeners.delete(name),
+    querySelector: selector => selector === '#home-button' ? home : null,
+  };
+  const home = { focus() { doc.activeElement = home; listeners.get('focusin')?.({ target: home }); }, scrollIntoView() {}, closest: () => null };
+  const root = { isConnected: true, contains: row => rows.includes(row), querySelectorAll: () => rows };
+  globalThis.document = doc;
+  globalThis.MutationObserver = class {
+    constructor(callback) { notify = callback; }
+    observe() {}
+    disconnect() { disconnected = true; }
+  };
+  function row(id) {
+    const value = { dataset: { homeInstance: id }, controls: [], querySelectorAll() { return this.controls.filter(control => control.isConnected && !control.disabled); } };
+    rows.push(value);
+    return value;
+  }
+  function button(owner, key) {
+    const value = {
+      isConnected: true, disabled: false, dataset: { focusKey: key },
+      closest: selector => selector === '[data-home-instance]' ? owner : null,
+      matches: () => value.disabled,
+      getClientRects: () => value.isConnected ? [{}] : [],
+      focus() { doc.activeElement = value; listeners.get('focusin')?.({ target: value }); },
+      scrollIntoView() {},
+    };
+    owner.controls.push(value);
+    return value;
+  }
+  const dispose = preserveHomeFocus(root);
+  return { doc, rows, row, button, home, notify: () => notify(), dispose,
+    disconnected: () => disconnected,
+    cleanup() { dispose(); globalThis.document = previousDocument; globalThis.MutationObserver = previousObserver; },
+  };
+}
+
+test('Home replacement restores the same instance/item and preserves focus across moves', () => {
+  const f = homeFocusFixture();
+  try {
+    const apps = f.row('personal-apps');
+    const old = f.button(apps, 'Spotify');
+    old.focus();
+    old.isConnected = false;
+    f.doc.activeElement = f.doc.body;
+    f.button(apps, 'YouTube');
+    const replacement = f.button(apps, 'Spotify');
+    f.notify();
+    assert.equal(f.doc.activeElement, replacement);
+    f.doc.activeElement = f.doc.body;
+    f.notify();
+    assert.equal(f.doc.activeElement, replacement);
+    f.home.focus();
+    replacement.isConnected = false;
+    f.notify();
+    assert.equal(f.doc.activeElement, f.home);
+    f.dispose();
+    assert.equal(f.disconnected(), true);
+  } finally { f.cleanup(); }
+});
+
+test('Home removal chooses a nearby usable row and falls back to core navigation', () => {
+  const f = homeFocusFixture();
+  try {
+    const first = f.row('first');
+    const middle = f.row('middle');
+    const last = f.row('last');
+    f.button(first, 'one');
+    const removed = f.button(middle, 'two');
+    const next = f.button(last, 'three');
+    removed.focus();
+    removed.isConnected = false;
+    f.rows.splice(1, 1);
+    f.doc.activeElement = f.doc.body;
+    f.notify();
+    assert.equal(f.doc.activeElement, next);
+    next.disabled = true;
+    first.controls[0].isConnected = false;
+    f.doc.activeElement = f.doc.body;
+    f.notify();
+    assert.equal(f.doc.activeElement, f.home);
+  } finally { f.cleanup(); }
 });

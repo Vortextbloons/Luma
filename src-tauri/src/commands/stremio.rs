@@ -694,11 +694,8 @@ pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), Str
 }
 
 pub(crate) fn close(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("stremio") {
-        pause(&window);
-    }
+    crate::background::dismiss(app, "stremio");
     restore_main(app);
-    crate::background::unload(app, "stremio");
 }
 
 pub(crate) fn forward(app: &AppHandle, command: &str) {
@@ -770,17 +767,14 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
         })
         .build()
         .map_err(|error| format!("Could not open Stremio: {error}"))?;
-    let close = window.clone();
     let restore = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            let close = close.clone();
             let restore = restore.clone();
             tauri::async_runtime::spawn(async move {
-                pause(&close);
+                crate::background::dismiss(&restore, "stremio");
                 restore_main(&restore);
-                crate::background::unload(&restore, "stremio");
             });
         }
     });
@@ -811,10 +805,6 @@ fn external(url: &tauri::Url) {
     if matches!(url.scheme(), "http" | "https") {
         let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
     }
-}
-
-fn pause(window: &WebviewWindow) {
-    let _ = window.eval("document.querySelectorAll('video').forEach(video => video.pause());");
 }
 
 fn restore_main(app: &AppHandle) {

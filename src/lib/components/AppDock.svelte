@@ -15,7 +15,7 @@
 <section id="apps" class="content-row apps-row">
   <div class="app-track">
     {#each order as id (id)}
-      <button class={`app-card ${className(id)}`} class:is-launching={launching === id} class:is-active={active === id} aria-busy={launching === id} onclick={() => launch(id)} onmouseenter={() => preview?.(id)} onfocus={() => preview?.(id)}>
+      <button data-focus-key={id} class={`app-card ${className(id)}`} class:is-launching={launching === id} class:is-active={active === id} aria-busy={launching === id} onclick={() => launch(id)} onmouseenter={() => preview?.(id)} onfocus={() => preview?.(id)}>
         {#if id === 'Custom'}
           <span class="plus-logo" aria-hidden="true">＋</span>
         {:else}

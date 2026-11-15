@@ -62,6 +62,15 @@
     await run('configure_frame', { enabled: input.checked });
     if (status?.enabled !== input.checked) input.checked = Boolean(status?.enabled);
   }
+  async function newPhoneCode() {
+    busy = true;
+    error = '';
+    try {
+      status = await invoke<Status>('phone_pairing');
+      qr = status.addresses.length ? await invoke<string>('phone_remote_qr') : '';
+    } catch (reason) { error = String(reason); }
+    finally { busy = false; schedule(); }
+  }
   async function openRemote() {
     busy = true;
     error = '';
@@ -69,6 +78,9 @@
     catch (reason) { error = String(reason); }
     finally { busy = false; }
   }
+  $effect(() => {
+    if (status && !status.phoneCode && qr) qr = '';
+  });
   onMount(() => {
     if (!native) return;
     void (autoConnect ? connect() : run('frame_status'));
@@ -110,13 +122,14 @@
             <div class="frame-code">
               <span class="frame-code-label">Web remote pairing code</span>
               <p class="pair-code" aria-label="Web remote pairing code">{status.phoneCode}</p>
-              <p class="panel-description">Enter this code in the web remote. Valid for five minutes; you can pair multiple browsers.</p>
+              <p class="panel-description">Scan the QR code to fill this in automatically, or type it in the web remote. Valid for five minutes; you can pair multiple browsers.</p>
             </div>
           {/if}
-          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open the Luma remote in your browser" decoding="async" /><p class="remote-note">Scan with a camera to open the web remote. Keep both devices on the same Wi-Fi.</p>{/if}
+          {#if qr}<img class="remote-qr" src={qr} alt="Scan to open and pair the Luma remote" decoding="async" /><p class="remote-note">Scan with a camera to open and pair the web remote. Keep both devices on the same Wi-Fi.</p>{/if}
           <ol class="remote-steps">
             <li>Scan the QR code, or type this address in a browser on your device.</li>
-            <li>Enter the pairing code shown below.</li>
+            <li>The QR code pairs automatically. You can also enter the pairing code shown below.</li>
+            <li>After it opens, add Luma to your phone&rsquo;s home screen for one-tap access.</li>
           </ol>
           {#if status.addresses.length}
             <code class="address">{status.phoneUrl}</code>
@@ -125,7 +138,7 @@
           {/if}
           <div class="remote-launch"><button class="panel-secondary" disabled={busy} onclick={openRemote}>Open remote in browser</button></div>
           <p class="remote-note">On another device, use the address above, not localhost. Keep Luma running and both devices on the same Wi-Fi.</p>
-          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={() => run('phone_pairing')}>{status.phoneCode ? 'New web remote code' : status.phonePaired ? 'Pair another browser' : 'Pair a web remote'}</button>
+          <button class="panel-secondary" disabled={busy || !status.addresses.length} onclick={newPhoneCode}>{status.phoneCode ? 'New web remote code' : status.phonePaired ? 'Pair another browser' : 'Pair a web remote'}</button>
           {#if status.phonePaired}<p class="remote-paired">A web remote has been paired. Luma remembers it for next time.</p>{/if}
         </div>
       {:else}

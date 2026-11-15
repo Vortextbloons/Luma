@@ -1,5 +1,42 @@
 import type { NavigationCommand } from '../types';
 
+const focusable = 'button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]';
+
+export function preserveHomeFocus(root: HTMLElement) {
+  let last: { element: HTMLElement; instance: string; key: string | undefined; controlIndex: number; rowIndex: number } | undefined;
+  const rows = () => [...root.querySelectorAll<HTMLElement>('[data-home-instance]')];
+  const controls = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(focusable)].filter(element => element.getClientRects().length > 0 && !element.closest('[hidden], [inert]'));
+  const remember = (event: FocusEvent) => {
+    const element = event.target as HTMLElement;
+    const row = element.closest?.<HTMLElement>('[data-home-instance]');
+    if (!row || !root.contains(row)) { last = undefined; return; }
+    last = { element, instance: row.dataset.homeInstance!, key: element.dataset.focusKey, controlIndex: controls(row).indexOf(element), rowIndex: rows().indexOf(row) };
+  };
+  const observer = new MutationObserver(() => {
+    if (!last || !root.isConnected || document.querySelector('dialog[open]')) return;
+    const retained = last.element.isConnected && last.element.getClientRects().length > 0 && !last.element.matches(':disabled') && !last.element.closest('[hidden], [inert]');
+    if (retained && document.activeElement === last.element) return;
+    if (document.activeElement !== document.body && document.activeElement !== last.element) return;
+    const currentRows = rows();
+    const sameRow = currentRows.find(row => row.dataset.homeInstance === last!.instance);
+    const candidates = sameRow ? controls(sameRow) : [];
+    let target: HTMLElement | undefined = (retained ? last.element : undefined) ?? candidates.find(element => last!.key !== undefined && element.dataset.focusKey === last!.key) ?? candidates[Math.min(Math.max(0, last.controlIndex), candidates.length - 1)];
+    if (!target) {
+      const nearest = currentRows.map((row, index) => ({ row, index })).sort((a, b) => Math.abs(a.index - last!.rowIndex) - Math.abs(b.index - last!.rowIndex));
+      for (const { row } of nearest) {
+        target = controls(row)[0];
+        if (target) break;
+      }
+    }
+    target ??= document.querySelector<HTMLElement>('#home-button') ?? undefined;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+  });
+  document.addEventListener('focusin', remember);
+  observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'inert', 'disabled', 'style', 'class'] });
+  return () => { observer.disconnect(); document.removeEventListener('focusin', remember); last = undefined; };
+}
+
 export function homeShortcut(event: KeyboardEvent) {
   if (event.metaKey || event.isComposing || (!event.ctrlKey && !event.altKey) || !/^(?:[a-z0-9]|Home|F(?:[1-9]|1[0-2]))$/i.test(event.key) || event.key === 'F11') return '';
   return `${event.ctrlKey ? 'Ctrl+' : ''}${event.altKey ? 'Alt+' : ''}${event.shiftKey ? 'Shift+' : ''}${event.key.length === 1 ? event.key.toUpperCase() : event.key}`;
@@ -19,7 +56,7 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       window.addEventListener('resize', invalidate, { passive: true });
     }
     cachedRoot = root;
-    cached = [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
+    cached = [...root.querySelectorAll<HTMLElement>(focusable)].filter(el => el.getClientRects().length > 0 && !el.closest?.('[inert], [hidden]'));
     return cached;
   };
   function focus(el?: HTMLElement, audible = false) {

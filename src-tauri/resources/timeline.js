@@ -1,8 +1,23 @@
 position => {
-  const video = [...document.querySelectorAll('video')].find(video => video.duration > 0 && video.getClientRects().length);
-  if (!video || !Number.isFinite(video.duration) || !video.seekable.length) return null;
-  const start = video.seekable.start(0);
-  const end = video.seekable.end(video.seekable.length - 1);
-  if (position !== null && Number.isFinite(position)) video.currentTime = Math.max(start, Math.min(end, position));
-  return { position: video.currentTime, duration: video.duration };
+  try {
+    const videos = [];
+    const collect = root => {
+      videos.push(...root.querySelectorAll('video'));
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) collect(element.shadowRoot);
+        if (element.tagName === 'IFRAME') {
+          try { if (element.contentDocument) collect(element.contentDocument); } catch (_) {}
+        }
+      }
+    };
+    collect(document);
+    const candidates = videos.filter(video => Number.isFinite(video.duration) && video.duration > 0);
+    candidates.sort((a, b) => Number(b.getClientRects().length > 0) - Number(a.getClientRects().length > 0) || Number(a.paused) - Number(b.paused));
+    const video = candidates[0];
+    if (!video) return null;
+    if (position !== null && Number.isFinite(position)) video.currentTime = Math.max(0, Math.min(video.duration, position));
+    return { position: video.currentTime, duration: video.duration };
+  } catch (_) {
+    return { error: 'The player could not change playback position. Try again.' };
+  }
 }

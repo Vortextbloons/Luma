@@ -1,6 +1,6 @@
 # Local customization server foundation
 
-Implemented: versioned native ownership of existing Home/appearance preferences and a local REST API. MCP, custom layout containers, plugin loading, and AI chat remain future work. See [the roadmap](CUSTOMIZATION-ROADMAP.md).
+Implemented: versioned native ownership of Home/appearance preferences, a registry-driven equivalent Home renderer, and a local REST API. MCP, general layout containers, preview/Keep, plugin loading, and AI chat remain future work. See [the roadmap](CUSTOMIZATION-ROADMAP.md).
 
 ## Enable locally
 
@@ -32,7 +32,11 @@ Every route requires `Authorization: Bearer <token>` and the exact host `127.0.0
 | PUT | `/v1/config` | `{ "expectedRevision": number, "config": configuration }` | Committed document |
 | POST | `/v1/restore` | `{ "expectedRevision": number }` | Previous configuration committed as a new revision |
 
-A document has `version: 1`, a positive `revision`, and `config`. Config contains `theme`, `density`, `appTileShape`, `home`, `widgets`, and `order`. Read the current document and modify its configuration: commits replace the complete supported configuration, not a partial patch. Unknown fields/values are rejected. Home must contain all seven built-in rows exactly once; app order must contain all twelve apps once with Custom last. Hidden rows retain their position.
+A document now has `version: 2`, a positive `revision`, and `config`. Config contains `theme`, `density`, `appTileShape`, `home`, `widgets`, and `order`. Read the current document and modify its configuration: commits replace the complete supported configuration, not a partial patch. Unknown fields/values are rejected. Home must contain all seven built-in component kinds exactly once; app order must contain all twelve apps once with Custom last. Hidden rows retain their position.
+
+Each Home row is `{ "id": "personal-dock", "component": "apps", "visible": true }`: `id` identifies the instance and `component` selects the registered built-in rendering. Instance IDs must be unique and contain 1–64 ASCII letters, digits, underscores, or hyphens. Component kinds are `hero`, `continue`, `apps`, `popular`, `featured`, `recent`, and `recentApps`. Renaming an instance does not change its kind or label. Existing rows migrate with the old ID as both fields. This milestone supports ordering/hiding these singleton sections; it does not allow arbitrary additional components or nested containers.
+
+At startup, existing v1 current and previous documents are validated and upgraded together in one transaction. Revisions are preserved and restore continues to work. Incompatible/corrupt documents prevent a partial migration rather than being replaced with defaults. API writes require the v2 configuration shape after upgrade; read before editing instead of replaying an old v1 payload.
 
 Revisions increase only for actual changes. A stale expected revision conflicts even when the proposed configuration is valid. Restore commits the previous configuration with a new revision and retains the replaced configuration, allowing one-step reversal. It is not a history browser.
 
@@ -67,4 +71,4 @@ Frontend type checking and production build passed. Focused Node tests cover hyd
 
 Live Tauri-to-HTTP writes, tray recreation with phone input, TV focus/readability, and startup/idle performance measurements remain manual acceptance work. Storage and middleware tests do not validate those complete desktop journeys.
 
-The broader `cargo check --all-targets` check fails in the existing `examples/window_handoff.rs`: its included background module needs `crate::commands::session` and `crate::tv::restore_audio`, which the example does not define. That example was not changed by this work. Native library tests pass (84), the Node suite passes (54), and the frontend type check/build pass.
+The earlier broader `cargo check --all-targets` check failed in the existing `examples/window_handoff.rs`: its included background module needed `crate::commands::session` and `crate::tv::restore_audio`, which the example did not define. That example was not changed by the customization work. At the Phase 2 checkpoint, native library tests pass (97), the Node suite passes (71), and the frontend type check/build pass. New tests cover v1-to-v2 migration, preserved undo, component rendering with renamed instance IDs, editor/preview identity, and Home focus recovery.

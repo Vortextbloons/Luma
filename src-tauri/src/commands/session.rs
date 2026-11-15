@@ -393,6 +393,16 @@ fn restore(app: &AppHandle) {
     crate::background::show(app);
 }
 
+#[cfg(windows)]
+pub(crate) fn native_executable(app: &AppHandle) -> Option<String> {
+    let state = app.state::<Session>();
+    let current = state.0.lock().ok()?;
+    let launched = current.as_ref().filter(|launched| !launched.web && !launched.keys)?;
+    let window = locate(launched)?;
+    if !platform::foreground(window) { return None; }
+    platform::executable(window)
+}
+
 pub(crate) fn web_current(app: &AppHandle, name: &str) -> bool {
     app.state::<Session>().0.lock().ok().is_some_and(|current| {
         current.as_ref().is_some_and(|launched| launched.web && launched.name == name)
@@ -719,7 +729,7 @@ mod platform {
         executable(window).is_some_and(|path| browser_executable(&path))
     }
 
-    fn executable(window: Window) -> Option<String> {
+    pub(super) fn executable(window: Window) -> Option<String> {
         let pid = pid(window)?;
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
         let mut buffer = [0u16; 512];

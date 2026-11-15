@@ -1,6 +1,7 @@
 <script lang="ts">
   import MusicIcon from './MusicIcon.svelte';
-  let { artworkUrl, title, subtitle, onselect, onpreview, onpreviewend, kind = 'Album' }: {
+  let { artworkUrl, title, subtitle, onselect, onpreview, onpreviewend, kind = 'Album', focusKey }: {
+    focusKey?: string;
     artworkUrl?: string;
     title: string;
     subtitle?: string;
@@ -11,7 +12,7 @@
   } = $props();
 </script>
 
-<button class="music-card" onclick={onselect} aria-label={`${kind}: ${title}`} onmouseenter={() => onpreview?.()} onmouseleave={() => onpreviewend?.()} onfocus={() => onpreview?.()} onblur={() => onpreviewend?.()}>
+<button data-focus-key={focusKey} class="music-card" onclick={onselect} aria-label={`${kind}: ${title}`} onmouseenter={() => onpreview?.()} onmouseleave={() => onpreviewend?.()} onfocus={() => onpreview?.()} onblur={() => onpreviewend?.()}>
   <span class="music-card-art">
     {#if artworkUrl}<img src={artworkUrl} alt="" loading="lazy" decoding="async" />{:else}<span class="music-card-placeholder" aria-hidden="true"><MusicIcon name="music" /></span>{/if}
     <span class="music-card-copy">

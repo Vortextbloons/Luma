@@ -80,7 +80,7 @@
       {/if}
       {#if item.description}<p class="hero-description">{item.description}</p>{/if}
       <div class="hero-actions">
-        <button class="btn btn-primary" onclick={item.primary}>
+        <button data-focus-key={`${item.key}:primary`} class="btn btn-primary" onclick={item.primary}>
           {#if item.primaryIcon === 'open'}
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
           {:else}
@@ -89,7 +89,7 @@
           {item.primaryLabel}
         </button>
         {#if item.details}
-          <button class="btn btn-glass" onclick={item.details}>
+          <button data-focus-key={`${item.key}:details`} class="btn btn-glass" onclick={item.details}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></svg>
             Details
           </button>
@@ -101,6 +101,7 @@
       <div class="hero-dots" role="group" aria-label="Featured items">
         {#each slides as slide, i (slide.key)}
           <button
+            data-focus-key={`${slide.key}:dot`}
             class:is-active={i === active}
             aria-label={slide.title}
             aria-current={i === active ? 'true' : undefined}

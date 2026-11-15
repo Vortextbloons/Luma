@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0d12">
+<meta name="application-name" content="Luma Remote">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Luma">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>
   const appearanceTokens = new Set(['--bg', '--bg-soft', '--ambient', '--surface', '--surface-2', '--surface-3', '--line', '--line-strong', '--text', '--text-dim', '--muted', '--dim', '--accent', '--accent-strong', '--accent-ink', '--accent-soft', '--good', '--warn', '--danger', '--rating']);
   const appearanceHex = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
@@ -18,6 +23,11 @@
 
   function saveThemeChoice(value) {
     try { localStorage.setItem(themeChoiceKey, value); } catch (_) {}
+  }
+
+  function pairingCodeFromHash(hash) {
+    const value = new URLSearchParams(hash.replace(/^#/, '')).get('code') || '';
+    return /^\d{6}$/.test(value) ? value : '';
   }
 
   function paintTokens(tokens) {
@@ -56,7 +66,10 @@
     if (cached) applyAppearance(cached);
   } catch (_) {}
 </script>
-<title>Luma Web Remote</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/luma-192.png">
+<title>Luma Remote</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,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">
 <style>
   :root {
@@ -154,6 +167,7 @@
   .topbar-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .view-chip {
     flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 11px;
+    max-width: 96px; overflow: hidden; text-overflow: ellipsis;
     border-radius: 99px; background: var(--accent-soft); color: var(--text);
     font-size: 11.5px; font-weight: 700; letter-spacing: -.01em;
     border: 1px solid var(--line-strong); white-space: nowrap;
@@ -167,6 +181,48 @@
   }
   .connection svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .connection.is-away { color: var(--dim); border-color: var(--line); background: rgba(255, 255, 255, .04); box-shadow: none; }
+
+  .offline {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px 9px 13px;
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+  }
+  .offline-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
+  .offline-copy b { font-size: 12.5px; font-weight: 650; letter-spacing: -.01em; color: var(--text); }
+  .offline-copy small { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+  .offline-retry {
+    flex: none; min-height: 34px; padding: 0 12px;
+    border: 1px solid var(--line-strong); border-radius: 9px;
+    background: rgba(255, 255, 255, .06); color: var(--text-dim);
+    font-size: 11.5px; font-weight: 650;
+  }
+  .offline-retry:active { background: rgba(255, 255, 255, .12); color: var(--text); }
+
+  .install-hint {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px 9px 12px;
+    border: 1px solid var(--line-strong); border-radius: 12px;
+    background: linear-gradient(120deg, var(--accent-soft), rgba(255, 255, 255, .03));
+  }
+  .install-hint-icon {
+    width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+    border-radius: 9px; border: 1px solid var(--line-strong);
+    background: var(--surface-2); color: var(--accent);
+  }
+  .install-hint-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .install-hint-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
+  .install-hint-copy b { font-size: 12.5px; font-weight: 650; letter-spacing: -.01em; color: var(--text); }
+  .install-hint-copy small { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+  .install-hint-close {
+    width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .04); color: var(--muted);
+    font-size: 17px; line-height: 1;
+  }
+  .install-hint-close:active { background: rgba(255, 255, 255, .12); color: var(--text); }
+
   .icon-button {
     width: 34px; height: 34px; flex: none; display: grid; place-items: center;
     border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 255, 255, .04);
@@ -223,12 +279,41 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 10px 22px color-mix(in srgb, var(--accent) 32%, transparent), 0 0 36px color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .pad-key.ok:active { background: var(--accent); transform: scale(.93); }
+  .pad-modes {
+    display: inline-flex; align-items: center; gap: 3px; padding: 3px;
+    border: 1px solid var(--line); border-radius: 99px;
+    background: rgba(255, 255, 255, .045);
+  }
+  .pad-mode {
+    min-width: 96px; min-height: 34px; padding: 0 14px; border-radius: 99px;
+    color: var(--muted); font-size: 12px; font-weight: 650;
+    transition: background .14s ease, color .14s ease;
+  }
+  .pad-mode:hover { color: var(--text); }
+  .pad-mode[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
   .navrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .navrow.utility { grid-template-columns: 1fr 1fr auto; }
-  .navrow.utility .stop-key { width: 62px; padding: 0; flex-direction: column; gap: 1px; font-size: 10px; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 22%, transparent); background: color-mix(in srgb, var(--danger) 7%, transparent); }
-  .navrow.utility .stop-key svg { width: 15px; height: 15px; }
-  .navrow.utility .stop-key:active { background: color-mix(in srgb, var(--danger) 16%, transparent); border-color: color-mix(in srgb, var(--danger) 34%, transparent); color: var(--danger); }
+  .navrow.utility { position: relative; z-index: 6; grid-template-columns: 1fr 1fr auto; }
+  .navrow.utility .more { position: relative; }
+  .navrow.utility .more-key { width: 62px; min-height: 46px; padding: 0; }
+  .navrow.utility .more-key svg { width: 18px; height: 18px; }
+  .navrow.utility .more-key circle { fill: currentColor; stroke: none; }
+  .more-menu {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 10;
+    min-width: 196px; padding: 5px;
+    border: 1px solid var(--line-strong); border-radius: 13px;
+    background: color-mix(in srgb, var(--surface-2) 98%, transparent);
+    box-shadow: 0 18px 42px #000a;
+    animation: fade-in .12s ease;
+  }
+  .navrow .more-menu .more-item {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px;
+    padding: 0 12px; border: 0; border-radius: 9px; background: transparent;
+    color: var(--danger); font-size: 13.5px; font-weight: 650; text-align: left;
+  }
+  .navrow .more-menu .more-item svg { width: 17px; height: 17px; }
+  .navrow .more-menu .more-item:hover,
+  .navrow .more-menu .more-item:focus-visible { background: color-mix(in srgb, var(--danger) 14%, transparent); outline: none; }
   .navrow button {
     min-height: 46px; border-radius: 13px; border: 1px solid var(--line);
     background: rgba(255, 255, 255, .055); color: var(--text-dim);
@@ -241,44 +326,48 @@
   .navrow.utility { width: var(--pad); }
 
   .side { display: grid; gap: 10px; min-width: 0; }
-  .apps-block { display: grid; gap: 7px; min-width: 0; transition: gap .22s var(--ease); }
-  .apps-block.is-collapsed { gap: 0; }
-  .apps-toggle {
-    width: 100%; min-height: 36px; padding: 0 8px 0 2px; border-radius: 10px;
-    display: flex; align-items: center; gap: 5px;
-    font-size: 12px; font-weight: 650; letter-spacing: -.01em; color: var(--text-dim);
-    transition: background .12s ease, color .12s ease;
-  }
-  .apps-toggle svg {
-    width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
-    stroke-linecap: round; stroke-linejoin: round;
-    transition: transform .18s var(--ease);
-  }
-  .apps-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
-  .apps-toggle[aria-expanded="false"] { color: var(--muted); }
-  .apps-toggle:active { background: rgba(255, 255, 255, .07); }
-  .apps-body {
-    display: grid; grid-template-rows: 1fr;
-    transition: grid-template-rows .24s var(--ease), opacity .18s ease;
-  }
-  .apps-block.is-collapsed .apps-body { grid-template-rows: 0fr; opacity: 0; }
-  .apps-body > .app-track { min-height: 0; overflow: hidden; }
   .app-track {
     display: flex; flex-wrap: wrap; gap: 8px; min-width: 0;
   }
   .app-key {
-    flex: 1 1 64px; max-width: 92px; min-height: 62px; padding: 8px 4px 7px; border-radius: 14px;
+    flex: 1 1 84px; max-width: 110px; min-height: 82px; padding: 9px 6px 8px; border-radius: 14px;
     border: 1px solid var(--line);
     background: linear-gradient(120deg, var(--surface), var(--surface-2));
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
     font-size: 11px; font-weight: 600; color: var(--text-dim);
     animation: tile-in .28s var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 22ms);
     transition: transform .12s ease, border-color .12s ease, color .12s ease;
   }
-  .app-key img { width: 26px; height: 26px; object-fit: contain; display: block; }
+  .app-key img { width: 30px; height: 30px; object-fit: contain; display: block; }
   .app-key span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-key:active { transform: scale(.95); border-color: var(--line-strong); color: var(--text); }
+  .apps-dialog {
+    width: min(560px, calc(100% - 32px)); max-height: min(86dvh, 720px);
+    margin: auto; padding: 0; overflow: hidden;
+    border: 1px solid var(--line-strong); border-radius: 24px;
+    background: linear-gradient(180deg, var(--surface), var(--surface-2)); color: var(--text);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  }
+  .apps-dialog[open] { display: flex; flex-direction: column; animation: sheet-in .26s var(--ease); }
+  .apps-dialog::backdrop { background: rgba(4, 5, 8, .68); animation: fade-in .2s ease; }
+  .apps-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 20px 22px 14px; border-bottom: 1px solid var(--line);
+  }
+  .apps-head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  .apps-sub { margin: 4px 0 0; color: var(--dim); font-size: 12px; }
+  .apps-body {
+    display: grid; align-content: start; gap: 18px; min-height: 0;
+    padding: 16px 22px 24px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .apps-section { display: grid; gap: 9px; }
+  .apps-heading {
+    margin: 0; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+  }
+  .apps-status { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .apps-status:empty { display: none; }
 
   .deck { display: grid; gap: 10px; }
   .deck-group {
@@ -378,20 +467,20 @@
     .topbar { min-height: 34px; }
     .stage { gap: 9px; }
     .nav-stack { gap: 8px; }
-    .apps-block { gap: 5px; }
     .deck-group { padding: 7px 8px; }
   }
   @media (orientation: portrait) and (max-width: 559px) and (min-height: 621px) {
     #remote { flex: 1 1 auto; }
-    .stage { flex: 1 1 auto; justify-content: center; }
-    .shell:has(.apps-block.is-collapsed) { --pad: clamp(190px, min(88vw, 46dvh), 380px); }
-    .shell:has(.apps-block.is-collapsed) .deck-group.transport .deck-keys button { min-height: 62px; }
-    .shell:has(.apps-block.is-collapsed) .navrow.utility button { min-height: 52px; }
+    .stage { flex: 1 1 auto; }
+    .shell { --pad: clamp(190px, min(88vw, 46dvh), 380px); }
+    .nav-stack { flex: 1 1 auto; }
+    .pad-column { margin-top: auto; }
+    .deck-group.transport .deck-keys button { min-height: 62px; }
+    .navrow.utility button { min-height: 52px; }
   }
   @media (min-width: 760px) and (min-height: 520px), (min-width: 560px) and (orientation: landscape) {
-    :root { --pad: min(470px, 52dvh, 32vw); }
-    .shell:has(.apps-block.is-collapsed) { --pad: min(510px, 62dvh, 34vw); }
-    .shell:has(.apps-block.is-collapsed) .deck-group.transport .deck-keys button { min-height: 72px; }
+    :root { --pad: min(510px, 62dvh, 34vw); }
+    .deck-group.transport .deck-keys button { min-height: 72px; }
     .shell {
       width: 100%; max-width: 1320px;
       padding: calc(18px + env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
@@ -403,11 +492,7 @@
     }
     .nav-stack { align-self: center; gap: 14px; }
     .side { align-content: center; gap: 14px; }
-    .apps-block { gap: 9px; }
-    .apps-toggle { font-size: 13px; min-height: 40px; }
-    .app-track { justify-content: flex-start; gap: 10px; }
-    .app-key { flex: 1 1 90px; max-width: 128px; min-height: 86px; font-size: 12px; }
-    .app-key img { width: 34px; height: 34px; }
+    .app-track { gap: 10px; }
     .deck { gap: 12px; }
     .deck-group.transport { padding: 12px 14px 14px; }
     .deck-group.volume { padding: 8px 14px; grid-template-columns: 82px minmax(0, 1fr); }
@@ -420,9 +505,9 @@
   @media (min-width: 1100px) and (min-height: 520px) {
     .nav-stack { flex-direction: row; justify-content: center; gap: clamp(16px, 2vw, 26px); }
     .navrow.utility { width: 132px; display: flex; flex-direction: column; flex: none; gap: 10px; }
+    .navrow.utility .more { display: flex; }
     .navrow.utility button { justify-content: flex-start; min-height: 56px; padding: 0 16px; font-size: 13.5px; }
-    .navrow.utility .stop-key { width: auto; flex-direction: row; gap: 8px; font-size: 13.5px; }
-    .navrow.utility .stop-key svg { width: 20px; height: 20px; }
+    .navrow.utility .more-key { width: auto; flex: 1; }
     .navrow.utility button svg { width: 20px; height: 20px; }
   }
   @media (min-width: 760px) and (min-height: 520px) {
@@ -656,6 +741,13 @@
       padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
       border: 0; border-radius: 0;
     }
+    .apps-dialog {
+      width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; margin: 0;
+      padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+      border: 0; border-radius: 0;
+    }
+    .apps-head { padding: 16px 18px 14px; }
+    .apps-body { padding: 16px 18px 28px; }
     .settings-head { padding: 16px 18px 14px; }
     .settings-layout { display: flex; flex-direction: column; }
     .settings-nav { flex: 1; padding: 8px 14px 24px; border-right: 0; }
@@ -688,7 +780,7 @@
     </div>
     <div>
       <h1>Pair this device</h1>
-      <p>Open Luma on your PC and choose <strong>Settings &rarr; Remote &amp; Startup &rarr; Connect a remote</strong>. Enter the six-digit code shown there.</p>
+      <p>Open Luma on your PC and choose <strong>Settings &rarr; Remote &amp; Startup &rarr; Connect a remote</strong>. Scan the QR code, or enter the six-digit code shown there.</p>
     </div>
     <form id="pair-form" class="pair-form">
       <label for="pair-code">Pairing code</label>
@@ -696,7 +788,7 @@
       <button type="submit" class="primary">Pair web remote</button>
     </form>
     <p id="pair-notice" class="pair-notice" role="alert" aria-live="polite"></p>
-    <p class="fine">Web remote pairing is kept separate from a Display Box, so pairing here will not disconnect your frame.</p>
+    <p class="fine">Web remote pairing is kept separate from a Display Box. After pairing, you can add Luma to your phone&rsquo;s home screen.</p>
   </section>
 
   <section id="remote" hidden>
@@ -708,6 +800,9 @@
       </div>
       <div class="topbar-right">
         <span id="view" class="view-chip" hidden>Home</span>
+        <button type="button" id="apps-button" class="icon-button" aria-label="Apps" aria-haspopup="dialog" title="Apps">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.8"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.8"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.8"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.8"/></svg>
+        </button>
         <button type="button" id="type-text" class="icon-button" aria-label="Type or search on your PC" title="Type or search on your PC">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 13.6h9"/></svg>
         </button>
@@ -720,6 +815,17 @@
       </div>
     </header>
 
+    <div id="offline" class="offline" role="status" aria-live="polite" hidden>
+      <span class="offline-copy"><b id="offline-title">Can’t reach this PC</b><small id="offline-detail">Check that Luma is open on your PC.</small></span>
+      <button type="button" id="offline-retry" class="offline-retry">Retry</button>
+    </div>
+
+    <div id="install-hint" class="install-hint" hidden>
+      <span class="install-hint-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg></span>
+      <span class="install-hint-copy"><b>Keep Luma on your home screen</b><small id="install-hint-text"></small></span>
+      <button type="button" id="install-hint-close" class="install-hint-close" aria-label="Dismiss home screen tip">×</button>
+    </div>
+
     <div class="stage">
       <div class="nav-stack">
         <div class="navrow utility" role="group" aria-label="Navigation actions">
@@ -731,15 +837,26 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21v-7h6v7"/></svg>
             Home
           </button>
-          <button type="button" class="stop-key" data-command="stop" aria-label="Stop Luma on the PC">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none"/></svg>
-            Stop
-          </button>
+          <div class="more">
+            <button type="button" id="more-toggle" class="more-key" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+            </button>
+            <div id="more-menu" class="more-menu" role="menu" aria-label="More actions" hidden>
+              <button type="button" class="more-item" role="menuitem" data-command="stop">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none"/></svg>
+                <span>Stop Luma</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="pad-column">
+          <div class="pad-modes" role="group" aria-label="Control mode">
+            <button type="button" class="pad-mode" data-mode="dpad" aria-pressed="true">D-pad</button>
+            <button type="button" class="pad-mode" data-mode="touchpad" aria-pressed="false">Touchpad</button>
+          </div>
           <div class="pad-wrap">
-            <div class="pad" role="group" aria-label="Navigation">
+            <div class="pad" role="group" aria-label="Directional pad">
               <span class="stick" aria-hidden="true"></span>
               <button type="button" class="pad-key up" data-command="up" aria-label="Up">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg>
@@ -757,7 +874,7 @@
             </div>
           </div>
 
-          <p id="pad-hint" class="pad-hint" hidden>Drag to move · Click selects</p>
+          <p id="pad-hint" class="pad-hint" hidden>Drag to move · Tap to click</p>
         </div>
       </div>
 
@@ -797,16 +914,6 @@
             </div>
           </section>
         </div>
-
-        <section class="apps-block" aria-labelledby="apps-heading">
-          <button type="button" id="apps-toggle" class="apps-toggle" aria-expanded="true" aria-controls="apps">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-            <span id="apps-heading">Your apps</span>
-          </button>
-          <div id="apps-body" class="apps-body">
-            <div class="app-track" id="apps" role="group" aria-label="Launch apps"></div>
-          </div>
-        </section>
       </div>
     </div>
   </section>
@@ -822,6 +929,28 @@
     <div class="navrow"><button type="button" id="cancel-text">Cancel</button><button class="send-text" id="send-text" type="submit">Send text</button></div>
   </form>
 </dialog>
+<dialog id="apps-dialog" class="apps-dialog" aria-labelledby="apps-title">
+  <header class="apps-head">
+    <div>
+      <h2 id="apps-title">Apps</h2>
+      <p class="apps-sub">Open something on your TV</p>
+    </div>
+    <button type="button" id="apps-close" class="settings-close" aria-label="Close apps">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+  <div class="apps-body">
+    <section id="apps-recent-block" class="apps-section" hidden>
+      <h3 class="apps-heading">Recently used</h3>
+      <div id="apps-recent" class="app-track" role="group" aria-label="Recently used apps"></div>
+    </section>
+    <section class="apps-section">
+      <h3 class="apps-heading">All apps</h3>
+      <div id="apps-all" class="app-track" role="group" aria-label="All apps"></div>
+    </section>
+    <p id="apps-status" class="apps-status" role="status" aria-live="polite"></p>
+  </div>
+</dialog>
 <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
   <header class="settings-head">
     <div>
@@ -835,10 +964,6 @@
   <div class="settings-layout">
     <nav id="settings-nav" class="settings-nav" aria-label="Settings categories">
       <p class="settings-nav-group">This remote</p>
-      <button type="button" class="settings-category" data-category="remote-controls">
-        <span class="settings-category-copy"><b>Controls</b><small>Joystick and touch input</small></span>
-        <span class="settings-category-mark" aria-hidden="true">›</span>
-      </button>
       <button type="button" class="settings-category" data-category="remote-browser">
         <span class="settings-category-copy"><b>This browser</b><small>Theme and fullscreen</small></span>
         <span class="settings-category-mark" aria-hidden="true">›</span>
@@ -871,21 +996,6 @@
     </nav>
     <div id="settings-content" class="settings-content">
       <p id="app-settings-note" class="settings-note" role="status" aria-live="polite"></p>
-      <section class="settings-panel" data-panel="remote-controls">
-        <header class="settings-panel-head">
-          <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
-          <span class="settings-panel-tag">This remote</span>
-          <h2 tabindex="-1">Controls</h2>
-          <p>Choose how this phone drives Luma. Other remotes keep their own controls.</p>
-        </header>
-        <section class="settings-group">
-          <h3 class="settings-heading">Pointer</h3>
-          <label class="settings-row" for="joystick-toggle">
-            <span><b>Joystick controls</b><small>Drag inside the ring to move the PC pointer. Click selects.</small></span>
-            <input id="joystick-toggle" type="checkbox" class="switch">
-          </label>
-        </section>
-      </section>
       <section class="settings-panel" data-panel="remote-browser">
         <header class="settings-panel-head">
           <button type="button" class="settings-back" data-settings-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>All settings</span></button>
@@ -925,6 +1035,14 @@
             <button type="button" id="disconnect" class="settings-pill">Disconnect</button>
           </div>
           <p id="disconnect-notice" role="alert"></p>
+        </section>
+        <section class="settings-group">
+          <h3 class="settings-heading">Home screen</h3>
+          <div class="settings-row">
+            <div><b>Add to Home Screen</b><small>Open Luma without scanning the QR code again.</small></div>
+            <button type="button" id="install-settings" class="settings-pill">Show steps</button>
+          </div>
+          <p id="install-settings-note" class="settings-sub" role="status"></p>
         </section>
       </section>
       <section class="settings-panel" data-panel="app-display">
@@ -1023,10 +1141,16 @@
   const toast = document.getElementById('toast');
   const view = document.getElementById('view');
   const link = document.getElementById('link');
-  const appGrid = document.getElementById('apps');
-  const appsToggle = document.getElementById('apps-toggle');
-  const appsBlock = document.querySelector('.apps-block');
-  const appsBody = document.getElementById('apps-body');
+  const appsButton = document.getElementById('apps-button');
+  const appsDialog = document.getElementById('apps-dialog');
+  const appsClose = document.getElementById('apps-close');
+  const appsRecent = document.getElementById('apps-recent');
+  const appsRecentBlock = document.getElementById('apps-recent-block');
+  const appsAll = document.getElementById('apps-all');
+  const appsStatus = document.getElementById('apps-status');
+  const moreToggle = document.getElementById('more-toggle');
+  const moreMenu = document.getElementById('more-menu');
+  const modeButtons = [...document.querySelectorAll('.pad-mode')];
   const settingsButton = document.getElementById('settings-toggle');
   const settingsDialog = document.getElementById('settings-dialog');
   const settingsClose = document.getElementById('settings-close');
@@ -1038,7 +1162,6 @@
   const layoutDone = document.getElementById('layout-done');
   const layoutList = document.getElementById('layout-list');
   const layoutNote = document.getElementById('layout-note');
-  const joystickToggle = document.getElementById('joystick-toggle');
   const fullscreenButton = document.getElementById('fullscreen-toggle');
   const fullscreenNote = document.getElementById('fullscreen-note');
   const pcFullscreenButton = document.getElementById('pc-fullscreen');
@@ -1052,6 +1175,15 @@
   const textInput = document.getElementById('remote-text');
   const textFeedback = document.getElementById('text-feedback');
   const sendText = document.getElementById('send-text');
+  const offline = document.getElementById('offline');
+  const offlineTitle = document.getElementById('offline-title');
+  const offlineDetail = document.getElementById('offline-detail');
+  const offlineRetry = document.getElementById('offline-retry');
+  const installHint = document.getElementById('install-hint');
+  const installHintText = document.getElementById('install-hint-text');
+  const installHintClose = document.getElementById('install-hint-close');
+  const installSettings = document.getElementById('install-settings');
+  const installSettingsNote = document.getElementById('install-settings-note');
   let paired = false;
   let refreshing = false;
   let appsLoaded = false;
@@ -1066,6 +1198,11 @@
   let layoutTimer = 0;
   let layoutSending = false;
   let layoutQueued = false;
+  let bootCode = '';
+  let reconnectTimer = 0;
+  let reconnectDelay = 1000;
+  let knownPaired = false;
+  try { knownPaired = localStorage.getItem('luma-paired') === 'yes'; } catch (_) {}
 
   const soundRoles = ['move', 'press', 'back', 'volume', 'open', 'toggle'];
   const soundGain = { move: .3, press: .5, back: .4, volume: .34, open: .5, toggle: .3 };
@@ -1158,12 +1295,104 @@
     toastTimer = setTimeout(() => toast.classList.remove('is-showing'), 3400);
   }
 
+  function standalone() {
+    return Boolean(window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);
+  }
+
+  function installSteps() {
+    const ua = navigator.userAgent;
+    if (/iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      return 'Tap Share, then Add to Home Screen. Keep Open as Web App on if it appears.';
+    }
+    if (/Android/.test(ua)) return 'Open the browser menu, then tap Add to Home screen.';
+    return 'Use your browser menu to add this page to your home screen.';
+  }
+
+  function offerInstall() {
+    return !standalone() && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+  }
+
+  function showInstallHint() {
+    if (!offerInstall()) return;
+    let dismissed = false;
+    let seen = false;
+    try {
+      dismissed = localStorage.getItem('luma-install-dismissed') === 'yes';
+      seen = localStorage.getItem('luma-install-seen') === 'yes';
+    } catch (_) {}
+    if (dismissed || seen) return;
+    installHintText.textContent = installSteps();
+    installHint.hidden = false;
+    try { localStorage.setItem('luma-install-seen', 'yes'); } catch (_) {}
+  }
+
   function setLink(online) {
     link.classList.toggle('is-away', !online);
     const status = online ? `Connected to ${pcLabel}` : 'Luma PC disconnected';
     link.setAttribute('aria-label', status);
     link.title = status;
+    if (online) {
+      reconnectDelay = 1000;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = 0;
+      offline.hidden = true;
+      return;
+    }
+    if (!paired) {
+      offline.hidden = true;
+      return;
+    }
+    const phoneOffline = navigator.onLine === false;
+    offlineTitle.textContent = phoneOffline ? 'This phone is offline' : `Can’t reach ${pcLabel}`;
+    offlineDetail.textContent = phoneOffline
+      ? 'Reconnect to Wi-Fi, then try again.'
+      : 'Check that Luma is open on your PC and both devices are on the same Wi-Fi.';
+    offline.hidden = false;
   }
+
+  function scheduleReconnect() {
+    if (!paired || document.visibilityState !== 'visible' || reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = 0;
+      if (!paired || document.visibilityState !== 'visible') return;
+      void refresh();
+      connectSocket();
+      reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+    }, reconnectDelay);
+  }
+
+  installHintClose.addEventListener('click', () => {
+    installHint.hidden = true;
+    try { localStorage.setItem('luma-install-dismissed', 'yes'); } catch (_) {}
+  });
+
+  installSettings.addEventListener('click', () => {
+    installSettingsNote.textContent = standalone()
+      ? 'This remote is already running from your home screen.'
+      : installSteps();
+  });
+
+  offlineRetry.addEventListener('click', () => {
+    reconnectDelay = 1000;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+    const previous = socket;
+    socket = undefined;
+    previous?.close();
+    void refresh();
+    connectSocket();
+  });
+
+  window.addEventListener('online', () => {
+    if (!paired || document.visibilityState !== 'visible') return;
+    reconnectDelay = 1000;
+    void refresh();
+    connectSocket();
+  });
+
+  window.addEventListener('offline', () => {
+    if (paired) setLink(false);
+  });
 
   function closeThemeMenu() {
     if (themeMenu.hidden) return;
@@ -1345,45 +1574,112 @@
         : 'Toggle fullscreen for the PC window being controlled');
   }
 
-  let appsOpen = true;
-  try { appsOpen = localStorage.getItem('luma-apps') !== 'closed'; } catch (_) {}  function applyApps(open) {
-    appsOpen = open;
-    appsToggle.setAttribute('aria-expanded', String(open));
-    appsBlock.classList.toggle('is-collapsed', !open);
-    appsBody.inert = !open;
+  const recentsKey = 'luma-remote-recents';
+  let appsLoading = false;
+  let appsAttempted = false;
+  let appsError = false;
+
+  function createAppButton(app, index) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'app-key';
+    button.dataset.command = app.command;
+    const icon = new Image();
+    icon.src = app.icon;
+    icon.alt = '';
+    icon.width = 30;
+    icon.height = 30;
+    const label = document.createElement('span');
+    label.textContent = app.name;
+    button.append(icon, label);
+    button.style.setProperty('--i', String(Math.min(index, 10)));
+    return button;
   }
-  appsToggle.addEventListener('click', () => {
-    applyApps(!appsOpen);
-    try { localStorage.setItem('luma-apps', appsOpen ? 'open' : 'closed'); } catch (_) {}
+
+  function readRecents() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(recentsKey) || '[]');
+      return Array.isArray(stored) ? stored.filter(value => typeof value === 'string') : [];
+    } catch (_) { return []; }
+  }
+
+  function rememberApp(command) {
+    const next = [command, ...readRecents().filter(value => value !== command)].slice(0, 4);
+    try { localStorage.setItem(recentsKey, JSON.stringify(next)); } catch (_) {}
+  }
+
+  function renderApps() {
+    const all = document.createDocumentFragment();
+    appList.forEach((app, index) => all.append(createAppButton(app, index)));
+    appsAll.replaceChildren(all);
+    const recent = readRecents()
+      .map(command => appList.find(app => app.command === command))
+      .filter(Boolean);
+    const recentFragment = document.createDocumentFragment();
+    recent.forEach((app, index) => recentFragment.append(createAppButton(app, index)));
+    appsRecent.replaceChildren(recentFragment);
+    appsRecentBlock.hidden = recent.length === 0;
+    appsStatus.textContent = appList.length
+      ? ''
+      : appsError
+        ? 'Apps are unavailable right now. Check the connection and try again.'
+        : appsAttempted
+          ? 'No apps are available yet.'
+          : 'Loading apps…';
+  }
+
+  function openApps() {
+    closeMoreMenu();
+    closeThemeMenu();
+    if (!appsDialog.open) appsDialog.showModal();
+    renderApps();
+    appsClose.focus();
+    void loadApps();
+  }
+
+  function closeApps() {
+    if (appsDialog.open) appsDialog.close();
+  }
+
+  function openMoreMenu() {
+    if (!moreMenu.hidden) return;
+    moreMenu.hidden = false;
+    moreToggle.setAttribute('aria-expanded', 'true');
+    moreMenu.querySelector('.more-item')?.focus();
+  }
+
+  function closeMoreMenu(restoreFocus = false) {
+    if (moreMenu.hidden) return;
+    moreMenu.hidden = true;
+    moreToggle.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) moreToggle.focus();
+  }
+
+  appsButton.addEventListener('click', openApps);
+  appsClose.addEventListener('click', closeApps);
+  appsDialog.addEventListener('close', () => { if (!remote.hidden) appsButton.focus(); });
+  moreToggle.addEventListener('click', () => {
+    if (moreMenu.hidden) openMoreMenu();
+    else closeMoreMenu(true);
   });
-  applyApps(appsOpen);
 
   async function loadApps(force = false) {
-    if (appsLoaded && !force) return;
+    if (appsLoading || (appsLoaded && !force)) return;
+    appsLoading = true;
+    appsAttempted = true;
     try {
       const { response, data } = await request('/apps');
-      if (!response.ok || !data || !Array.isArray(data.apps)) return;
+      if (!response.ok || !data || !Array.isArray(data.apps)) { appsError = true; renderApps(); return; }
       appList = data.apps.filter(app => app && typeof app.command === 'string' && typeof app.name === 'string');
-      const fragment = document.createDocumentFragment();
-      for (const app of appList) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'app-key';
-        button.dataset.command = app.command;
-        const icon = new Image();
-        icon.src = app.icon;
-        icon.alt = '';
-        icon.width = 26;
-        icon.height = 26;
-        const label = document.createElement('span');
-        label.textContent = app.name;
-        button.append(icon, label);
-        button.style.setProperty('--i', String(Math.min(fragment.childElementCount, 10)));
-        fragment.append(button);
-      }
-      appGrid.replaceChildren(fragment);
-      appsLoaded = appGrid.childElementCount > 0;
-    } catch (_) {}
+      appsError = false;
+      appsLoaded = appList.length > 0;
+      renderApps();
+    } catch (_) {
+      appsError = true;
+      renderApps();
+    } finally {
+      appsLoading = false;
+    }
   }
 
   function renderLayout() {
@@ -1484,6 +1780,10 @@
   function showRemote(data) {
     const fromPairing = !pairing.hidden;
     paired = true;
+    if (!knownPaired) {
+      knownPaired = true;
+      try { localStorage.setItem('luma-paired', 'yes'); } catch (_) {}
+    }
     setLink(true);
     pairing.hidden = true;
     remote.hidden = false;
@@ -1492,14 +1792,20 @@
     applyState(data.state);
     connectSocket();
     void loadApps();
+    showInstallHint();
     if (fromPairing) document.querySelector('.pad-key.ok').focus();
   }
 
   function showPairing(message = '') {
     paired = false;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+    offline.hidden = true;
     releaseStick();
     setLink(false);
     say('');
+    closeMoreMenu();
+    closeApps();
     remote.hidden = true;
     pairing.hidden = false;
     pairNotice.textContent = message;
@@ -1644,13 +1950,15 @@
 
   function applyJoystick(enabled) {
     joystickMode = enabled;
-    joystickToggle.checked = enabled;
     pad.classList.toggle('joystick', enabled);
-    pad.setAttribute('aria-label', enabled ? 'Joystick. Drag to move the PC pointer; Click selects.' : 'Navigation');
+    pad.setAttribute('aria-label', enabled ? 'Touchpad. Drag to move the PC pointer; tap to click.' : 'Directional pad');
     padHint.hidden = !enabled;
     okKey.textContent = enabled ? 'Click' : 'OK';
     okKey.dataset.command = enabled ? 'click' : 'activate';
     okKey.setAttribute('aria-label', enabled ? 'Click on the PC' : 'OK');
+    for (const button of modeButtons) {
+      button.setAttribute('aria-pressed', String((button.dataset.mode === 'touchpad') === enabled));
+    }
     for (const key of pad.querySelectorAll('.pad-key[data-command]:not(.ok)')) {
       if (enabled) {
         key.tabIndex = -1;
@@ -1670,10 +1978,14 @@
   pad.addEventListener('lostpointercapture', endStick);
   window.addEventListener('blur', stopStick);
   window.addEventListener('pagehide', stopStick);
-  joystickToggle.addEventListener('change', () => {
-    applyJoystick(joystickToggle.checked);
-    saveJoystick();
-  });
+  for (const button of modeButtons) {
+    button.addEventListener('click', () => {
+      const touchpad = button.dataset.mode === 'touchpad';
+      if (touchpad === joystickMode) return;
+      applyJoystick(touchpad);
+      saveJoystick();
+    });
+  }
   applyJoystick(joystickMode);
 
   const fullscreenSupported = typeof document.documentElement.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
@@ -1738,6 +2050,7 @@
     if (event.target.closest('[data-settings-back]')) closeSettingsCategory();
   });
   settingsButton.addEventListener('click', () => {
+    closeMoreMenu();
     closeThemeMenu();
     if (!settingsDialog.open) {
       settingsDialog.showModal();
@@ -1801,16 +2114,24 @@
     try {
       const { response, data } = await request('/phone/state');
       if (response.status === 401) {
-        showPairing('This web remote is no longer paired. Choose Connect in Luma for a new code.');
+        if (bootCode) {
+          const code = bootCode;
+          bootCode = '';
+          refreshing = false;
+          if (await pairWithCode(code)) await refresh();
+          else showPairing(pairNotice.textContent || 'This web remote is no longer paired. Choose Connect in Luma for a new code.');
+          return;
+        }
+        showPairing(knownPaired ? 'This web remote is no longer paired. Choose Connect in Luma for a new code.' : '');
         return;
       }
       if (!response.ok) {
-        if (paired) setLink(false);
+        if (paired) { setLink(false); scheduleReconnect(); }
         return;
       }
       showRemote(data || {});
     } catch (_) {
-      if (paired) setLink(false);
+      if (paired) { setLink(false); scheduleReconnect(); }
     } finally {
       refreshing = false;
     }
@@ -1823,6 +2144,7 @@
     if (!paired || document.visibilityState !== 'visible' || socket) return;
     const connection = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/phone/ws`);
     socket = connection;
+    connection.onopen = () => { reconnectDelay = 1000; setLink(true); };
     connection.onmessage = event => {
       const data = JSON.parse(event.data);
       const entry = pending.get(data.id);
@@ -1837,7 +2159,8 @@
       stopStick();
       for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new Error('Connection interrupted. Press again to retry.')); }
       pending.clear();
-      setLink(false);
+      if (document.visibilityState === 'visible') setLink(false);
+      scheduleReconnect();
     };
   }
   function socketRequest(command) {
@@ -1853,22 +2176,24 @@
   async function send(command, button = pad.querySelector('.ok')) {
     playFeedback(command);
     button.setAttribute('aria-busy', 'true');
+    let accepted = false;
     try {
       const { response, data } = socket?.readyState === WebSocket.OPEN
         ? { response: { ok: true }, data: await socketRequest(command) }
         : await request('/phone/command', { method: 'POST', body: JSON.stringify({ command }) });
       if (response.status === 401) {
         showPairing('This web remote is no longer paired. Choose Connect in Luma for a new code.');
-        return;
+        return accepted;
       }
       if (!response.ok) {
         setLink(false);
         say('Luma did not accept that button.', true);
-        return;
+        return accepted;
       }
       setLink(true);
       const state = data && data.state;
       applyState(state);
+      accepted = !(data && data.error);
       if (data && data.error) say(data.error, true);
       else if (command === 'stop') say('Luma is in the tray. Press Home to return.');
       else if (command === 'fullscreen') {
@@ -1881,6 +2206,7 @@
     } finally {
       button.removeAttribute('aria-busy');
     }
+    return accepted;
   }
 
   const textDialog = document.getElementById('text-dialog');
@@ -1904,6 +2230,7 @@
   applyTextMode(true);
 
   typeButton.addEventListener('click', () => {
+    closeMoreMenu();
     textFeedback.textContent = '';
     applyTextMode(true);
     textDialog.showModal();
@@ -1941,16 +2268,34 @@
     const button = event.target.closest('button[data-command]');
     if (!button) return;
     if (event.detail !== 0 && immediateCommands.has(button.dataset.command)) return;
+    if (button.closest('.more-menu')) closeMoreMenu(true);
+    if (button.closest('#apps-dialog')) {
+      const command = button.dataset.command;
+      void send(command, button).then(accepted => {
+        if (!accepted) return;
+        rememberApp(command);
+        closeApps();
+      });
+      return;
+    }
     void send(button.dataset.command, button);
   });
-
-  pairForm.addEventListener('submit', async (event) => {
+  document.addEventListener('pointerdown', event => {
+    if (moreMenu.hidden) return;
+    if (event.target instanceof Node && (moreMenu.contains(event.target) || moreToggle.contains(event.target))) return;
+    closeMoreMenu();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || moreMenu.hidden) return;
     event.preventDefault();
-    if (pairingBusy) return;
-    const code = pairCode.value.replace(/\D/g, '');
+    closeMoreMenu(true);
+  });
+
+  async function pairWithCode(code) {
+    if (pairingBusy) return false;
     if (code.length !== 6) {
       pairNotice.textContent = 'Enter the six-digit code from Luma.';
-      return;
+      return false;
     }
     pairingBusy = true;
     const submit = pairForm.querySelector('button[type="submit"]');
@@ -1965,20 +2310,26 @@
       if (response.ok) {
         pairCode.value = '';
         pairNotice.textContent = '';
-        await refresh();
-        return;
+        return true;
       }
       pairNotice.textContent = response.status === 401 || response.status === 403
         ? 'That code was not accepted. Choose Connect in Luma for a new web remote code.'
         : 'Luma could not pair this device. Try again.';
       if (response.status === 401 || response.status === 403) pairCode.select();
+      return false;
     } catch (_) {
       pairNotice.textContent = 'Luma is not reachable. Check Wi-Fi and that Luma is open.';
+      return false;
     } finally {
       pairingBusy = false;
       submit.disabled = false;
       submit.removeAttribute('aria-busy');
     }
+  }
+
+  pairForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (await pairWithCode(pairCode.value.replace(/\D/g, ''))) await refresh();
   });
 
   pairCode.addEventListener('input', () => {
@@ -2005,8 +2356,10 @@
     try {
       const { response, data } = await request('/phone/playback', position === undefined ? undefined : { method: 'POST', body: JSON.stringify({ position }) });
       if (!response.ok || data?.error) throw new Error(data?.error || 'Playback position is unavailable.');
-      if (movieDragging) return;
+      if (movieDragging || movieSeek !== undefined) return;
       const timeline = data?.timeline;
+      if (timeline?.error) throw new Error(timeline.error);
+      if (position !== undefined && !timeline) throw new Error('This player is not exposing playback controls.');
       moviePosition.disabled = !(timeline?.duration > 0);
       if (moviePosition.disabled) movieTime.textContent = 'Start a movie in a supported player to seek.';
       else {
@@ -2023,6 +2376,8 @@
       if (movieSeek !== undefined) void refreshMovie(movieSeek);
     }
   }
+  moviePosition.addEventListener('pointerdown', () => { movieDragging = true; });
+  moviePosition.addEventListener('pointerup', () => { movieDragging = false; });
   moviePosition.addEventListener('input', () => { movieDragging = true; moviePreview(); });
   moviePosition.addEventListener('change', () => {
     movieDragging = false;
@@ -2030,16 +2385,19 @@
   });
   moviePosition.addEventListener('pointercancel', () => { movieDragging = false; });
   setInterval(() => { if (!movieDragging) void refreshMovie(); }, 1000);
+  const codeFromHash = pairingCodeFromHash(location.hash);
+  if (codeFromHash) bootCode = codeFromHash;
+  if (location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {} }
   void refresh();
   setInterval(() => {
     if (paired && document.visibilityState === 'visible') {
       if (socket?.readyState === WebSocket.OPEN) { if (!pending.size) void socketRequest().catch(() => {}); }
-      else { connectSocket(); void refresh(); }
+      else if (!reconnectTimer) { connectSocket(); void refresh(); }
     }
   }, 15000);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && paired) { connectSocket(); void refresh(); }
-    else { stopStick(); socket?.close(); }
+    if (document.visibilityState === 'visible' && paired) { reconnectDelay = 1000; connectSocket(); void refresh(); }
+    else { stopStick(); clearTimeout(reconnectTimer); reconnectTimer = 0; socket?.close(); }
   });
 </script>
 </body>

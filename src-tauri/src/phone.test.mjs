@@ -5,6 +5,26 @@ import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('./phone.html', import.meta.url), 'utf8');
 const transport = source.slice(source.indexOf('  let socket;'), source.indexOf('  async function send('));
+
+test('the remote page ships installable web app metadata', () => {
+  assert.match(source, /<title>Luma Remote<\/title>/);
+  assert.match(source, /<link rel="manifest" href="\/manifest\.webmanifest">/);
+  assert.match(source, /<link rel="apple-touch-icon" sizes="180x180" href="\/icons\/apple-touch-icon\.png">/);
+  assert.match(source, /<meta name="apple-mobile-web-app-capable" content="yes">/);
+  assert.match(source, /<meta name="theme-color" content="#0b0d12">/);
+});
+
+const pairingHashSource = source.slice(source.indexOf('  function pairingCodeFromHash('), source.indexOf('  function paintTokens('));
+test('pairing codes are read only from a six-digit URL fragment', () => {
+  const context = vm.createContext({ URLSearchParams });
+  vm.runInContext(pairingHashSource, context);
+  assert.equal(vm.runInContext('pairingCodeFromHash("#code=123456")', context), '123456');
+  assert.equal(vm.runInContext('pairingCodeFromHash("#code=12345")', context), '');
+  assert.equal(vm.runInContext('pairingCodeFromHash("#code=1234567")', context), '');
+  assert.equal(vm.runInContext('pairingCodeFromHash("#other=123456")', context), '');
+  assert.equal(vm.runInContext('pairingCodeFromHash("")', context), '');
+});
+
 function setup() {
   const connections = [];
   class WebSocket {
@@ -15,7 +35,7 @@ function setup() {
     send(value) { this.sent.push(JSON.parse(value)); }
     close() { this.readyState = 3; this.onclose(); }
   }
-  const context = vm.createContext({ WebSocket, paired: true, document: { visibilityState: 'visible' }, location: { protocol: 'http:', host: 'localhost:9877' }, setTimeout, clearTimeout, applyState() {}, setLink() {}, stopStick() {} });
+  const context = vm.createContext({ WebSocket, paired: true, document: { visibilityState: 'visible' }, location: { protocol: 'http:', host: 'localhost:9877' }, setTimeout, clearTimeout, applyState() {}, setLink() {}, stopStick() {}, scheduleReconnect() {}, reconnectDelay: 0 });
   vm.runInContext(transport, context);
   vm.runInContext('connectSocket()', context);
   return { context, connections, request: command => vm.runInContext(`socketRequest(${JSON.stringify(command)})`, context) };
@@ -87,7 +107,7 @@ test('pc fullscreen label only promises exit when the PC reports its window stat
   const view = { textContent: '', hidden: false };
   const pcFullscreenButton = { textContent: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; } };
   const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {}, soundState: { preset: 'real' }, loadSounds() {} });
-  const applyState = source.slice(source.indexOf('  function applyState('), source.indexOf('  let appsOpen = true;'));
+  const applyState = source.match(/  function applyState\([\s\S]*?\r?\n  }/)[0];
   vm.runInContext(applyState, context);
   vm.runInContext('applyState({ view: "Home", window: "YouTube", windowFullscreen: true })', context);
   assert.equal(pcFullscreenButton.textContent, 'Exit');
@@ -104,7 +124,7 @@ test('remote follows the TV sound preset', () => {
   const pcFullscreenButton = { textContent: '', setAttribute() {}, removeAttribute() {} };
   const loaded = [];
   const context = vm.createContext({ view, pcFullscreenButton, activeApp: '', applyTextMode() {}, soundState: { preset: 'real' }, loadSounds: preset => loaded.push(preset) });
-  const applyState = source.slice(source.indexOf('  function applyState('), source.indexOf('  let appsOpen = true;'));
+  const applyState = source.match(/  function applyState\([\s\S]*?\r?\n  }/)[0];
   vm.runInContext(applyState, context);
   vm.runInContext('applyState({ view: "Home", sound: "google" })', context);
   assert.equal(vm.runInContext('soundState.preset', context), 'google');
@@ -140,9 +160,13 @@ test('joystick starts at the center, follows dragging, and only taps click', () 
 test('navigation sends on press without a duplicate on release and preserves keyboard clicks', () => {
   const handlers = {};
   const sent = [];
-  const button = { dataset: { command: 'right' }, disabled: false };
+  const button = { dataset: { command: 'right' }, disabled: false, closest: () => null };
   const context = vm.createContext({
-    document: { addEventListener: (type, handler) => handlers[type] = handler },
+    document: { addEventListener: (type, handler) => {
+      const previous = handlers[type];
+      handlers[type] = event => { previous?.(event); handler(event); };
+    } },
+    moreMenu: { hidden: true },
     joystickMode: false, pad: { contains: () => true }, send: command => sent.push(command)
   });
   vm.runInContext(source.slice(source.indexOf('  const immediateCommands'), source.indexOf("  pairForm.addEventListener('submit'")), context);
@@ -198,4 +222,51 @@ test('remote renders app settings from the shared catalog and restores a rejecte
   assert.equal(select.value, 'comfortable');
   assert.equal(select.disabled, false);
   assert.match(note.textContent, /Could not save/);
+});
+
+const movieSource = source.slice(source.indexOf("  const moviePosition = document.getElementById('movie-position');"), source.indexOf('  setInterval(() => { if (!movieDragging)'));
+function movieSetup() {
+  const events = new Map();
+  const slider = { value: '0', max: '1', disabled: true, setAttribute() {}, addEventListener: (name, handler) => events.set(name, handler) };
+  const time = { textContent: '' };
+  const calls = [], answers = [], notices = [];
+  const context = vm.createContext({ paired: true, document: { visibilityState: 'visible', getElementById: id => id === 'movie-position' ? slider : time }, request: (path, options) => {
+    calls.push(options?.body ? JSON.parse(options.body).position : null);
+    return new Promise(resolve => answers.push(resolve));
+  }, say: message => notices.push(message) });
+  vm.runInContext(movieSource, context);
+  const answer = data => answers.shift()({ response: { ok: true }, data });
+  return { slider, time, calls, notices, events, answer, refresh: () => vm.runInContext('refreshMovie()', context) };
+}
+test('movie slider preserves a drag and sends its seek after the pending refresh', async () => {
+  const movie = movieSetup();
+  const refresh = movie.refresh();
+  movie.slider.max = '7200';
+  movie.slider.value = '3600';
+  movie.events.get('input')();
+  assert.equal(movie.calls.length, 1);
+  assert.match(movie.time.textContent, /60:00/);
+  movie.events.get('change')();
+  movie.answer({ timeline: { position: 10, duration: 7200 } });
+  await refresh;
+  assert.equal(movie.slider.value, '3600');
+  assert.deepEqual(movie.calls, [null, 3600]);
+  movie.answer({ timeline: { position: 3600, duration: 7200 } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(movie.slider.value, '3600');
+  assert.equal(movie.slider.disabled, false);
+});
+test('movie slider reports a player seek rejection and recovers on a fresh timeline', async () => {
+  const movie = movieSetup();
+  movie.slider.value = '90';
+  movie.events.get('change')();
+  movie.answer({ timeline: { error: 'The player declined the seek.' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(movie.slider.disabled, true);
+  assert.deepEqual(movie.notices, ['The player declined the seek.']);
+  const refresh = movie.refresh();
+  movie.answer({ timeline: { position: 20, duration: 120 } });
+  await refresh;
+  assert.equal(movie.slider.disabled, false);
+  assert.equal(movie.slider.value, '20');
 });

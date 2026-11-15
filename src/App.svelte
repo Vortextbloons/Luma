@@ -5,14 +5,11 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
+  import HomeRenderer from './lib/components/HomeRenderer.svelte';
   import UpdateNotice from './lib/components/UpdateNotice.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
-  import MovieHero, { type HeroSlide } from './lib/components/MovieHero.svelte';
-  import BackdropRow from './lib/components/BackdropRow.svelte';
+  import type { HeroSlide } from './lib/components/MovieHero.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
-  import VideoRow from './lib/components/VideoRow.svelte';
-  import PlaylistRow from './lib/components/spotify/PlaylistRow.svelte';
-  import ActivityCard from './lib/components/activity/ActivityCard.svelte';
   import AppDock from './lib/components/AppDock.svelte';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
   import WidgetHost from './lib/components/WidgetHost.svelte';
@@ -20,10 +17,8 @@
   import NowPlaying from './lib/components/spotify/NowPlaying.svelte';
   import { spotify } from './lib/state/spotify.svelte';
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
-  import StremioRow from './lib/components/StremioRow.svelte';
   import StremioLibrary from './lib/components/StremioLibrary.svelte';
   import StremioIntegration from './lib/components/StremioIntegration.svelte';
-  import SteamRow from './lib/components/SteamRow.svelte';
   import ContinueWatching from './lib/components/activity/ContinueWatching.svelte';
   import RecentlyPlayed from './lib/components/activity/RecentlyPlayed.svelte';
   import RecentApps from './lib/components/activity/RecentApps.svelte';
@@ -36,7 +31,7 @@
   import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
   import { applyTheme, appearanceFor, themeById } from './lib/services/theme';
   import { appProviders, actionLabel, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from './lib/services/activity';
-  import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail, steamRecentGames, steamStoreRecommendations, steamOpenGame, steamOpenStore } from './lib/services/tauri';
+  import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, setFastAppSwitch, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail, steamRecentGames, steamStoreRecommendations, steamOpenGame, steamOpenStore } from './lib/services/tauri';
   import { loadCatalog, searchMovies } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
   import type { MusicCardItem } from './lib/types/spotify';
@@ -89,10 +84,7 @@
   const navigation = createNavigation(back, home, () => settings.homeShortcut, playSound);
   const showHome = $derived(tab === 'Home');
   const theme = $derived(themeById(settings.theme));
-  const rowVisible = (id: HomeRowId) => settings.home.some(row => row.id === id && row.visible);
-  const visibleHomeRows = $derived(settings.home.filter(row => row.visible));
-  const firstHomeRowIsHero = $derived(visibleHomeRows[0]?.id === 'hero');
-  const homeRowsAfterHero = $derived(firstHomeRowIsHero ? visibleHomeRows.slice(1) : visibleHomeRows);
+  const rowVisible = (id: HomeRowId) => settings.home.some(row => row.component === id && row.visible);
   const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
   const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
@@ -288,8 +280,11 @@
     if (native) customization.update(customizationConfig(settings));
   });
   $effect(() => {
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, widgets: settings.widgets, order: settings.order })); }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, fastAppSwitch: settings.fastAppSwitch, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, widgets: settings.widgets, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
+  });
+  $effect(() => {
+    if (native) void setFastAppSwitch(settings.fastAppSwitch).catch(error => message = String(error));
   });
   $effect(() => {
     if (!native) return;
@@ -613,54 +608,10 @@
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
-  {#if showHome && firstHomeRowIsHero && heroSlides.length}
-    <MovieHero slides={heroSlides} sourceKey={heroSource} />
-  {/if}
   {#if showHome}
-    <div {@attach smoothHeight}><div class="resizing-content">
-      {#each homeRowsAfterHero as row (row.id)}
-        {#if row.id === 'hero'}
-          {#if heroSlides.length}<MovieHero slides={heroSlides} sourceKey={heroSource} inset />{/if}
-        {:else if row.id === 'continue'}
-          {#if previewApp === 'Stremio'}
-            <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={stremioRecent.slice(0, 4)} open={openStremio} connected={stremio?.connected ?? false} connect={openStremioPairing} onpreview={previewStremio} cinematic /></div>
-          {:else if previewApp === 'Steam' && steamGames.length}
-            <div class="view-swap"><SteamRow items={steamGames} open={openSteamGame} onpreview={previewSteamGame} /></div>
-          {:else if previewApp !== 'Steam'}
-            <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} focusProvider={previewApp ? appProviders[previewApp] : null} onpreview={previewActivityItem} />
-          {/if}
-        {:else if row.id === 'apps'}
-          <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />
-          {#if previewApp && catalogVisible}
-            {#key previewApp}
-              <div class="view-swap">
-                {#if previewApp === 'YouTube' && youTubeFeed.length}
-                  <VideoRow items={youTubeFeed} open={openYouTubeItem} onpreview={previewVideo} />
-                {:else if previewApp === 'Spotify' && previewMusic.length}
-                  <PlaylistRow title="Recently played on Spotify" items={previewMusic} empty="" kind="Track" onselect={async item => { if (await spotify.playUri(item.uri)) openPlayer(); }} onpreview={previewMusicItem} />
-                {:else if previewApp === 'Stremio' && stremio?.items.length}
-                  <StremioRow title="Your Stremio library" items={stremio.items.slice(0, 10)} open={openStremio} onpreview={previewStremio} />
-                {:else if previewApp === 'Steam' && steamRecommendations.length}
-                  <SteamRow title="Recommendations" subtitle={steamRecommendationSource ? `More games like ${steamRecommendationSource.name}` : 'More games from the Steam store'} items={steamRecommendations} open={openSteamStore} onpreview={previewSteamRecommendation} />
-                {:else if previewActivity.length}
-                  <section class="content-row"><div class="row-heading"><h2>From {previewApp}</h2></div><div class="activity-track">{#each previewActivity as item (item.id)}<ActivityCard {item} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />{/each}</div></section>
-                {:else}
-                  <section class="content-row" aria-label={`${previewApp} recommendations`}><div class="row-heading"><h2>From {previewApp === 'Custom' ? 'your custom app' : previewApp}</h2></div><div class="activity-empty"><strong>{previewApp === 'Spotify' && spotify.homeLoading ? 'Loading your music...' : previewApp === 'Steam' ? (steamGames.length ? 'No recommendations right now' : 'No games to continue') : 'No recommendations available yet'}</strong><span>{previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : previewApp === 'Steam' ? (steamGames.length ? 'Steam recommendations could not load. Check your connection and hover Steam again.' : 'Play a game through Steam, then hover Steam here again to see it.') : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => previewApp && launch(previewApp)}>Open {previewApp === 'Custom' ? 'custom app' : previewApp}</button></div></section>
-                {/if}
-              </div>
-            {/key}
-          {/if}
-        {:else if row.id === 'popular'}
-          {#if !previewApp}<BackdropRow id="popular" title="Popular movies" items={popular} onselect={select} onpreview={item => previewMovie(item, 'POPULAR MOVIE')} />{/if}
-        {:else if row.id === 'featured'}
-          {#if !previewApp}<BackdropRow id="featured" title="Top-rated movies" items={featured} onselect={select} onpreview={item => previewMovie(item, 'TOP-RATED MOVIE')} />{/if}
-        {:else if row.id === 'recent'}
-          <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
-        {:else if row.id === 'recentApps'}
-          <RecentApps items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
-        {/if}
-      {/each}
-    </div></div>
+    <HomeRenderer rows={settings.home}
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: settings.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured }}
+      actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Apps'}

@@ -515,6 +515,29 @@ impl Cdp {
         Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null))
     }
 
+    async fn timeline(&mut self, expression: &str) -> Result<Value, String> {
+        let result = self.eval(expression).await?;
+        if !result.is_null() { return Ok(result); }
+        let tree = self.call("Page.getFrameTree", json!({})).await?;
+        let mut frames: Vec<&Value> = tree.pointer("/frameTree/childFrames")
+            .and_then(Value::as_array).map(|frames| frames.iter().collect()).unwrap_or_default();
+        while let Some(frame) = frames.pop() {
+            if let Some(children) = frame.get("childFrames").and_then(Value::as_array) {
+                frames.extend(children);
+            }
+            let Some(id) = frame.pointer("/frame/id").and_then(Value::as_str) else { continue; };
+            let world = self.call("Page.createIsolatedWorld", json!({ "frameId": id, "worldName": "luma-playback" })).await?;
+            let Some(context) = world.get("executionContextId") else { continue; };
+            let result = self.call("Runtime.evaluate", json!({
+                "expression": expression, "contextId": context, "returnByValue": true, "userGesture": true,
+            })).await?;
+            if result.get("exceptionDetails").is_some() { continue; }
+            let value = result.pointer("/result/value").cloned().unwrap_or(Value::Null);
+            if !value.is_null() { return Ok(value); }
+        }
+        Ok(Value::Null)
+    }
+
     async fn press(&mut self, command: &str) -> Result<(), String> {
         let (key, code, key_code, arrow) = match command {
             "up" => ("ArrowUp", "ArrowUp", 38, true),
@@ -553,6 +576,40 @@ impl Cdp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn playback_reads_embedded_players_through_their_frame_context() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            for expected in ["Runtime.evaluate", "Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate"] {
+                let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
+                let request: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(request["method"], expected);
+                let result = match expected {
+                    "Page.getFrameTree" => json!({ "frameTree": { "childFrames": [{ "frame": { "id": "movie" } }] } }),
+                    "Page.createIsolatedWorld" => {
+                        assert_eq!(request["params"]["frameId"], "movie");
+                        json!({ "executionContextId": 42 })
+                    }
+                    _ if request["params"].get("contextId").is_some() => {
+                        assert_eq!(request["params"]["contextId"], 42);
+                        assert_eq!(request["params"]["expression"], "seek(3600)");
+                        json!({ "result": { "value": { "position": 3600, "duration": 7200 } } })
+                    }
+                    _ => json!({ "result": { "value": null } }),
+                };
+                socket.send(Message::Text(json!({ "id": request["id"], "result": result }).to_string().into())).await.unwrap();
+            }
+        });
+        let (socket, _) = connect_async(format!("ws://{address}")).await.unwrap();
+        let mut cdp = Cdp { socket, next: 0 };
+        let result = cdp.timeline("seek(3600)").await.unwrap();
+        assert_eq!(result, json!({ "position": 3600, "duration": 7200 }));
+        server.await.unwrap();
+    }
 
     #[test]
     fn service_home_pages_are_recognized() {
@@ -652,7 +709,7 @@ pub(crate) async fn timeline(app: &AppHandle, script: &str) -> Result<Value, Str
         if !connections.contains_key(&name) {
             connections.insert(name.clone(), connect(app, &name, &url).await?);
         }
-        let result = connections.get_mut(&name).ok_or("Player unavailable")?.eval(script).await;
+        let result = connections.get_mut(&name).ok_or("Player unavailable")?.timeline(script).await;
         if result.is_err() { connections.remove(&name); }
         return result;
     }

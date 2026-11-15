@@ -17,6 +17,7 @@ function defaultSettings(): Settings {
     appTileShape: 'wide',
     homeShortcut: 'Ctrl+W',
     fullscreen: false,
+    fastAppSwitch: false,
     interfaceSounds: 'real',
     soundLevel: 'standard',
     home: defaultHomeRows(),
@@ -40,6 +41,7 @@ export function createSettings() {
         value.homeShortcut = data.homeShortcut === 'Ctrl+H' && data.shortcutVersion !== 1 ? 'Ctrl+W' : data.homeShortcut;
       }
       value.fullscreen = data.fullscreen === true;
+      value.fastAppSwitch = data.fastAppSwitch === true;
       if (data.interfaceSounds === 'google' || data.interfaceSounds === 'roku' || data.interfaceSounds === 'off') value.interfaceSounds = data.interfaceSounds;
       if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
       value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);

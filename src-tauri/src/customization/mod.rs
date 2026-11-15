@@ -44,9 +44,26 @@ impl Store {
             .map_err(|error| error.message)
     }
 
-    fn from_connection(connection: Connection) -> Result<Self, Error> {
+    fn from_connection(mut connection: Connection) -> Result<Self, Error> {
         connection.execute_batch("CREATE TABLE IF NOT EXISTS customization (id INTEGER PRIMARY KEY CHECK(id = 1), document TEXT NOT NULL, previous TEXT);")?;
+        Self::migrate(&mut connection)?;
         Ok(Self(Ok(Mutex::new(connection))))
+    }
+
+    fn migrate(connection: &mut Connection) -> Result<(), Error> {
+        let transaction = connection.transaction()?;
+        let saved: Option<(String, Option<String>)> = transaction.query_row("SELECT document, previous FROM customization WHERE id = 1", [], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+        if let Some((raw, previous)) = saved {
+            let document = Self::decode(&raw)?;
+            let previous_document = previous.as_deref().map(Self::decode).transpose()?;
+            let document = serde_json::to_string(&document).map_err(|error| Error::new("invalid_document", error))?;
+            let previous_document = previous_document.as_ref().map(serde_json::to_string).transpose().map_err(|error| Error::new("invalid_document", error))?;
+            if document != raw || previous_document != previous {
+                transaction.execute("UPDATE customization SET document = ?1, previous = ?2 WHERE id = 1", params![document, previous_document])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     fn connection(&self) -> Result<MutexGuard<'_, Connection>, Error> {
@@ -55,8 +72,13 @@ impl Store {
     }
 
     fn decode(value: &str) -> Result<Document, Error> {
-        let document: Document = serde_json::from_str(value).map_err(|error| Error::new("invalid_document", error))?;
-        if document.version != 1 { return Err(Error::new("unsupported_version", "This customization document requires a different version of Luma.")); }
+        let raw: serde_json::Value = serde_json::from_str(value).map_err(|error| Error::new("invalid_document", error))?;
+        let document: Document = match raw.get("version").and_then(serde_json::Value::as_u64) {
+            Some(1) => document::migrate_legacy(value).map_err(|error| Error::new("invalid_document", error))?,
+            Some(2) => serde_json::from_value(raw).map_err(|error| Error::new("invalid_document", error))?,
+            Some(_) => return Err(Error::new("unsupported_version", "This customization document requires a different version of Luma.")),
+            None => return Err(Error::new("invalid_document", "Missing customization document version.")),
+        };
         if document.revision == 0 || document.revision > 9_007_199_254_740_991 {
             return Err(Error::new("invalid_document", "Invalid customization revision."));
         }
@@ -79,7 +101,7 @@ impl Store {
         let transaction = connection.transaction()?;
         if let Some(current) = Self::current(&transaction)? { return Ok(current); }
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
-        let document = Document { version: 1, revision: 1, config };
+        let document = Document { version: 2, revision: 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("INSERT INTO customization (id, document) VALUES (1, ?1)", [raw])?;
         transaction.commit()?;
@@ -109,7 +131,7 @@ impl Store {
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
         if config == current.config { return Ok(current); }
         if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 1, revision: current.revision + 1, config };
+        let document = Document { version: 2, revision: current.revision + 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", [raw])?;
         transaction.commit()?;
@@ -124,7 +146,7 @@ impl Store {
         let raw: Option<String> = transaction.query_row("SELECT previous FROM customization WHERE id = 1", [], |row| row.get(0))?;
         let previous = Self::decode(&raw.ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?)?;
         if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 1, revision: current.revision + 1, config: previous.config };
+        let document = Document { version: 2, revision: current.revision + 1, config: previous.config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", params![raw])?;
         transaction.commit()?;
@@ -244,5 +266,48 @@ mod tests {
         assert_eq!(store.read().unwrap_err().code, "storage");
         assert_eq!(store.initialize(Config::default()).unwrap_err().code, "storage");
         assert_eq!(store.commit(Commit { expected_revision: 1, config: Config::default() }).unwrap_err().code, "storage");
+    }
+
+    fn legacy(revision: u64, config: Config) -> String {
+        let mut raw = serde_json::to_value(Document { version: 1, revision, config }).unwrap();
+        for row in raw["config"]["home"].as_array_mut().unwrap() { row.as_object_mut().unwrap().remove("component"); }
+        serde_json::to_string(&raw).unwrap()
+    }
+
+    #[test]
+    fn stored_migration_preserves_revision_order_visibility_and_undo() {
+        let store = store();
+        let previous = legacy(4, Config::default());
+        let mut config = Config::default();
+        config.home.reverse();
+        config.home[0].visible = false;
+        let raw = legacy(5, config.clone());
+        {
+            let mut connection = store.connection().unwrap();
+            connection.execute("INSERT INTO customization (id, document, previous) VALUES (1, ?1, ?2)", params![raw, previous]).unwrap();
+            Store::migrate(&mut connection).unwrap();
+            let persisted: String = connection.query_row("SELECT document FROM customization", [], |row| row.get(0)).unwrap();
+            assert_eq!(serde_json::from_str::<Document>(&persisted).unwrap().version, 2);
+            Store::migrate(&mut connection).unwrap();
+        }
+        let migrated = store.read().unwrap().unwrap();
+        assert_eq!(migrated.revision, 5);
+        assert_eq!(migrated.config, config);
+        let restored = store.restore(5).unwrap();
+        assert_eq!(restored.version, 2);
+        assert_eq!(restored.revision, 6);
+        assert_eq!(restored.config, Config::default());
+    }
+
+    #[test]
+    fn migration_rejects_an_incompatible_previous_document_without_partial_writes() {
+        let store = store();
+        let raw = legacy(5, Config::default());
+        let future = serde_json::to_string(&Document { version: 99, revision: 4, config: Config::default() }).unwrap();
+        let mut connection = store.connection().unwrap();
+        connection.execute("INSERT INTO customization (id, document, previous) VALUES (1, ?1, ?2)", params![raw, future]).unwrap();
+        assert_eq!(Store::migrate(&mut connection).unwrap_err().code, "unsupported_version");
+        let saved: String = connection.query_row("SELECT document FROM customization", [], |row| row.get(0)).unwrap();
+        assert_eq!(saved, raw);
     }
 }

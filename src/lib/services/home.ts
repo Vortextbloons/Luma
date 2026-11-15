@@ -17,35 +17,50 @@ const defaultVisible: Record<HomeRowId, boolean> = {
 };
 
 export function defaultHomeRows(): HomeRow[] {
-  return homeRowIds.map(id => ({ id, visible: defaultVisible[id] }));
+  return homeRowIds.map(id => ({ id, component: id, visible: defaultVisible[id] }));
 }
 
 export function legacyHomeRows(sections: unknown): HomeRow[] {
   const values = sections && typeof sections === 'object' ? sections as Partial<Record<HomeRowId, unknown>> : {};
-  return homeRowIds.map(id => ({ id, visible: typeof values[id] === 'boolean' ? values[id] : defaultVisible[id] }));
+  return homeRowIds.map(id => ({ id, component: id, visible: typeof values[id] === 'boolean' ? values[id] : defaultVisible[id] }));
 }
 
 export function sanitizeHomeRows(value: unknown): HomeRow[] | null {
   if (!Array.isArray(value)) return null;
   const seen = new Set<HomeRowId>();
+  const instances = new Set<string>();
   const rows: HomeRow[] = [];
   for (const entry of value) {
     if (!entry || typeof entry !== 'object') continue;
     const id = (entry as { id?: unknown }).id;
-    if (typeof id !== 'string' || !homeRowIds.includes(id as HomeRowId) || seen.has(id as HomeRowId)) continue;
-    seen.add(id as HomeRowId);
-    rows.push({ id: id as HomeRowId, visible: (entry as { visible?: unknown }).visible !== false });
+    const component = (entry as { component?: unknown }).component ?? id;
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || typeof component !== 'string' || !homeRowIds.includes(component as HomeRowId) || seen.has(component as HomeRowId) || instances.has(id)) continue;
+    seen.add(component as HomeRowId);
+    instances.add(id);
+    rows.push({ id, component: component as HomeRowId, visible: (entry as { visible?: unknown }).visible !== false });
   }
   if (!rows.length) return null;
   if (!seen.has('hero')) {
-    rows.unshift({ id: 'hero', visible: true });
+    const id = unusedInstance('hero', instances);
+    rows.unshift({ id, component: 'hero', visible: true });
+    instances.add(id);
     seen.add('hero');
   }
-  for (const id of homeRowIds) if (id !== 'hero' && !seen.has(id)) rows.push({ id, visible: defaultVisible[id] });
+  for (const component of homeRowIds) if (component !== 'hero' && !seen.has(component)) {
+    const id = unusedInstance(component, instances);
+    rows.push({ id, component, visible: defaultVisible[component] });
+    instances.add(id);
+  }
   return rows;
 }
 
-export function moveHomeRow(rows: HomeRow[], id: HomeRowId, direction: -1 | 1): HomeRow[] {
+function unusedInstance(component: HomeRowId, instances: Set<string>): string {
+  let id: string = component;
+  for (let index = 1; instances.has(id); index++) id = `${component}-${index}`;
+  return id;
+}
+
+export function moveHomeRow(rows: HomeRow[], id: string, direction: -1 | 1): HomeRow[] {
   const index = rows.findIndex(row => row.id === id);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= rows.length) return rows;
@@ -54,7 +69,7 @@ export function moveHomeRow(rows: HomeRow[], id: HomeRowId, direction: -1 | 1): 
   return next;
 }
 
-export function moveHomeRowTo(rows: HomeRow[], id: HomeRowId, index: number): HomeRow[] {
+export function moveHomeRowTo(rows: HomeRow[], id: string, index: number): HomeRow[] {
   const from = rows.findIndex(row => row.id === id);
   if (from < 0) return rows;
   const target = Math.max(0, Math.min(rows.length - 1, index));
@@ -65,6 +80,6 @@ export function moveHomeRowTo(rows: HomeRow[], id: HomeRowId, index: number): Ho
   return next;
 }
 
-export function toggleHomeRow(rows: HomeRow[], id: HomeRowId): HomeRow[] {
+export function toggleHomeRow(rows: HomeRow[], id: string): HomeRow[] {
   return rows.map(row => row.id === id ? { ...row, visible: !row.visible } : row);
 }

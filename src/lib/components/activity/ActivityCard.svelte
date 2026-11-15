@@ -32,7 +32,7 @@
       </span>
     </span>
   {/snippet}
-  <button class="activity-main" onclick={() => onopen(item)} aria-label={`${actionLabel(item)} ${item.title}`} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
+  <button data-focus-key={`${item.id}:open`} class="activity-main" onclick={() => onopen(item)} aria-label={`${actionLabel(item)} ${item.title}`} onmouseenter={() => onpreview?.(item)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(item)} onblur={() => onpreview?.(null)}>
     {#if isApp}
       <span class="activity-app-art"><ProviderIcon provider={item.provider} /></span>
       {@render copy()}
@@ -53,7 +53,7 @@
   </button>
   {#if onremove}
     <div class="activity-actions">
-      <button class="activity-remove" aria-label={`Remove ${item.title} from activity history`} title="Remove from history" onclick={() => onremove(item)}>Remove</button>
+      <button data-focus-key={`${item.id}:remove`} class="activity-remove" aria-label={`Remove ${item.title} from activity history`} title="Remove from history" onclick={() => onremove(item)}>Remove</button>
     </div>
   {/if}
 </article>
