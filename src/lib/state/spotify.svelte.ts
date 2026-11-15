@@ -1,4 +1,5 @@
 import { native } from '../services/tauri';
+import { appVisible, onAppVisible } from '../services/visibility';
 import {
   onSpotifyArtwork,
   onSpotifyConnection,
@@ -69,6 +70,18 @@ export function createSpotify() {
   let homeLoadedAt = 0;
   const stops: (() => void)[] = [];
   let timer: ReturnType<typeof setInterval> | undefined;
+  let stopVisibility: (() => void) | undefined;
+
+  function updateTimer() {
+    const active = playback.playing && appVisible();
+    if (active && !timer) {
+      tick = Date.now();
+      timer = setInterval(() => { tick = Date.now(); }, 1000);
+    } else if (!active && timer) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  }
 
   async function initialize() {
     if (initialized) return;
@@ -77,18 +90,19 @@ export function createSpotify() {
     stops.push(await onSpotifyPlayback(state => {
       if (state.title !== playback.title || state.artist !== playback.artist) artwork = '';
       playback = state;
+      updateTimer();
     }));
     stops.push(await onSpotifyArtwork(value => { artwork = value; }));
     stops.push(await onSpotifyConnection(state => { connection = state; }));
-    timer = setInterval(() => {
-      if (playback.playing && !document.hidden) tick = Date.now();
-    }, 500);
+    stopVisibility = onAppVisible(updateTimer);
     try { clientId = await spotifyClientId(); } catch { clientId = ''; }
     await refresh();
   }
 
   function dispose() {
     for (const stop of stops.splice(0)) stop();
+    stopVisibility?.();
+    stopVisibility = undefined;
     if (timer) clearInterval(timer);
     timer = undefined;
     initialized = false;
@@ -100,6 +114,7 @@ export function createSpotify() {
     try {
       const previous = playback;
       [playback, connection] = await Promise.all([spotifyPlayback(), spotifyStatus()]);
+      updateTimer();
       if (playback.artworkUrl) artwork = playback.artworkUrl;
       else if (playback.title !== previous.title || playback.artist !== previous.artist) artwork = '';
       error = '';

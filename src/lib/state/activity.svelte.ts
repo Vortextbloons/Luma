@@ -6,6 +6,7 @@ import {
   setActivityTracking, setProviderEnabled, setProviderHidden,
 } from '../services/activity';
 import { activitySnapshot, onActivity } from '../services/tauri';
+import { appVisible, onAppVisible } from '../services/visibility';
 
 const empty: ActivitySnapshot = { items: [], providers: [], trackingEnabled: true, generatedAt: '' };
 
@@ -31,7 +32,7 @@ class ActivityStore {
   }
 
   apply(snapshot: ActivitySnapshot) {
-    if (typeof document !== 'undefined' && document.hidden) {
+    if (!appVisible()) {
       this.pending = snapshot;
       return;
     }
@@ -54,15 +55,11 @@ class ActivityStore {
   async start() {
     if (this.started) return () => {};
     this.started = true;
-    if (typeof document !== 'undefined') {
-      const update = () => {
-        if (document.hidden || !this.pending) return;
-        this.snapshot = this.pending;
-        this.pending = undefined;
-      };
-      document.addEventListener('visibilitychange', update);
-      this.resume = () => document.removeEventListener('visibilitychange', update);
-    }
+    this.resume = onAppVisible(visible => {
+      if (!visible || !this.pending) return;
+      this.snapshot = this.pending;
+      this.pending = undefined;
+    });
     try {
       this.stop = await onActivity(snapshot => this.apply(snapshot));
     } catch (cause) {

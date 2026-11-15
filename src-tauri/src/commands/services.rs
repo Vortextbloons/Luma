@@ -286,6 +286,7 @@ pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String
 fn minimize_main(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|error| error.to_string())?;
+        crate::background::publish_visibility(&window, false);
     }
     Ok(())
 }

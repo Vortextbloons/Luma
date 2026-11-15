@@ -59,29 +59,41 @@ pub async fn initialize(app: tauri::AppHandle) {
     });
 }
 
+static PUBLISH_PENDING: AtomicBool = AtomicBool::new(false);
+
 pub fn publish_media_event(app: &tauri::AppHandle) {
+    if PUBLISH_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut state = windows_media::snapshot(&handle).unwrap_or_else(|error| PlaybackState {
-            updated_at: super::models::now_ms(),
-            error: Some(error),
-            ..Default::default()
-        });
-        let cached = handle
-            .state::<Player>()
-            .cache
-            .lock()
-            .ok()
-            .and_then(|cache| cache.clone());
-        if let Some(cached) = cached.as_ref() {
-            merge(&mut state, cached);
-        }
-        restore_artwork(&handle, &mut state, cached.as_ref());
-        if state.player_available && clear_error(&handle) {
-            emit_connection(&handle);
-        }
-        publish(&handle, state);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        PUBLISH_PENDING.store(false, Ordering::Release);
+        let handle = handle.clone();
+        tauri::async_runtime::spawn_blocking(move || publish_snapshot(&handle));
     });
+}
+
+fn publish_snapshot(app: &tauri::AppHandle) {
+    let mut state = windows_media::snapshot(app).unwrap_or_else(|error| PlaybackState {
+        updated_at: super::models::now_ms(),
+        error: Some(error),
+        ..Default::default()
+    });
+    let cached = app
+        .state::<Player>()
+        .cache
+        .lock()
+        .ok()
+        .and_then(|cache| cache.clone());
+    if let Some(cached) = cached.as_ref() {
+        merge(&mut state, cached);
+    }
+    restore_artwork(app, &mut state, cached.as_ref());
+    if state.player_available && clear_error(app) {
+        emit_connection(app);
+    }
+    publish(app, state);
 }
 
 async fn windows_state(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackState, String> {

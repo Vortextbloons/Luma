@@ -147,6 +147,7 @@ async fn open_in_steam(app: &AppHandle, target: String) -> Result<(), String> {
     crate::activity::record_launch(app, "Steam");
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|error| error.to_string())?;
+        crate::background::publish_visibility(&window, false);
     }
     Ok(())
 }

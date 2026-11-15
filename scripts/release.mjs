@@ -1,10 +1,12 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const capture = (file, args) => execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
+const capture = (file, args, env = process.env) => execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], env }).trim();
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const tag = `v${version}`;
-const notes = capture('node', ['scripts/changelog.mjs']);
+const notes = capture('node', ['scripts/changelog.mjs'], { ...process.env, GITHUB_OUTPUT: '' });
 const repository = capture('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
 
 if (capture('git', ['status', '--porcelain'])) throw new Error('Commit and push all changes before releasing.');
@@ -17,13 +19,8 @@ try {
 }
 if (head !== upstream) throw new Error('Push the current commit before releasing.');
 
-let released = false;
-try {
-  capture('gh', ['release', 'view', tag, '--json', 'tagName']);
-  released = true;
-} catch {}
-if (released || capture('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`])) {
-  throw new Error(`${tag} already exists. Bump the version with npm run version:set before releasing.`);
+if (capture('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`])) {
+  throw new Error(`${tag} already exists. Delete the unfinished draft or bump the version before releasing.`);
 }
 
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
@@ -64,11 +61,14 @@ writeFileSync(manifest, JSON.stringify({
   pub_date: new Date().toISOString(),
   platforms,
 }, null, 2) + '\n');
+const notesFile = join(tmpdir(), `luma-${tag}-notes.md`);
+writeFileSync(notesFile, `${notes}\n`);
 
 execFileSync('gh', [
   'release', 'create', tag, installer, signature, manifest,
   '--target', head,
   '--title', `Luma ${tag}`,
-  '--notes', notes,
+  '--notes-file', notesFile,
   '--draft',
 ], { stdio: 'inherit' });
+rmSync(notesFile, { force: true });

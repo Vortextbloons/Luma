@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to Luma, newest first. The Release workflow publishes the matching section as the GitHub release notes and in-app update notes.
+Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
 ## [0.6.1] - 2026-11-15
 

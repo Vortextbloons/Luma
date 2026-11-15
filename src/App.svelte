@@ -32,6 +32,7 @@
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
   import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
+  import { setAppVisible } from './lib/services/visibility';
   import { applyTheme, appearanceFor, themeById } from './lib/services/theme';
   import { appProviders, actionLabel, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from './lib/services/activity';
   import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, setFastAppSwitch, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail, steamRecentGames, steamStoreRecommendations, steamOpenGame, steamOpenStore } from './lib/services/tauri';
@@ -413,6 +414,7 @@
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
+        track(await listen<boolean>('window-visibility', event => setAppVisible(event.payload)));
         track(await listen<string>('open-sports', async event => {
           if (disposed) return;
           navigate('Sports');

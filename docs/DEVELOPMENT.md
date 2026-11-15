@@ -26,7 +26,7 @@ The `window_handoff` regression check opens isolated Windows test windows. It ch
 
 Change the application version with `npm run version:set -- patch` (or `minor`, `major`, or an explicit version such as `0.2.0`). This updates the npm and Tauri manifests and both lockfiles together. Run `node scripts/version.mjs --check` to verify they agree.
 
-Add a matching `## [x.y.z]` section to [CHANGELOG.md](../CHANGELOG.md) for each version. The Release workflow refuses to publish without one, uses that section as the GitHub release notes, and the same notes appear in the in-app update prompt.
+Add a matching `## [x.y.z]` section to [CHANGELOG.md](../CHANGELOG.md) for each version. A release refuses to publish without one, uses that section as the GitHub release notes, and the same notes appear in the in-app update prompt.
 
 ## Releases and updates
 
@@ -39,10 +39,11 @@ Local builds have updates disabled. No repository or credentials are needed whil
 1. Push this project to a public GitHub repository.
 2. Generate an updater signing key with `npm run tauri -- signer generate -w <path-outside-the-repository>`. Keep the private key and password backed up securely; future releases must use the same key.
 3. In GitHub repository Actions settings, add the public key contents as variable `TAURI_SIGNING_PUBLIC_KEY`, the private key contents as secret `TAURI_SIGNING_PRIVATE_KEY`, and its password as secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (omit for an unencrypted key). Never commit the private key.
-4. Run `npm run version:set -- patch`, add the new section to `CHANGELOG.md`, commit the changed files, then push a matching tag such as `v0.1.1`. Alternatively run the Release workflow manually for the current version.
-5. The workflow checks versions, types, tests, and the changelog entry, then builds a signed Windows x64 NSIS installer and updater manifest in a draft GitHub release. Review the assets and release notes, then publish the draft when ready. Keep `latest.json`, the installer, and its signature attached. Only published stable releases are offered to installed apps.
+4. Run `npm run version:set -- patch`, add the new section to `CHANGELOG.md`, commit the changed files, and push them.
+5. Save the updater private key as a file outside the repository, then set `TAURI_SIGNING_PRIVATE_KEY` to that path and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to its password for your user account. `npm run release` reads the public key from the repository variable and needs the GitHub CLI signed in.
+6. Run `npm run release`. It stops unless the working tree is clean, the commit is pushed, and the version tag does not exist yet, then checks versions, types, tests, and the changelog entry, builds a signed Windows x64 NSIS installer, generates the updater manifest, and creates a draft GitHub release with `gh`. Review the assets and release notes, then publish the draft when ready. Keep `latest.json`, the installer, and its signature attached. Only published stable releases are offered to installed apps. The Release workflow can still build the current version manually from the Actions tab.
 
-The workflow derives the updater URL from the GitHub repository running it and embeds the public key in the installer. Releases use a per-user installation and quiet updates, so Restart to update does not open an installer wizard. Install the first workflow-built release manually to establish the update channel. Subsequent published releases appear in Settings. Test the full flow with two successive versions before distributing widely. Moving repositories or replacing signing keys requires a migration for existing installations. Updater signing verifies updates; Windows code signing is separate and SmartScreen may still prompt for an unsigned installer.
+The release derives the updater URL from the repository and embeds the public key in the installer. Releases use a per-user installation and quiet updates, so Restart to update does not open an installer wizard. Install the first release manually to establish the update channel. Subsequent published releases appear in Settings. Test the full flow with two successive versions before distributing widely. Moving repositories or replacing signing keys requires a migration for existing installations. Updater signing verifies updates; Windows code signing is separate and SmartScreen may still prompt for an unsigned installer.
 
 ## Interface and navigation
 

@@ -496,6 +496,7 @@ pub async fn launch_app(
         crate::activity::record_launch(&app, &name);
         if let Some(window) = app.get_webview_window("main") {
             window.minimize().map_err(|e| e.to_string())?;
+            crate::background::publish_visibility(&window, false);
         }
         return Ok(());
     }
@@ -510,6 +511,7 @@ pub async fn launch_app(
         if crate::commands::services::reuse(&app, service.id, url) {
             if let Some(window) = app.get_webview_window("main") {
                 window.minimize().map_err(|e| e.to_string())?;
+                crate::background::publish_visibility(&window, false);
             }
             crate::activity::record_launch(&app, &name);
             return Ok(());
@@ -518,6 +520,7 @@ pub async fn launch_app(
     if crate::commands::session::reuse(&app, &name) {
         if let Some(window) = app.get_webview_window("main") {
             window.minimize().map_err(|e| e.to_string())?;
+            crate::background::publish_visibility(&window, false);
         }
         crate::activity::record_launch(&app, &name);
         return Ok(());
@@ -547,6 +550,7 @@ pub async fn launch_app(
     crate::activity::record_launch(&app, &name);
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|e| e.to_string())?;
+        crate::background::publish_visibility(&window, false);
     }
     Ok(())
 }

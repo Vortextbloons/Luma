@@ -51,6 +51,10 @@ pub(crate) fn retains_views() -> bool {
     RETAIN_VIEWS.load(Ordering::Relaxed)
 }
 
+pub(crate) fn publish_visibility(window: &tauri::WebviewWindow, visible: bool) {
+    let _ = window.emit("window-visibility", visible);
+}
+
 fn pause(window: &tauri::WebviewWindow) {
     let _ =
         window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause());");
@@ -60,6 +64,7 @@ pub(crate) fn dismiss(app: &tauri::AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         pause(&window);
         let _ = window.hide();
+        publish_visibility(&window, false);
     }
     if !retains_views() {
         unload(app, label);
@@ -249,6 +254,7 @@ pub(crate) async fn present(
                                     pause(&other);
                                 }
                                 other.hide()?;
+                                publish_visibility(&other, false);
                                 if label == "sports" || (label != "main" && !retains_views()) {
                                     unload(window.app_handle(), label);
                                 }
@@ -259,6 +265,7 @@ pub(crate) async fn present(
                 window.set_focus()?;
                 window.as_ref().show()?;
                 window.as_ref().set_focus()?;
+                publish_visibility(&window, true);
                 Ok(())
             })();
             let _ = sender.send(result.map_err(|error| error.to_string()));
