@@ -119,7 +119,7 @@ The frame keeps its existing protocol on port 9877 and authenticates with `Autho
 
 - `POST /pair` accepts `{ "code": "123456" }` and returns `{ "token": "...", "pcName": "..." }`.
 - `GET /state` returns the PC name, connection state, appearance, app order, and sound state.
-- `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; playback commands are `toggle`, `previous`, and `next`; music-only commands are `musictoggle`, `musicprevious`, and `musicnext`; volume commands are `volumeup`, `volumedown`, and `mute`.
+- `POST /command` accepts `{ "command": "up" }`. Navigation commands are `up`, `down`, `left`, `right`, `activate`, `back`, and `home`. App commands are `youtube`, `spotify`, `stremio`, and `custom`; Sports shortcuts are `sports`, `sportsnba`, `sportsnfl`, `sportsmlb`, and `sportsnhl` and open that league in Luma. These shortcuts are included in `/apps` with `shortcut: true` and local league icons; playback commands are `toggle`, `previous`, and `next`; music-only commands are `musictoggle`, `musicprevious`, and `musicnext`; volume commands are `volumeup`, `volumedown`, and `mute`.
 - `GET /apps` returns the app catalog in the current dock order; the order is shared with the web remote and the TV.
 - `GET /phone/music/art` returns the current album artwork as image bytes for remotes that can draw it. It is not part of the state payload; the socket frames are capped at 4 KB.
 

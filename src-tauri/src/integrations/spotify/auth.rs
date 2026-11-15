@@ -1,11 +1,7 @@
 use super::models::now_ms;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Mutex, time::Duration};
 use tauri::Manager;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
@@ -125,12 +121,9 @@ impl Auth {
     pub async fn access_token(&self) -> Result<String, String> {
         let current = {
             let tokens = self.tokens.lock().map_err(|error| error.to_string())?;
-            tokens.as_ref().map(|tokens| {
-                (
-                    tokens.access_token.clone(),
-                    tokens.expires_at,
-                )
-            })
+            tokens
+                .as_ref()
+                .map(|tokens| (tokens.access_token.clone(), tokens.expires_at))
         };
         if let Some((token, expires_at)) = current {
             if !token.is_empty() && expires_at > now_ms() / 1000 + 30 {
@@ -163,10 +156,7 @@ impl Auth {
             .await
             .map_err(|error| format!("Spotify could not be reached: {error}"))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| error.to_string())?;
+        let text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             if status == reqwest::StatusCode::BAD_REQUEST
                 || status == reqwest::StatusCode::UNAUTHORIZED
@@ -190,13 +180,17 @@ impl Auth {
             let mut tokens = self.tokens.lock().map_err(|error| error.to_string())?;
             let tokens = tokens.get_or_insert_with(Tokens::default);
             tokens.access_token = access_token.clone();
-            if let Some(refresh_token) = value.get("refresh_token").and_then(|value| value.as_str()) {
+            if let Some(refresh_token) = value.get("refresh_token").and_then(|value| value.as_str())
+            {
                 tokens.refresh_token = refresh_token.to_string();
             }
             tokens.expires_at = now_ms() / 1000 + expires_in;
             tokens.clone()
         };
-        let _ = crate::credentials::save(CREDENTIAL_TARGET, &serde_json::to_vec(&stored).map_err(|error| error.to_string())?);
+        let _ = crate::credentials::save(
+            CREDENTIAL_TARGET,
+            &serde_json::to_vec(&stored).map_err(|error| error.to_string())?,
+        );
         Ok(access_token)
     }
 
@@ -218,7 +212,11 @@ impl Auth {
         if client_id.is_empty() {
             return Err("Add your Spotify Client ID in Settings first.".into());
         }
-        let show_dialog = if self.authenticated() { "true" } else { "false" };
+        let show_dialog = if self.authenticated() {
+            "true"
+        } else {
+            "false"
+        };
         let verifier = random_token(64)?;
         let challenge = base64url(&sha256(verifier.as_bytes())?);
         let state = random_token(24)?;
@@ -288,10 +286,7 @@ impl Auth {
             .await
             .map_err(|error| format!("Spotify could not be reached: {error}"))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| error.to_string())?;
+        let text = response.text().await.map_err(|error| error.to_string())?;
         if !status.is_success() {
             return Err(token_error(status, &text));
         }
@@ -316,7 +311,10 @@ impl Auth {
             refresh_token,
             expires_at: now_ms() / 1000 + expires_in,
         };
-        crate::credentials::save(CREDENTIAL_TARGET, &serde_json::to_vec(&tokens).map_err(|error| error.to_string())?)?;
+        crate::credentials::save(
+            CREDENTIAL_TARGET,
+            &serde_json::to_vec(&tokens).map_err(|error| error.to_string())?,
+        )?;
         {
             let mut stored = self.tokens.lock().map_err(|error| error.to_string())?;
             *stored = Some(tokens);
@@ -394,8 +392,7 @@ fn random_token(bytes: usize) -> Result<String, String> {
 }
 
 fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let first = chunk[0] as u32;
@@ -437,7 +434,9 @@ fn sha256(input: &[u8]) -> Result<[u8; 32], String> {
     }
     let mut output = [0u8; 32];
     let hashed = unsafe { BCryptHash(algorithm, None, input, &mut output) };
-    unsafe { let _ = BCryptCloseAlgorithmProvider(algorithm, 0); };
+    unsafe {
+        let _ = BCryptCloseAlgorithmProvider(algorithm, 0);
+    };
     if hashed.0 < 0 {
         return Err("Windows could not complete the Spotify sign-in challenge.".into());
     }
@@ -491,9 +490,6 @@ mod tests {
     fn pkce_challenge_matches_rfc_7636_vector() {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let challenge = base64url(&sha256(verifier.as_bytes()).unwrap());
-        assert_eq!(
-            challenge,
-            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-        );
+        assert_eq!(challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     }
 }

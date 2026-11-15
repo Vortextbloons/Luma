@@ -48,10 +48,7 @@ fn checked_id(value: &str) -> Result<&str, StatusCode> {
 }
 
 fn origin_allowed(headers: &HeaderMap) -> bool {
-    headers
-        .get("origin")
-        .and_then(|value| value.to_str().ok())
-        == Some(YOUTUBE_ORIGIN)
+    headers.get("origin").and_then(|value| value.to_str().ok()) == Some(YOUTUBE_ORIGIN)
 }
 
 fn reply(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response {
@@ -78,10 +75,7 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
-async fn sponsorblock(
-    headers: HeaderMap,
-    Query(query): Query<VideoQuery>,
-) -> Response {
+async fn sponsorblock(headers: HeaderMap, Query(query): Query<VideoQuery>) -> Response {
     if !origin_allowed(&headers) {
         return reply(StatusCode::FORBIDDEN, "application/json", b"[]".to_vec());
     }
@@ -114,20 +108,37 @@ async fn dearrow(headers: HeaderMap, Query(query): Query<VideoQuery>) -> Respons
         return reply(StatusCode::FORBIDDEN, "application/json", b"null".to_vec());
     }
     let Ok(id) = checked_id(&query.video_id) else {
-        return reply(StatusCode::BAD_REQUEST, "application/json", b"null".to_vec());
+        return reply(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            b"null".to_vec(),
+        );
     };
-    let mut url = reqwest::Url::parse("https://sponsor.ajay.app/api/branding")
-        .expect("static dearrow URL");
+    let mut url =
+        reqwest::Url::parse("https://sponsor.ajay.app/api/branding").expect("static dearrow URL");
     url.query_pairs_mut().append_pair("videoID", id);
-    match client().get(url).timeout(std::time::Duration::from_secs(3)).send().await {
+    match client()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+    {
         Ok(response) if response.status() == reqwest::StatusCode::NOT_FOUND => {
             reply(StatusCode::OK, "application/json", b"null".to_vec())
         }
         Ok(response) if response.status().is_success() => match response.bytes().await {
             Ok(body) => reply(StatusCode::OK, "application/json", body.to_vec()),
-            Err(_) => reply(StatusCode::BAD_GATEWAY, "application/json", b"null".to_vec()),
+            Err(_) => reply(
+                StatusCode::BAD_GATEWAY,
+                "application/json",
+                b"null".to_vec(),
+            ),
         },
-        _ => reply(StatusCode::BAD_GATEWAY, "application/json", b"null".to_vec()),
+        _ => reply(
+            StatusCode::BAD_GATEWAY,
+            "application/json",
+            b"null".to_vec(),
+        ),
     }
 }
 
@@ -136,12 +147,21 @@ async fn dearrow_thumbnail(headers: HeaderMap, Query(query): Query<VideoQuery>) 
         return reply(StatusCode::FORBIDDEN, "text/plain", Vec::new());
     }
     let Ok(id) = checked_id(&query.video_id) else {
-        return reply(StatusCode::BAD_REQUEST, "text/plain", b"Invalid video ID".to_vec());
+        return reply(
+            StatusCode::BAD_REQUEST,
+            "text/plain",
+            b"Invalid video ID".to_vec(),
+        );
     };
     let mut url = reqwest::Url::parse("https://dearrow-thumb.ajay.app/api/v1/getThumbnail")
         .expect("static dearrow thumbnail URL");
     url.query_pairs_mut().append_pair("videoID", id);
-    match client().get(url).timeout(std::time::Duration::from_secs(3)).send().await {
+    match client()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+    {
         Ok(response) if response.status().is_success() => {
             let content_type = response
                 .headers()
@@ -164,11 +184,7 @@ async fn dearrow_thumbnail(headers: HeaderMap, Query(query): Query<VideoQuery>) 
                 Err(_) => reply(StatusCode::BAD_GATEWAY, "text/plain", Vec::new()),
             }
         }
-        Ok(_) => reply(
-            StatusCode::NO_CONTENT,
-            "text/plain",
-            Vec::new(),
-        ),
+        Ok(_) => reply(StatusCode::NO_CONTENT, "text/plain", Vec::new()),
         Err(_) => reply(StatusCode::NO_CONTENT, "text/plain", Vec::new()),
     }
 }
@@ -208,7 +224,10 @@ async fn feed(
         .filter(|item| !item.title.trim().is_empty())
         .filter(|item| seen.insert(item.id.clone()))
         .take(24)
-        .map(|item| FeedItem { title: item.title.trim().to_string(), ..item })
+        .map(|item| FeedItem {
+            title: item.title.trim().to_string(),
+            ..item
+        })
         .collect();
     if items.is_empty() {
         return reply(StatusCode::NO_CONTENT, "text/plain", Vec::new());
@@ -263,7 +282,8 @@ async fn start_bridge(app: AppHandle) -> Result<String, String> {
         .map_err(|error| format!("Cannot read the YouTube bridge address: {error}"))?
         .port();
     let mut secret = [0u8; 32];
-    getrandom::fill(&mut secret).map_err(|error| format!("Cannot secure the YouTube bridge: {error}"))?;
+    getrandom::fill(&mut secret)
+        .map_err(|error| format!("Cannot secure the YouTube bridge: {error}"))?;
     let token: String = secret.iter().map(|byte| format!("{byte:02x}")).collect();
     let router = Router::new()
         .route(&format!("/{token}/sponsorblock"), get(sponsorblock))
@@ -343,7 +363,9 @@ fn create(
     let url: tauri::Url = address
         .parse()
         .map_err(|e| format!("Invalid YouTube URL: {e}"))?;
-    let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+    let main = app
+        .get_webview_window("main")
+        .ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|e| e.to_string())?;
     let position = main.outer_position().map_err(|e| e.to_string())?;
     let scale = main.scale_factor().map_err(|e| e.to_string())?;
@@ -391,12 +413,9 @@ pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String
     Ok(())
 }
 
-pub async fn open_video(
-    app: AppHandle,
-    video_id: &str,
-    fullscreen: bool,
-) -> Result<(), String> {
-    let id = checked_id(video_id).map_err(|_| "That YouTube video identifier is invalid.".to_string())?;
+pub async fn open_video(app: AppHandle, video_id: &str, fullscreen: bool) -> Result<(), String> {
+    let id = checked_id(video_id)
+        .map_err(|_| "That YouTube video identifier is invalid.".to_string())?;
     let state = app.state::<Bridge>();
     let _guard = state.window.lock().await;
     crate::background::clear_unloading("youtube");
@@ -407,7 +426,10 @@ pub async fn open_video(
             let _ = window.eval(format!("location.hash = {hash};"));
             (window, false)
         }
-        None => (create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?, true),
+        None => (
+            create(&app, &bridge(&app).await?, fullscreen, true, Some(id))?,
+            true,
+        ),
     };
     crate::background::present(window, Some(fullscreen)).await?;
     if created {

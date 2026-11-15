@@ -126,7 +126,11 @@ fn normalized_path(url: &str) -> Option<String> {
         return None;
     }
     let path = parsed.path().trim_end_matches('/');
-    Some(if path.is_empty() { "/".into() } else { path.into() })
+    Some(if path.is_empty() {
+        "/".into()
+    } else {
+        path.into()
+    })
 }
 
 pub(crate) fn at_home(name: &str, url: &str) -> bool {
@@ -243,7 +247,8 @@ pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String
         format!("Microsoft Edge is required to open {name}. Install Edge or choose a program under App locations in Settings.")
     })?;
     let profile = profile_dir(app, name)?;
-    std::fs::create_dir_all(&profile).map_err(|error| format!("Could not prepare {name}: {error}"))?;
+    std::fs::create_dir_all(&profile)
+        .map_err(|error| format!("Could not prepare {name}: {error}"))?;
     let _ = std::fs::remove_file(profile.join("DevToolsActivePort"));
     let fullscreen = app
         .get_webview_window("main")
@@ -324,7 +329,9 @@ pub(crate) fn forward(app: &AppHandle, name: &str, command: &str) -> bool {
 }
 
 async fn dispatch(app: &AppHandle, name: &str, command: &str) -> Result<Outcome, String> {
-    let url = tracked(app, name).map(|window| window.url).unwrap_or_default();
+    let url = tracked(app, name)
+        .map(|window| window.url)
+        .unwrap_or_default();
     let state = app.state::<Services>();
     let mut connections = state.connections.lock().await;
     if !crate::commands::session::web_current(app, name) {
@@ -369,8 +376,7 @@ async fn handle(cdp: &mut Cdp, name: &str, command: &str) -> Result<Outcome, Str
             Ok(Outcome::Handled)
         }
         "up" | "down" | "left" | "right" | "activate" => {
-            let serialized =
-                serde_json::to_string(command).map_err(|error| error.to_string())?;
+            let serialized = serde_json::to_string(command).map_err(|error| error.to_string())?;
             let expression =
                 format!("window.__lumaNavigate ? window.__lumaNavigate({serialized}) : false");
             if cdp.eval(&expression).await?.as_bool() == Some(true) {
@@ -512,28 +518,52 @@ impl Cdp {
         if result.get("exceptionDetails").is_some() {
             return Err("The service page could not run Luma's navigation.".into());
         }
-        Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null))
+        Ok(result
+            .pointer("/result/value")
+            .cloned()
+            .unwrap_or(Value::Null))
     }
 
     async fn timeline(&mut self, expression: &str) -> Result<Value, String> {
         let result = self.eval(expression).await?;
-        if !result.is_null() { return Ok(result); }
+        if !result.is_null() {
+            return Ok(result);
+        }
         let tree = self.call("Page.getFrameTree", json!({})).await?;
-        let mut frames: Vec<&Value> = tree.pointer("/frameTree/childFrames")
-            .and_then(Value::as_array).map(|frames| frames.iter().collect()).unwrap_or_default();
+        let mut frames: Vec<&Value> = tree
+            .pointer("/frameTree/childFrames")
+            .and_then(Value::as_array)
+            .map(|frames| frames.iter().collect())
+            .unwrap_or_default();
         while let Some(frame) = frames.pop() {
             if let Some(children) = frame.get("childFrames").and_then(Value::as_array) {
                 frames.extend(children);
             }
-            let Some(id) = frame.pointer("/frame/id").and_then(Value::as_str) else { continue; };
-            let world = self.call("Page.createIsolatedWorld", json!({ "frameId": id, "worldName": "luma-playback" })).await?;
-            let Some(context) = world.get("executionContextId") else { continue; };
+            let Some(id) = frame.pointer("/frame/id").and_then(Value::as_str) else {
+                continue;
+            };
+            let world = self
+                .call(
+                    "Page.createIsolatedWorld",
+                    json!({ "frameId": id, "worldName": "luma-playback" }),
+                )
+                .await?;
+            let Some(context) = world.get("executionContextId") else {
+                continue;
+            };
             let result = self.call("Runtime.evaluate", json!({
                 "expression": expression, "contextId": context, "returnByValue": true, "userGesture": true,
             })).await?;
-            if result.get("exceptionDetails").is_some() { continue; }
-            let value = result.pointer("/result/value").cloned().unwrap_or(Value::Null);
-            if !value.is_null() { return Ok(value); }
+            if result.get("exceptionDetails").is_some() {
+                continue;
+            }
+            let value = result
+                .pointer("/result/value")
+                .cloned()
+                .unwrap_or(Value::Null);
+            if !value.is_null() {
+                return Ok(value);
+            }
         }
         Ok(Value::Null)
     }
@@ -584,12 +614,19 @@ mod tests {
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            for expected in ["Runtime.evaluate", "Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate"] {
+            for expected in [
+                "Runtime.evaluate",
+                "Page.getFrameTree",
+                "Page.createIsolatedWorld",
+                "Runtime.evaluate",
+            ] {
                 let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
                 let request: Value = serde_json::from_str(&text).unwrap();
                 assert_eq!(request["method"], expected);
                 let result = match expected {
-                    "Page.getFrameTree" => json!({ "frameTree": { "childFrames": [{ "frame": { "id": "movie" } }] } }),
+                    "Page.getFrameTree" => {
+                        json!({ "frameTree": { "childFrames": [{ "frame": { "id": "movie" } }] } })
+                    }
                     "Page.createIsolatedWorld" => {
                         assert_eq!(request["params"]["frameId"], "movie");
                         json!({ "executionContextId": 42 })
@@ -601,7 +638,14 @@ mod tests {
                     }
                     _ => json!({ "result": { "value": null } }),
                 };
-                socket.send(Message::Text(json!({ "id": request["id"], "result": result }).to_string().into())).await.unwrap();
+                socket
+                    .send(Message::Text(
+                        json!({ "id": request["id"], "result": result })
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
             }
         });
         let (socket, _) = connect_async(format!("ws://{address}")).await.unwrap();
@@ -615,10 +659,19 @@ mod tests {
     fn service_home_pages_are_recognized() {
         assert!(at_home("Netflix", "https://www.netflix.com/browse"));
         assert!(at_home("Netflix", "https://www.netflix.com/"));
-        assert!(!at_home("Netflix", "https://www.netflix.com/title/80100172"));
+        assert!(!at_home(
+            "Netflix",
+            "https://www.netflix.com/title/80100172"
+        ));
         assert!(at_home("Disney+", "https://www.disneyplus.com/home"));
-        assert!(at_home("Prime Video", "https://www.primevideo.com/storefront"));
-        assert!(!at_home("Prime Video", "https://www.primevideo.com/detail/0ABC"));
+        assert!(at_home(
+            "Prime Video",
+            "https://www.primevideo.com/storefront"
+        ));
+        assert!(!at_home(
+            "Prime Video",
+            "https://www.primevideo.com/detail/0ABC"
+        ));
         assert!(at_home("Apple TV+", "https://tv.apple.com/us/home"));
         assert!(at_home("Hulu", "https://www.hulu.com/home"));
         assert!(!at_home("Hulu", "https://www.hulu.com/series/example"));
@@ -675,7 +728,8 @@ mod tests {
 
     #[test]
     fn edge_arguments_keep_each_service_isolated_and_tv_ready() {
-        let profile = Path::new(r"C:\Users\viewer\AppData\Roaming\com.luma.desktop\services\netflix");
+        let profile =
+            Path::new(r"C:\Users\viewer\AppData\Roaming\com.luma.desktop\services\netflix");
         let arguments = edge_arguments(profile, "https://www.netflix.com/browse", true);
         assert!(arguments
             .iter()
@@ -692,25 +746,46 @@ mod tests {
         assert!(arguments
             .iter()
             .any(|argument| argument == &format!("--user-data-dir={}", profile.display())));
-        assert!(!arguments.iter().any(|argument| argument.contains("netflix.com/title")));
-        assert!(edge_arguments(profile, "https://www.netflix.com/browse", false)
+        assert!(!arguments
             .iter()
-            .any(|argument| argument.as_str() == "--start-maximized"));
+            .any(|argument| argument.contains("netflix.com/title")));
+        assert!(
+            edge_arguments(profile, "https://www.netflix.com/browse", false)
+                .iter()
+                .any(|argument| argument.as_str() == "--start-maximized")
+        );
     }
 }
 
 pub(crate) async fn timeline(app: &AppHandle, script: &str) -> Result<Value, String> {
     let state = app.state::<Services>();
-    let names: Vec<String> = state.inner.lock().map_err(|e| e.to_string())?.windows.keys().cloned().collect();
+    let names: Vec<String> = state
+        .inner
+        .lock()
+        .map_err(|e| e.to_string())?
+        .windows
+        .keys()
+        .cloned()
+        .collect();
     for name in names {
-        if !crate::commands::session::web_current(app, &name) { continue; }
-        let url = tracked(app, &name).map(|window| window.url).unwrap_or_default();
+        if !crate::commands::session::web_current(app, &name) {
+            continue;
+        }
+        let url = tracked(app, &name)
+            .map(|window| window.url)
+            .unwrap_or_default();
         let mut connections = state.connections.lock().await;
         if !connections.contains_key(&name) {
             connections.insert(name.clone(), connect(app, &name, &url).await?);
         }
-        let result = connections.get_mut(&name).ok_or("Player unavailable")?.timeline(script).await;
-        if result.is_err() { connections.remove(&name); }
+        let result = connections
+            .get_mut(&name)
+            .ok_or("Player unavailable")?
+            .timeline(script)
+            .await;
+        if result.is_err() {
+            connections.remove(&name);
+        }
         return result;
     }
     Ok(Value::Null)

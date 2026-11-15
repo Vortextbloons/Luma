@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   if (window.__lumaSportsReady || location.protocol !== 'https:') return;
   window.__lumaSportsReady = true;
   const main = window.top === window;
@@ -79,6 +79,7 @@
     clearTimeout(hideTimer);
     if (state && !state.paused && !state.waiting) hideTimer = setTimeout(() => {
       overlay.dataset.visible = 'false';
+      hideTimer = null;
       if (overlay.contains(document.activeElement)) document.activeElement.blur();
     }, 4500);
   };
@@ -88,20 +89,21 @@
     if (payload.type === 'play-error' && payload.id === player) { show('Playback could not start. Press Play or try another source.'); reveal(); return; }
     if (payload.type !== 'state' || typeof payload.id !== 'string' || !Number.isFinite(payload.area) || payload.area <= 0) return;
     if (player && player !== payload.id && state && state.area > payload.area) return;
+    const wasPlaying = state && !state.paused && !state.waiting;
     player = payload.id;
     state = payload;
-    clearTimeout(waitingTimer);
+    if (!state.waiting && !state.error) clearTimeout(waitingTimer);
     if (playButton) playButton.textContent = state.paused ? 'Play' : 'Pause';
     show(state.error ? 'This source could not play. Try another source.' : state.waiting ? 'Buffering…' : '');
     if (state.paused || state.waiting || state.error) reveal();
-    else if (!hideTimer) reveal();
+    else if (!wasPlaying) reveal();
   };
   window.addEventListener('message', event => {
     const payload = event.data;
     if (!payload || payload.channel !== channel) return;
     if (!main && event.source === window.parent && payload.type === 'command') { void command(payload); return; }
     const child = frames().find(candidate => candidate.contentWindow === event.source);
-    if (!child || !['state', 'return', 'key', 'play-error'].includes(payload.type)) return;
+    if (!child || (main && child.id !== 'cx-iframe') || !['state', 'return', 'key', 'play-error'].includes(payload.type)) return;
     if (payload.type === 'state' && payload.area > 0) fill(child);
     publish(payload);
   });
@@ -117,7 +119,7 @@
     show(`Connecting to source ${source + 1}…`);
     reveal();
     clearTimeout(waitingTimer);
-    waitingTimer = setTimeout(() => { if (!player) { show('The stream has not started. Press Play or try another source.'); reveal(); } }, 15000);
+    waitingTimer = setTimeout(() => { if (!state || state.waiting || state.error) { show('The stream has not started. Press Play or try another source.'); reveal(); } }, 15000);
   };
   const mount = () => {
     if (main) {
@@ -177,6 +179,7 @@
       videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight);
       if (videos[0] && videos[0] !== video) {
         video = videos[0];
+        video.controls = false;
         fill(video);
       }
       for (const media of videos) {

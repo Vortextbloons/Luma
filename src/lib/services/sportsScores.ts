@@ -10,6 +10,7 @@ export interface GameTeam {
 export interface GameScore {
   id: string;
   league: string;
+  leagueLogo: string;
   date: string;
   state: string;
   status: string;
@@ -18,14 +19,14 @@ export interface GameScore {
 }
 
 export function parseScoreboard(value: unknown, league: string): GameScore[] {
-  const data = value as { events?: any[] } | null;
+  const data = value as { events?: any[]; leagues?: { logos?: { href?: string }[] }[] } | null;
   if (!Array.isArray(data?.events)) throw new Error('Scores are unavailable.');
   return data.events.flatMap(event => {
     const game = event.competitions?.[0];
     if (!game || !Array.isArray(game.competitors) || game.competitors.length !== 2) return [];
     const status = game.status ?? event.status;
     return [{
-      id: String(event.id), league, date: event.date ?? '',
+      id: String(event.id), league, leagueLogo: data.leagues?.[0]?.logos?.[0]?.href ?? '', date: event.date ?? '',
       state: status?.type?.state ?? 'pre',
       status: status?.type?.shortDetail ?? status?.type?.detail ?? '',
       venue: game.venue?.fullName ?? '',

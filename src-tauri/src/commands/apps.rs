@@ -57,7 +57,10 @@ const SERVICES: &[Service] = &[
         id: "Prime Video",
         url: Some("https://www.primevideo.com/"),
         executables: &[
-            ("LOCALAPPDATA", r"Microsoft\WindowsApps\AmazonPrimeVideo.exe"),
+            (
+                "LOCALAPPDATA",
+                r"Microsoft\WindowsApps\AmazonPrimeVideo.exe",
+            ),
             ("LOCALAPPDATA", r"Microsoft\WindowsApps\PrimeVideo.exe"),
         ],
     },
@@ -427,16 +430,18 @@ pub fn app_paths(apps: State<Apps>) -> Result<BTreeMap<String, String>, String> 
 
 #[tauri::command]
 pub async fn detect_apps() -> Result<Vec<DetectedApp>, String> {
-    tauri::async_runtime::spawn_blocking(|| SERVICES
-        .iter()
-        .filter(|service| !service.executables.is_empty())
-        .map(|service| DetectedApp {
-            name: service.id.into(),
-            path: detect(service.id).map(|p| p.to_string_lossy().into_owned()),
-        })
-        .collect())
-        .await
-        .map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(|| {
+        SERVICES
+            .iter()
+            .filter(|service| !service.executables.is_empty())
+            .map(|service| DetectedApp {
+                name: service.id.into(),
+                path: detect(service.id).map(|p| p.to_string_lossy().into_owned()),
+            })
+            .collect()
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -463,7 +468,11 @@ pub fn save_app_paths(
 }
 
 #[tauri::command]
-pub async fn launch_app(name: String, apps: State<'_, Apps>, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn launch_app(
+    name: String,
+    apps: State<'_, Apps>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
     if name == "Spotify" {
         crate::remote::server::open_music(&app)?;

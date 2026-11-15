@@ -83,10 +83,21 @@ fn item(value: &Value, machine: &str, base: &str, fallback_time: &str) -> Option
         )
     };
     Some(ActivityItem {
-        id: format!("plex:{}:{rating_key}", if machine.is_empty() { "server" } else { machine }),
+        id: format!(
+            "plex:{}:{rating_key}",
+            if machine.is_empty() {
+                "server"
+            } else {
+                machine
+            }
+        ),
         provider: "plex".into(),
         provider_item_id: Some(rating_key),
-        profile_id: Some(if machine.is_empty() { base.to_string() } else { machine.to_string() }),
+        profile_id: Some(if machine.is_empty() {
+            base.to_string()
+        } else {
+            machine.to_string()
+        }),
         item_type,
         title,
         subtitle,
@@ -126,7 +137,10 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
     }
 
     for value in [on_deck.ok(), recently_viewed.ok()].into_iter().flatten() {
-        if let Some(metadata) = value.pointer("/MediaContainer/Metadata").and_then(Value::as_array) {
+        if let Some(metadata) = value
+            .pointer("/MediaContainer/Metadata")
+            .and_then(Value::as_array)
+        {
             for entry in metadata {
                 if let Some(item) = item(entry, &machine, &base, &now) {
                     items.entry(item.id.clone()).or_insert(item);
@@ -156,7 +170,13 @@ mod tests {
             "duration": 3000000,
             "lastViewedAt": 1767225600
         });
-        let item = item(&value, "machine", "http://plex.local:32400", "2026-01-01T00:00:00.000Z").unwrap();
+        let item = item(
+            &value,
+            "machine",
+            "http://plex.local:32400",
+            "2026-01-01T00:00:00.000Z",
+        )
+        .unwrap();
         assert_eq!(item.title, "Example Show");
         assert_eq!(item.subtitle.as_deref(), Some("S1 E2 · Pilot"));
         assert_eq!(item.progress_seconds, Some(600.0));
@@ -180,7 +200,13 @@ mod tests {
             "viewCount": 1,
             "lastViewedAt": 1767225600
         });
-        let item = item(&value, "machine", "http://plex.local:32400", "2026-01-01T00:00:00.000Z").unwrap();
+        let item = item(
+            &value,
+            "machine",
+            "http://plex.local:32400",
+            "2026-01-01T00:00:00.000Z",
+        )
+        .unwrap();
         assert_eq!(item.progress_seconds, Some(120.0));
         assert_eq!(item.duration_seconds, Some(600.0));
         assert_eq!(item.completed, Some(false));

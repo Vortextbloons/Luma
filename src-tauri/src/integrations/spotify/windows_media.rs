@@ -26,9 +26,7 @@ mod platform {
         pub fn new() -> Result<Self, String> {
             match unsafe { RoInitialize(RO_INIT_MULTITHREADED) } {
                 Ok(()) => Ok(Self { initialized: true }),
-                Err(error)
-                    if error.code() == windows::Win32::Foundation::RPC_E_CHANGED_MODE =>
-                {
+                Err(error) if error.code() == windows::Win32::Foundation::RPC_E_CHANGED_MODE => {
                     Ok(Self { initialized: false })
                 }
                 Err(error) => Err(error.to_string()),
@@ -88,9 +86,7 @@ mod platform {
     fn spotify(manager: &SessionManager) -> Result<Option<Session>, String> {
         let sessions = manager.GetSessions().map_err(|error| error.to_string())?;
         for index in 0..sessions.Size().map_err(|error| error.to_string())? {
-            let session = sessions
-                .GetAt(index)
-                .map_err(|error| error.to_string())?;
+            let session = sessions.GetAt(index).map_err(|error| error.to_string())?;
             let id = session
                 .SourceAppUserModelId()
                 .map_err(|error| error.to_string())?
@@ -155,7 +151,9 @@ mod platform {
             .is_some()
     }
 
-    fn artwork(reference: &windows::Storage::Streams::IRandomAccessStreamReference) -> Option<(String, String, Vec<u8>)> {
+    fn artwork(
+        reference: &windows::Storage::Streams::IRandomAccessStreamReference,
+    ) -> Option<(String, String, Vec<u8>)> {
         let stream = reference.OpenReadAsync().ok()?.get().ok()?;
         let size = stream.Size().ok()?;
         if size == 0 || size > 3_000_000 {
@@ -244,7 +242,9 @@ mod platform {
             });
         };
 
-        let properties = session.TryGetMediaPropertiesAsync().and_then(|operation| operation.get());
+        let properties = session
+            .TryGetMediaPropertiesAsync()
+            .and_then(|operation| operation.get());
         let title = properties
             .as_ref()
             .ok()
@@ -304,8 +304,7 @@ mod platform {
                 let epoch_ms = (updated / 10_000).saturating_sub(11_644_473_600_000);
                 let now = now_ms();
                 if now > epoch_ms as u64 {
-                    position_ms = position_ms
-                        .map(|position| position + (now - epoch_ms as u64));
+                    position_ms = position_ms.map(|position| position + (now - epoch_ms as u64));
                 }
             }
         }
@@ -393,12 +392,10 @@ mod platform {
             Command::Previous if controls.IsPreviousEnabled().unwrap_or(false) => {
                 session.TrySkipPreviousAsync()
             }
-            Command::Next if controls.IsNextEnabled().unwrap_or(false) => session.TrySkipNextAsync(),
-            Command::Seek(position)
-                if controls
-                    .IsPlaybackPositionEnabled()
-                    .unwrap_or(false) =>
-            {
+            Command::Next if controls.IsNextEnabled().unwrap_or(false) => {
+                session.TrySkipNextAsync()
+            }
+            Command::Seek(position) if controls.IsPlaybackPositionEnabled().unwrap_or(false) => {
                 session.TryChangePlaybackPositionAsync((position as i64) * 10_000)
             }
             Command::Shuffle(active) if controls.IsShuffleEnabled().unwrap_or(false) => {
@@ -477,8 +474,7 @@ mod platform {
 pub use platform::{available, control, current_artwork, snapshot, start, stop, Media};
 
 mod base64_helper {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     pub fn encode(bytes: &[u8]) -> String {
         let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);

@@ -391,7 +391,9 @@ pub fn load(app: &tauri::AppHandle) {
         Ok(inner) => inner,
         Err(_) => return,
     };
-    let auth_key = crate::credentials::read_text(CREDENTIAL_TARGET).ok().flatten();
+    let auth_key = crate::credentials::read_text(CREDENTIAL_TARGET)
+        .ok()
+        .flatten();
     if auth_key.is_none() {
         inner.cache = Cache::default();
         return;
@@ -615,19 +617,33 @@ pub async fn stremio_open(
 async fn ensure_streaming_service(app: &AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let client = app.state::<Stremio>().client.clone();
-    if client.get("http://127.0.0.1:11470/settings")
-        .timeout(Duration::from_secs(1)).send().await
-        .is_ok_and(|response| response.status().is_success()) {
+    if client
+        .get("http://127.0.0.1:11470/settings")
+        .timeout(Duration::from_secs(1))
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
+    {
         return Ok(());
     }
     let directory = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .map(|path| path.join("Programs").join("Stremio"))
-        .filter(|path| path.join("stremio-runtime.exe").is_file() && path.join("server.js").is_file())
-        .ok_or("Install Stremio Desktop to enable its streaming service, then open Stremio again.")?;
+        .filter(|path| {
+            path.join("stremio-runtime.exe").is_file() && path.join("server.js").is_file()
+        })
+        .ok_or(
+            "Install Stremio Desktop to enable its streaming service, then open Stremio again.",
+        )?;
     let state = app.state::<Stremio>();
-    let mut service = state.service.lock().map_err(|_| "The Stremio streaming service state is unavailable.".to_string())?;
-    if service.as_mut().is_some_and(|child| child.try_wait().ok().flatten().is_none()) {
+    let mut service = state
+        .service
+        .lock()
+        .map_err(|_| "The Stremio streaming service state is unavailable.".to_string())?;
+    if service
+        .as_mut()
+        .is_some_and(|child| child.try_wait().ok().flatten().is_none())
+    {
         return Ok(());
     }
     let child = std::process::Command::new(directory.join("stremio-runtime.exe"))
@@ -662,9 +678,11 @@ pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), Str
     let window = match app.get_webview_window("stremio") {
         Some(window) => {
             let target = serde_json::to_string(&target).map_err(|error| error.to_string())?;
-            window.eval(format!(
-                "if ({target}) location.hash = {target}; window.__lumaSyncAccount?.({target});"
-            )).map_err(|error| error.to_string())?;
+            window
+                .eval(format!(
+                    "if ({target}) location.hash = {target}; window.__lumaSyncAccount?.({target});"
+                ))
+                .map_err(|error| error.to_string())?;
             window
         }
         None => {
@@ -673,9 +691,13 @@ pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), Str
             let expected_auth_key = auth_key.clone();
             let session = match auth_key {
                 Some(auth_key) => {
-                    let user: Value = post(&state.client, "getUser", json!({ "authKey": auth_key }))
-                        .await.map_err(RemoteError::message)?;
-                    let user_id = user.get("_id").and_then(Value::as_str)
+                    let user: Value =
+                        post(&state.client, "getUser", json!({ "authKey": auth_key }))
+                            .await
+                            .map_err(RemoteError::message)?;
+                    let user_id = user
+                        .get("_id")
+                        .and_then(Value::as_str)
                         .ok_or("Stremio returned an unexpected account response.")?;
                     Some(json!({ "token": auth_key, "userId": user_id }))
                 }
@@ -685,9 +707,10 @@ pub(crate) async fn show(app: AppHandle, target: Option<&str>) -> Result<(), Str
                 return Err("The Stremio account changed while opening. Try again.".into());
             }
             create(&app, target, session)?
-        },
+        }
     };
-    let fullscreen = app.get_webview_window("main")
+    let fullscreen = app
+        .get_webview_window("main")
         .and_then(|main| main.is_fullscreen().ok());
     crate::background::present(window, fullscreen).await?;
     Ok(())
@@ -715,8 +738,14 @@ pub(crate) fn forward(app: &AppHandle, command: &str) {
     ));
 }
 
-fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Result<WebviewWindow, String> {
-    let main = app.get_webview_window("main").ok_or("Luma window is unavailable")?;
+fn create(
+    app: &AppHandle,
+    target: Option<&str>,
+    session: Option<Value>,
+) -> Result<WebviewWindow, String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or("Luma window is unavailable")?;
     let size = main.inner_size().map_err(|error| error.to_string())?;
     let position = main.outer_position().map_err(|error| error.to_string())?;
     let scale = main.scale_factor().map_err(|error| error.to_string())?;
@@ -737,10 +766,16 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
         .fullscreen(fullscreen)
         .visible(false)
         .focused(false)
-        .initialization_script(SCRIPT.replace("__LUMA_STREMIO_SESSION__", &json!({
-            "account": session,
-            "target": target,
-        }).to_string()))
+        .initialization_script(
+            SCRIPT.replace(
+                "__LUMA_STREMIO_SESSION__",
+                &json!({
+                    "account": session,
+                    "target": target,
+                })
+                .to_string(),
+            ),
+        )
         .initialization_script(crate::background::MOTION_INIT)
         .on_navigation(move |url| permitted(&handle, url))
         .on_new_window(move |url, _| {
@@ -757,7 +792,11 @@ fn create(app: &AppHandle, target: Option<&str>, session: Option<Value>) -> Resu
             if payload.event() != PageLoadEvent::Finished {
                 return;
             }
-            let Some(target) = load_pending.lock().ok().and_then(|mut target| target.take()) else {
+            let Some(target) = load_pending
+                .lock()
+                .ok()
+                .and_then(|mut target| target.take())
+            else {
                 return;
             };
             let Ok(target) = serde_json::to_string(&target) else {

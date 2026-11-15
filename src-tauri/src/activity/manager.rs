@@ -23,7 +23,10 @@ pub struct Activity {
 
 impl Activity {
     pub fn initialize(app: &AppHandle) -> Result<Self, String> {
-        let directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        let directory = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         Ok(Self {
             storage: Storage::open(&directory.join("activity.sqlite3"))?,
@@ -69,20 +72,28 @@ impl Activity {
         let hidden = self
             .storage
             .bool_preference(&provider_hidden_key(provider.id), false)?;
-        let last_success_at = self.storage.preference(&provider_success_key(provider.id))?;
+        let last_success_at = self
+            .storage
+            .preference(&provider_success_key(provider.id))?;
         let last_error = self.storage.preference(&provider_error_key(provider.id))?;
         let configured = match provider.kind {
             ProviderKind::Plex | ProviderKind::Jellyfin => {
-                self.storage.preference(&provider_url_key(provider.id))?.is_some()
-                    && self
-                        .storage
-                        .bool_preference(&format!("provider.{}.{TOKEN_SAVED_KEY}", provider.id), false)?
+                self.storage
+                    .preference(&provider_url_key(provider.id))?
+                    .is_some()
+                    && self.storage.bool_preference(
+                        &format!("provider.{}.{TOKEN_SAVED_KEY}", provider.id),
+                        false,
+                    )?
             }
             ProviderKind::Trakt => {
-                self.storage.preference(&provider_client_key(provider.id))?.is_some()
-                    && self
-                        .storage
-                        .bool_preference(&format!("provider.{}.{TOKEN_SAVED_KEY}", provider.id), false)?
+                self.storage
+                    .preference(&provider_client_key(provider.id))?
+                    .is_some()
+                    && self.storage.bool_preference(
+                        &format!("provider.{}.{TOKEN_SAVED_KEY}", provider.id),
+                        false,
+                    )?
             }
             _ => true,
         };
@@ -118,26 +129,20 @@ impl Activity {
             }
         };
         let detail = match (provider.kind, state) {
-            (_, ProviderState::Disabled) => {
-                "Off. You can still clear its history.".into()
-            }
-            (ProviderKind::Local, _) => {
-                "Records apps opened from Luma on this PC.".into()
-            }
-            (ProviderKind::YouTube, _) => {
-                "Records videos played in Luma's YouTube window.".into()
-            }
+            (_, ProviderState::Disabled) => "Off. You can still clear its history.".into(),
+            (ProviderKind::Local, _) => "Records apps opened from Luma on this PC.".into(),
+            (ProviderKind::YouTube, _) => "Records videos played in Luma's YouTube window.".into(),
             (ProviderKind::Spotify, _) => {
                 "Records what Spotify is playing while Luma is open.".into()
             }
             (ProviderKind::Launcher, _) if provider.id == "stremio" => {
                 "Connect a Stremio account under Integrations to see library progress.".into()
             }
-            (ProviderKind::Launcher, _) => {
-                "Records when you open this app from Luma.".into()
-            }
+            (ProviderKind::Launcher, _) => "Records when you open this app from Luma.".into(),
             (_, ProviderState::NeedsSetup) => match provider.kind {
-                ProviderKind::Trakt => "Add a Trakt client ID and access token under Advanced.".into(),
+                ProviderKind::Trakt => {
+                    "Add a Trakt client ID and access token under Advanced.".into()
+                }
                 _ => format!("Add your {} details under Advanced.", provider.name),
             },
             (_, ProviderState::NotValidated) => {
@@ -273,21 +278,21 @@ impl Activity {
         }
     }
 
-    pub fn save_config(
-        &self,
-        provider: &str,
-        input: &ProviderConfigInput,
-    ) -> Result<(), String> {
+    pub fn save_config(&self, provider: &str, input: &ProviderConfigInput) -> Result<(), String> {
         let info = provider_info(provider).ok_or("Unknown activity provider.")?;
         if !matches!(
             info.kind,
             ProviderKind::Plex | ProviderKind::Jellyfin | ProviderKind::Trakt
         ) {
-            return Err(format!("{} does not use connection credentials.", info.name));
+            return Err(format!(
+                "{} does not use connection credentials.",
+                info.name
+            ));
         }
         if let Some(value) = input.server_url.as_deref() {
             let base = validated_base(value)?;
-            self.storage.set_preference(&provider_url_key(provider), &base)?;
+            self.storage
+                .set_preference(&provider_url_key(provider), &base)?;
         }
         if let Some(value) = input.user_id.as_deref() {
             let value = value.trim();
@@ -295,9 +300,11 @@ impl Activity {
                 return Err("The Jellyfin user ID is too long.".into());
             }
             if value.is_empty() {
-                self.storage.remove_preference(&provider_user_key(provider))?;
+                self.storage
+                    .remove_preference(&provider_user_key(provider))?;
             } else {
-                self.storage.set_preference(&provider_user_key(provider), value)?;
+                self.storage
+                    .set_preference(&provider_user_key(provider), value)?;
             }
         }
         if let Some(value) = input.client_id.as_deref() {
@@ -306,9 +313,11 @@ impl Activity {
                 return Err("The Trakt client ID is too long.".into());
             }
             if value.is_empty() {
-                self.storage.remove_preference(&provider_client_key(provider))?;
+                self.storage
+                    .remove_preference(&provider_client_key(provider))?;
             } else {
-                self.storage.set_preference(&provider_client_key(provider), value)?;
+                self.storage
+                    .set_preference(&provider_client_key(provider), value)?;
             }
         }
         if let Some(token) = input.token.as_deref() {
@@ -324,10 +333,8 @@ impl Activity {
                     return Err("That token is too long.".into());
                 }
                 credentials::save(provider, token)?;
-                self.storage.set_bool_preference(
-                    &format!("provider.{provider}.{TOKEN_SAVED_KEY}"),
-                    true,
-                )?;
+                self.storage
+                    .set_bool_preference(&format!("provider.{provider}.{TOKEN_SAVED_KEY}"), true)?;
             }
         }
         if input.server_url.is_some()
@@ -335,8 +342,10 @@ impl Activity {
             || input.client_id.is_some()
             || input.token.is_some()
         {
-            self.storage.remove_preference(&provider_success_key(provider))?;
-            self.storage.remove_preference(&provider_error_key(provider))?;
+            self.storage
+                .remove_preference(&provider_success_key(provider))?;
+            self.storage
+                .remove_preference(&provider_error_key(provider))?;
         }
         Ok(())
     }
@@ -346,8 +355,10 @@ impl Activity {
         credentials::delete(provider)?;
         self.storage
             .set_bool_preference(&format!("provider.{provider}.{TOKEN_SAVED_KEY}"), false)?;
-        self.storage.remove_preference(&provider_success_key(provider))?;
-        self.storage.remove_preference(&provider_error_key(provider))?;
+        self.storage
+            .remove_preference(&provider_success_key(provider))?;
+        self.storage
+            .remove_preference(&provider_error_key(provider))?;
         Ok(())
     }
 
@@ -363,7 +374,10 @@ impl Activity {
             info.kind,
             ProviderKind::Plex | ProviderKind::Jellyfin | ProviderKind::Trakt
         ) {
-            return Err(format!("{} has no remote activity source to refresh.", info.name));
+            return Err(format!(
+                "{} has no remote activity source to refresh.",
+                info.name
+            ));
         }
         let config = ProviderConfig {
             server_url: self.storage.preference(&provider_url_key(provider))?,
@@ -395,7 +409,8 @@ impl Activity {
                 }
                 self.storage
                     .set_preference(&provider_success_key(provider), &now())?;
-                self.storage.remove_preference(&provider_error_key(provider))?;
+                self.storage
+                    .remove_preference(&provider_error_key(provider))?;
                 Ok(RefreshResult {
                     snapshot: self.snapshot()?,
                     updated,
@@ -414,7 +429,12 @@ impl Activity {
         }
     }
 
-    pub async fn open(&self, app: &AppHandle, id: &str, fullscreen: bool) -> Result<OpenOutcome, String> {
+    pub async fn open(
+        &self,
+        app: &AppHandle,
+        id: &str,
+        fullscreen: bool,
+    ) -> Result<OpenOutcome, String> {
         let item = self
             .storage
             .get(id)?
@@ -502,9 +522,7 @@ fn safe_target(activity: &Activity, provider: &str, target: &str) -> Result<Stri
                         && configured.port_or_known_default() == url.port_or_known_default()
                 })
         }
-        "trakt" => {
-            url.scheme() == "https" && (host == "trakt.tv" || host.ends_with(".trakt.tv"))
-        }
+        "trakt" => url.scheme() == "https" && (host == "trakt.tv" || host.ends_with(".trakt.tv")),
         "jellyfin" => {
             let configured = activity
                 .storage
@@ -557,7 +575,13 @@ pub fn record_youtube(app: &AppHandle, report: &PlaybackReport) {
     }
 }
 
-pub fn record_spotify(app: &AppHandle, title: &str, artist: &str, track_id: Option<&str>, artwork: Option<&str>) {
+pub fn record_spotify(
+    app: &AppHandle,
+    title: &str,
+    artist: &str,
+    track_id: Option<&str>,
+    artwork: Option<&str>,
+) {
     let Some(activity) = app.try_state::<Activity>() else {
         return;
     };
@@ -574,10 +598,7 @@ pub fn activity_snapshot(activity: State<'_, Activity>) -> Result<ActivitySnapsh
 }
 
 #[tauri::command]
-pub async fn refresh_provider(
-    app: AppHandle,
-    provider: String,
-) -> Result<RefreshResult, String> {
+pub async fn refresh_provider(app: AppHandle, provider: String) -> Result<RefreshResult, String> {
     let activity = app.state::<Activity>();
     let result = activity.refresh(&provider).await?;
     let _ = app.emit("activity-updated", &result.snapshot);
@@ -739,19 +760,9 @@ mod tests {
             .storage
             .set_preference("provider.plex.url", "http://plex.local:32400")
             .unwrap();
-        assert!(safe_target(
-            &store,
-            "trakt",
-            "https://trakt.tv/movies/example"
-        )
-        .is_ok());
+        assert!(safe_target(&store, "trakt", "https://trakt.tv/movies/example").is_ok());
         assert!(safe_target(&store, "trakt", "https://example.com/movie").is_err());
-        assert!(safe_target(
-            &store,
-            "plex",
-            "http://plex.local:32400/web/index.html"
-        )
-        .is_ok());
+        assert!(safe_target(&store, "plex", "http://plex.local:32400/web/index.html").is_ok());
         assert!(safe_target(&store, "plex", "http://other.local:32400/web").is_err());
         assert!(safe_target(
             &store,

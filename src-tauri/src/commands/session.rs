@@ -52,8 +52,19 @@ fn track_with(
         let attempts = if title.is_some() { 150 } else { 50 };
         tauri::async_runtime::spawn(async move {
             for _ in 0..attempts {
-                let current = handle.state::<Session>().0.lock().ok().is_some_and(|session| session.as_ref().is_some_and(|session| session.pid == pid && session.name == name));
-                if !current { return; }
+                let current = handle
+                    .state::<Session>()
+                    .0
+                    .lock()
+                    .ok()
+                    .is_some_and(|session| {
+                        session
+                            .as_ref()
+                            .is_some_and(|session| session.pid == pid && session.name == name)
+                    });
+                if !current {
+                    return;
+                }
                 if let Some(window) = locate_window(pid, &name, title) {
                     platform::place(window, bounds);
                     return;
@@ -62,7 +73,6 @@ fn track_with(
             }
         });
     }
-
 }
 
 fn locate_window(pid: u32, name: &str, title: Option<&str>) -> Option<platform::Window> {
@@ -94,7 +104,10 @@ pub(crate) fn close_steam(app: &AppHandle) {
     let Ok(mut current) = state.0.lock() else {
         return;
     };
-    if !current.as_ref().is_some_and(|launched| launched.name == "Steam") {
+    if !current
+        .as_ref()
+        .is_some_and(|launched| launched.name == "Steam")
+    {
         return;
     }
     let launched = current.take();
@@ -103,11 +116,19 @@ pub(crate) fn close_steam(app: &AppHandle) {
 }
 
 pub(crate) fn active(app: &AppHandle) -> bool {
-    app.state::<Session>().0.lock().map(|current| {
-        current.as_ref().is_some_and(|launched|
-            locate(launched).is_some()
-                || (!launched.web && launched.title.is_none() && launched.pid != 0 && platform::running(launched.pid)))
-    }).unwrap_or(false)
+    app.state::<Session>()
+        .0
+        .lock()
+        .map(|current| {
+            current.as_ref().is_some_and(|launched| {
+                locate(launched).is_some()
+                    || (!launched.web
+                        && launched.title.is_none()
+                        && launched.pid != 0
+                        && platform::running(launched.pid))
+            })
+        })
+        .unwrap_or(false)
 }
 
 pub fn reuse(app: &AppHandle, name: &str) -> bool {
@@ -128,11 +149,15 @@ pub fn reuse(app: &AppHandle, name: &str) -> bool {
     let Some(window) = found else {
         return false;
     };
-    if let Some(bounds) = crate::tv::bounds(app) { platform::place(window, bounds); }
+    if let Some(bounds) = crate::tv::bounds(app) {
+        platform::place(window, bounds);
+    }
     platform::restore(window);
     if session.is_none() || session.is_some_and(|(pid, _, _, _)| pid == 0) {
         if let Some(pid) = platform::pid(window) {
-            let (web, keys, title) = session.map(|(_, web, keys, title)| (web, keys, title)).unwrap_or((false, false, None));
+            let (web, keys, title) = session
+                .map(|(_, web, keys, title)| (web, keys, title))
+                .unwrap_or((false, false, None));
             track_with(app, name, pid, web, keys, title);
         }
     }
@@ -196,7 +221,13 @@ pub(crate) fn fullscreen(app: &AppHandle) -> Option<Result<(), String>> {
             Err(_) => return Some(Err("The remote could not read the app session.".into())),
         };
         let launched = current.as_ref()?;
-        (launched.name.clone(), launched.pid, launched.web, launched.keys, launched.title)
+        (
+            launched.name.clone(),
+            launched.pid,
+            launched.web,
+            launched.keys,
+            launched.title,
+        )
     };
     if platform::foreground_is_luma() {
         return None;
@@ -236,7 +267,12 @@ fn browser_executable(path: &str) -> bool {
         .to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "msedge.exe" | "chrome.exe" | "firefox.exe" | "brave.exe" | "opera.exe" | "opera_gx.exe"
+        "msedge.exe"
+            | "chrome.exe"
+            | "firefox.exe"
+            | "brave.exe"
+            | "opera.exe"
+            | "opera_gx.exe"
             | "vivaldi.exe"
     )
 }
@@ -372,7 +408,10 @@ pub fn route(app: &AppHandle, command: &str) -> bool {
 pub(crate) fn release(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Session>();
     let launched = state.0.lock().map_err(|error| error.to_string())?.take();
-    if let Some(launched) = launched.as_ref().filter(|launched| launched.name == "Steam") {
+    if let Some(launched) = launched
+        .as_ref()
+        .filter(|launched| launched.name == "Steam")
+    {
         end_steam(locate(launched));
         return Ok(());
     }
@@ -397,23 +436,34 @@ fn restore(app: &AppHandle) {
 pub(crate) fn native_executable(app: &AppHandle) -> Option<String> {
     let state = app.state::<Session>();
     let current = state.0.lock().ok()?;
-    let launched = current.as_ref().filter(|launched| !launched.web && !launched.keys)?;
+    let launched = current
+        .as_ref()
+        .filter(|launched| !launched.web && !launched.keys)?;
     let window = locate(launched)?;
-    if !platform::foreground(window) { return None; }
+    if !platform::foreground(window) {
+        return None;
+    }
     platform::executable(window)
 }
 
 pub(crate) fn web_current(app: &AppHandle, name: &str) -> bool {
     app.state::<Session>().0.lock().ok().is_some_and(|current| {
-        current.as_ref().is_some_and(|launched| launched.web && launched.name == name)
+        current
+            .as_ref()
+            .is_some_and(|launched| launched.web && launched.name == name)
     }) && !platform::foreground_is_luma()
 }
 
 pub(crate) fn finish(app: &AppHandle, name: &str) {
     let state = app.state::<Session>();
-    let Ok(mut current) = state.0.lock() else { return; };
-    if !current.as_ref().is_some_and(|launched| launched.web && launched.name == name)
-        || platform::foreground_is_luma() {
+    let Ok(mut current) = state.0.lock() else {
+        return;
+    };
+    if !current
+        .as_ref()
+        .is_some_and(|launched| launched.web && launched.name == name)
+        || platform::foreground_is_luma()
+    {
         return;
     }
     let launched = current.take();
@@ -428,7 +478,9 @@ pub(crate) fn finish(app: &AppHandle, name: &str) {
 }
 
 pub(crate) fn press(app: &AppHandle, name: &str, command: &str) {
-    if !web_current(app, name) { return; }
+    if !web_current(app, name) {
+        return;
+    }
     let Some(window) = platform::titled(name) else {
         return;
     };
@@ -491,15 +543,15 @@ mod platform {
             UI::{
                 Input::KeyboardAndMouse::{
                     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-                    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MOUSEINPUT, MOUSEEVENTF_LEFTDOWN,
-                    MOUSEEVENTF_LEFTUP, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_DOWN, VK_ESCAPE,
-                    VK_F11, VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_UP,
+                    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN,
+                    MOUSEEVENTF_LEFTUP, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_DOWN,
+                    VK_ESCAPE, VK_F11, VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_UP,
                 },
                 WindowsAndMessaging::{
                     EnumWindows, GetCursorPos, GetForegroundWindow, GetWindowRect,
                     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-                    IsWindowVisible, PostMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, SW_MINIMIZE,
-                    SW_RESTORE, WM_CLOSE,
+                    IsWindowVisible, PostMessageW, SetCursorPos, SetForegroundWindow, ShowWindow,
+                    SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
                 },
             },
         },
@@ -511,10 +563,17 @@ mod platform {
         use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
         unsafe {
             let _ = ShowWindow(window, SW_RESTORE);
-            let _ = SetWindowPos(window, None, bounds.0, bounds.1, bounds.2 as i32, bounds.3 as i32, SWP_NOACTIVATE | SWP_NOZORDER);
+            let _ = SetWindowPos(
+                window,
+                None,
+                bounds.0,
+                bounds.1,
+                bounds.2 as i32,
+                bounds.3 as i32,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            );
         }
     }
-
 
     pub fn id(window: Window) -> isize {
         window.0 as isize
@@ -623,7 +682,12 @@ mod platform {
     pub fn close(window: Window) {
         unsafe {
             let _ = ShowWindow(window, SW_MINIMIZE);
-            let _ = PostMessageW(Some(window), WM_CLOSE, Default::default(), Default::default());
+            let _ = PostMessageW(
+                Some(window),
+                WM_CLOSE,
+                Default::default(),
+                Default::default(),
+            );
         }
     }
 
@@ -683,10 +747,7 @@ mod platform {
         } else {
             KEYBD_EVENT_FLAGS(0)
         };
-        let inputs = [
-            key(key_code, flags),
-            key(key_code, flags | KEYEVENTF_KEYUP),
-        ];
+        let inputs = [key(key_code, flags), key(key_code, flags | KEYEVENTF_KEYUP)];
         unsafe {
             SendInput(&inputs, size_of::<INPUT>() as i32);
         }
@@ -735,7 +796,12 @@ mod platform {
         let mut buffer = [0u16; 512];
         let mut length = buffer.len() as u32;
         let result = unsafe {
-            QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buffer.as_mut_ptr()), &mut length)
+            QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                PWSTR(buffer.as_mut_ptr()),
+                &mut length,
+            )
         };
         let _ = unsafe { CloseHandle(handle) };
         result
@@ -751,11 +817,13 @@ mod platform {
             }
             let from = GetWindowThreadProcessId(foreground, None);
             let to = GetWindowThreadProcessId(window, None);
-            let attached = from != 0 && to != 0 && from != to && AttachThreadInput(from, to, true).as_bool();
+            let attached =
+                from != 0 && to != 0 && from != to && AttachThreadInput(from, to, true).as_bool();
             let _ = SetForegroundWindow(window);
             if attached {
                 let _ = AttachThreadInput(from, to, false);
-            }        }
+            }
+        }
     }
 
     fn mouse(flag: MOUSE_EVENT_FLAGS) -> INPUT {
@@ -949,10 +1017,16 @@ mod tests {
 
     #[test]
     fn only_browsers_receive_the_fullscreen_key() {
-        assert!(browser_executable(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"));
-        assert!(browser_executable(r"C:\Program Files\Google\Chrome\Application\chrome.exe"));
+        assert!(browser_executable(
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+        ));
+        assert!(browser_executable(
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        ));
         assert!(browser_executable("/usr/bin/firefox.exe"));
-        assert!(!browser_executable(r"C:\Program Files\VideoLAN\VLC\vlc.exe"));
+        assert!(!browser_executable(
+            r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+        ));
         assert!(!browser_executable(""));
     }
 
@@ -964,6 +1038,9 @@ mod tests {
         assert_eq!(stepped((150, 399), rect, 0, 1), (150, 399));
         assert_eq!(stepped((0, 0), rect, -1, -1), (100, 200));
         assert_eq!(stepped((150, 250), (100, 200, 100, 200), 1, 1), (100, 200));
-        assert_eq!(stepped((150, 2500), (100, 200, 300, 4299), 0, 1), (150, 2841));
+        assert_eq!(
+            stepped((150, 2500), (100, 200, 300, 4299), 0, 1),
+            (150, 2841)
+        );
     }
 }

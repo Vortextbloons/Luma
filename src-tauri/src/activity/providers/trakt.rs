@@ -1,5 +1,5 @@
 use super::{
-    client, now, normalized_time, ActivityItem, ActivityType, ProgressSource, ProviderConfig,
+    client, normalized_time, now, ActivityItem, ActivityType, ProgressSource, ProviderConfig,
     ResumeKind,
 };
 use serde_json::Value;
@@ -37,7 +37,9 @@ fn item(value: &Value, fallback: &str) -> Option<ActivityItem> {
                 profile_id: None,
                 item_type: ActivityType::Movie,
                 title,
-                subtitle: number(movie, "year").map(|year| year as u32).map(|year| year.to_string()),
+                subtitle: number(movie, "year")
+                    .map(|year| year as u32)
+                    .map(|year| year.to_string()),
                 artwork: None,
                 last_activity_at: watched_at,
                 progress_seconds: None,
@@ -61,7 +63,8 @@ fn item(value: &Value, fallback: &str) -> Option<ActivityItem> {
             let id = text(ids, "trakt")?.to_string();
             let season = number(episode, "season").unwrap_or(0.0) as u32;
             let index = number(episode, "number").unwrap_or(0.0) as u32;
-            let episode_title = text(episode, "title").unwrap_or_else(|| format!("Episode {index}"));
+            let episode_title =
+                text(episode, "title").unwrap_or_else(|| format!("Episode {index}"));
             let show_slug = show.get("ids").and_then(|ids| text(ids, "slug"));
             Some(ActivityItem {
                 id: format!("trakt:episode:{id}"),

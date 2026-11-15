@@ -1,12 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-const THEMES: [&str; 6] = ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx"];
+const THEMES: [&str; 6] = [
+    "violet-night",
+    "sapphire",
+    "mint",
+    "ember",
+    "graphite",
+    "onyx",
+];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const TILE_SHAPES: [&str; 2] = ["wide", "square"];
 const TEXT_SIZES: [&str; 3] = ["standard", "large", "larger"];
 const SOUND_PRESETS: [&str; 4] = ["real", "google", "roku", "off"];
 const SOUND_LEVELS: [&str; 3] = ["soft", "standard", "loud"];
-const COMPONENTS: [&str; 7] = ["hero", "continue", "apps", "popular", "featured", "recent", "recentApps"];
+const COMPONENTS: [&str; 7] = [
+    "hero",
+    "continue",
+    "apps",
+    "popular",
+    "featured",
+    "recent",
+    "recentApps",
+];
 const APP_IDS: [&str; 12] = [
     "YouTube",
     "Spotify",
@@ -168,7 +183,10 @@ impl Default for Config {
                 })
                 .collect(),
             widgets: Widgets {
-                spotify: Widget { enabled: true, placement: "bar".into() },
+                spotify: Widget {
+                    enabled: true,
+                    placement: "bar".into(),
+                },
             },
             order: APP_IDS.iter().map(|id| (*id).into()).collect(),
         }
@@ -183,7 +201,10 @@ pub fn validate(config: &Config) -> Result<(), String> {
         return Err(format!("Unknown density: {}.", config.density));
     }
     if !TILE_SHAPES.contains(&config.app_tile_shape.as_str()) {
-        return Err(format!("Unknown app tile shape: {}.", config.app_tile_shape));
+        return Err(format!(
+            "Unknown app tile shape: {}.",
+            config.app_tile_shape
+        ));
     }
     if !TEXT_SIZES.contains(&config.text_size.as_str()) {
         return Err(format!("Unknown text size: {}.", config.text_size));
@@ -236,7 +257,10 @@ fn validate_home(home: &[HomeRow]) -> Result<(), String> {
         }
         components.push(&row.component);
     }
-    match COMPONENTS.iter().find(|component| !components.contains(component)) {
+    match COMPONENTS
+        .iter()
+        .find(|component| !components.contains(component))
+    {
         Some(component) => Err(format!("Missing home component: {component}.")),
         None => Ok(()),
     }
@@ -249,7 +273,10 @@ fn validate_home_id(id: &str) -> Result<(), String> {
     if id.len() > 64 {
         return Err("Home row id must be at most 64 characters.".into());
     }
-    if !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-') {
+    if !id
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
         return Err(format!("Invalid home row id: {id}."));
     }
     Ok(())
@@ -279,7 +306,10 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
     let legacy: LegacyDocument = serde_json::from_str(raw)
         .map_err(|error| format!("Invalid legacy customization document: {error}"))?;
     if legacy.version != 1 {
-        return Err(format!("Unsupported legacy customization version: {}.", legacy.version));
+        return Err(format!(
+            "Unsupported legacy customization version: {}.",
+            legacy.version
+        ));
     }
     let config = Config {
         theme: legacy.config.theme,
@@ -305,14 +335,21 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
         order: legacy.config.order,
     };
     validate(&config)?;
-    Ok(Document { version: 3, revision: legacy.revision, config })
+    Ok(Document {
+        version: 3,
+        revision: legacy.revision,
+        config,
+    })
 }
 
 pub fn migrate_v2(raw: &str) -> Result<Document, String> {
     let v2: V2Document = serde_json::from_str(raw)
         .map_err(|error| format!("Invalid customization document: {error}"))?;
     if v2.version != 2 {
-        return Err(format!("Unsupported customization version: {}.", v2.version));
+        return Err(format!(
+            "Unsupported customization version: {}.",
+            v2.version
+        ));
     }
     let config = Config {
         theme: v2.config.theme,
@@ -338,7 +375,11 @@ pub fn migrate_v2(raw: &str) -> Result<Document, String> {
         order: v2.config.order,
     };
     validate(&config)?;
-    Ok(Document { version: 3, revision: v2.revision, config })
+    Ok(Document {
+        version: 3,
+        revision: v2.revision,
+        config,
+    })
 }
 
 #[cfg(test)]
@@ -354,7 +395,13 @@ mod tests {
     fn legacy_document(config: &Config, revision: u64) -> Value {
         let mut config = serde_json::to_value(config).unwrap();
         let config = config.as_object_mut().unwrap();
-        for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] {
+        for field in [
+            "homeColumns",
+            "textSize",
+            "reducedMotion",
+            "interfaceSounds",
+            "soundLevel",
+        ] {
             config.remove(field);
         }
         for row in config["home"].as_array_mut().unwrap() {
@@ -368,7 +415,13 @@ mod tests {
     fn v2_document(config: &Config, revision: u64) -> Value {
         let mut config = serde_json::to_value(config).unwrap();
         let config = config.as_object_mut().unwrap();
-        for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] {
+        for field in [
+            "homeColumns",
+            "textSize",
+            "reducedMotion",
+            "interfaceSounds",
+            "soundLevel",
+        ] {
             config.remove(field);
         }
         for row in config["home"].as_array_mut().unwrap() {
@@ -419,12 +472,19 @@ mod tests {
 
         let mut config = Config::default();
         config.sound_level = "maximum".into();
-        assert_eq!(validate(&config), Err("Unknown sound level: maximum.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Unknown sound level: maximum.".into())
+        );
     }
 
     #[test]
     fn default_document_round_trips_as_camel_case() {
-        let document = Document { version: 3, revision: 7, config: Config::default() };
+        let document = Document {
+            version: 3,
+            revision: 7,
+            config: Config::default(),
+        };
         let json = serde_json::to_string(&document).unwrap();
         assert!(json.contains("\"appTileShape\":\"wide\""));
         assert!(json.contains("\"textSize\":\"standard\""));
@@ -432,7 +492,9 @@ mod tests {
         assert!(json.contains("\"interfaceSounds\":\"real\""));
         assert!(json.contains("\"soundLevel\":\"standard\""));
         assert!(json.contains("\"homeColumns\":1"));
-        assert!(json.contains("\"home\":[{\"id\":\"hero\",\"component\":\"hero\",\"visible\":true,\"span\":2}"));
+        assert!(json.contains(
+            "\"home\":[{\"id\":\"hero\",\"component\":\"hero\",\"visible\":true,\"span\":2}"
+        ));
         assert!(!json.contains("\"type\""));
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), document);
     }
@@ -460,7 +522,9 @@ mod tests {
         config.home[0].id = "hero-main_2".into();
         assert_eq!(validate(&config), Ok(()));
         let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("{\"id\":\"hero-main_2\",\"component\":\"hero\",\"visible\":true,\"span\":2}"));
+        assert!(json.contains(
+            "{\"id\":\"hero-main_2\",\"component\":\"hero\",\"visible\":true,\"span\":2}"
+        ));
     }
 
     #[test]
@@ -472,7 +536,10 @@ mod tests {
             visible: true,
             span: 2,
         };
-        assert_eq!(validate(&config), Err("Duplicate home component: hero.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Duplicate home component: hero.".into())
+        );
     }
 
     #[test]
@@ -484,7 +551,10 @@ mod tests {
             visible: true,
             span: 2,
         };
-        assert_eq!(validate(&config), Err("Duplicate home row id: hero.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Duplicate home row id: hero.".into())
+        );
     }
 
     #[test]
@@ -523,7 +593,10 @@ mod tests {
     fn invalid_instance_ids_are_rejected() {
         let mut config = Config::default();
         config.home[0].id.clear();
-        assert_eq!(validate(&config), Err("Home row id cannot be empty.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Home row id cannot be empty.".into())
+        );
 
         let mut config = Config::default();
         config.home[0].id = "a".repeat(65);
@@ -534,21 +607,30 @@ mod tests {
 
         let mut config = Config::default();
         config.home[0].id = "hero.primary".into();
-        assert_eq!(validate(&config), Err("Invalid home row id: hero.primary.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Invalid home row id: hero.primary.".into())
+        );
     }
 
     #[test]
     fn missing_component_is_rejected() {
         let mut config = Config::default();
         config.home.retain(|row| row.component != "popular");
-        assert_eq!(validate(&config), Err("Missing home component: popular.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Missing home component: popular.".into())
+        );
     }
 
     #[test]
     fn unknown_component_is_rejected() {
         let mut config = Config::default();
         config.home[3].component = "trending".into();
-        assert_eq!(validate(&config), Err("Unknown home component: trending.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Unknown home component: trending.".into())
+        );
     }
 
     #[test]
@@ -569,7 +651,10 @@ mod tests {
     fn custom_app_must_be_last() {
         let mut config = Config::default();
         reorder(&mut config.order, 11, 0);
-        assert_eq!(validate(&config), Err("Custom must be the last app.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Custom must be the last app.".into())
+        );
     }
 
     #[test]
@@ -584,11 +669,17 @@ mod tests {
 
         let mut config = Config::default();
         config.app_tile_shape = "tall".into();
-        assert_eq!(validate(&config), Err("Unknown app tile shape: tall.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Unknown app tile shape: tall.".into())
+        );
 
         let mut config = Config::default();
         config.widgets.spotify.placement = "center".into();
-        assert_eq!(validate(&config), Err("Unknown Spotify placement: center.".into()));
+        assert_eq!(
+            validate(&config),
+            Err("Unknown Spotify placement: center.".into())
+        );
     }
 
     #[test]
@@ -609,12 +700,19 @@ mod tests {
         config.theme = "ember".into();
         config.density = "compact".into();
         config.app_tile_shape = "square".into();
-        config.widgets.spotify = Widget { enabled: false, placement: "bottom-right".into() };
+        config.widgets.spotify = Widget {
+            enabled: false,
+            placement: "bottom-right".into(),
+        };
 
         let raw = legacy_document(&config, 12).to_string();
         assert_eq!(
             migrate_legacy(&raw).unwrap(),
-            Document { version: 3, revision: 12, config }
+            Document {
+                version: 3,
+                revision: 12,
+                config
+            }
         );
     }
 
@@ -630,7 +728,10 @@ mod tests {
         config.theme = "ember".into();
         config.density = "compact".into();
         config.app_tile_shape = "square".into();
-        config.widgets.spotify = Widget { enabled: false, placement: "bottom-right".into() };
+        config.widgets.spotify = Widget {
+            enabled: false,
+            placement: "bottom-right".into(),
+        };
 
         let mut expected = config.clone();
         expected.home_columns = 1;
@@ -641,7 +742,11 @@ mod tests {
         let raw = v2_document(&config, 21).to_string();
         assert_eq!(
             migrate_v2(&raw).unwrap(),
-            Document { version: 3, revision: 21, config: expected }
+            Document {
+                version: 3,
+                revision: 21,
+                config: expected
+            }
         );
     }
 

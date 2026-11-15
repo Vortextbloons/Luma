@@ -1,6 +1,4 @@
-use super::models::{
-    app_id, app_provider, ActivityItem, ActivityType, ProgressSource, ResumeKind,
-};
+use super::models::{app_id, app_provider, ActivityItem, ActivityType, ProgressSource, ResumeKind};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::{path::Path, sync::Mutex, time::Duration};
 
@@ -288,7 +286,8 @@ fn read_item(row: &Row<'_>) -> rusqlite::Result<ActivityItem> {
     let item_type = ActivityType::parse(&row.get::<_, String>(4)?).unwrap_or(ActivityType::Video);
     let progress_source =
         ProgressSource::parse(&row.get::<_, String>(11)?).unwrap_or(ProgressSource::Unknown);
-    let resume_kind = ResumeKind::parse(&row.get::<_, String>(15)?).unwrap_or(ResumeKind::Unavailable);
+    let resume_kind =
+        ResumeKind::parse(&row.get::<_, String>(15)?).unwrap_or(ResumeKind::Unavailable);
     let completed = row.get::<_, Option<i64>>(12)?.map(|value| value != 0);
     let launch_count = row.get::<_, i64>(16)?;
     Ok(ActivityItem {

@@ -1,12 +1,10 @@
 #[cfg(windows)]
 pub fn running() -> bool {
-    use windows::{
-        Win32::{
-            Foundation::CloseHandle,
-            System::Diagnostics::ToolHelp::{
-                CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-                TH32CS_SNAPPROCESS,
-            },
+    use windows::Win32::{
+        Foundation::CloseHandle,
+        System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
         },
     };
     unsafe {

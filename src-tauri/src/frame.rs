@@ -7,7 +7,10 @@ use crate::{
 };
 use axum::{
     body::Body,
-    extract::{ws::{Message, WebSocketUpgrade}, DefaultBodyLimit, State},
+    extract::{
+        ws::{Message, WebSocketUpgrade},
+        DefaultBodyLimit, State,
+    },
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -289,11 +292,12 @@ async fn state(
 ) -> Result<Response, StatusCode> {
     authorized(&app, &headers)?;
     let state = server::snapshot_live(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut response = Json(serde_json::json!({"pcName": pc_name(), "connected": true, "state": state})).into_response();
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    let mut response =
+        Json(serde_json::json!({"pcName": pc_name(), "connected": true, "state": state}))
+            .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 #[derive(Deserialize)]
@@ -304,13 +308,18 @@ struct Command {
 async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), String>> {
     let music = crate::remote::pointer::is_music(command);
     if !music && !["stop", "click", "fullscreen"].contains(&command) {
-        if let Err(error) = server::wake(app).await { return Some(Err(error)); }
+        if let Err(error) = server::wake(app).await {
+            return Some(Err(error));
+        }
     }
     if crate::remote::pointer::hides_cursor(command) {
         crate::remote::pointer::hide_cursor(app);
     }
     if command == "fullscreen" {
         return Some(server::fullscreen(app));
+    }
+    if let Some(league) = crate::commands::sports::shortcut_league(command) {
+        return Some(server::open_sports(app, league).await);
     }
     if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
         server::navigate(app, nav);
@@ -441,10 +450,18 @@ async fn phone_playback(
     headers: HeaderMap,
     payload: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if payload.is_some() { same_origin(&headers)?; }
+    if payload.is_some() {
+        same_origin(&headers)?;
+    }
     phone_authorized(&app, &headers)?;
     let position = match payload {
-        Some(Json(value)) => Some(value.get("position").and_then(serde_json::Value::as_f64).filter(|value| value.is_finite() && *value >= 0.0).ok_or(StatusCode::BAD_REQUEST)?),
+        Some(Json(value)) => Some(
+            value
+                .get("position")
+                .and_then(serde_json::Value::as_f64)
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .ok_or(StatusCode::BAD_REQUEST)?,
+        ),
         None => None,
     };
     match media::timeline(&app, position).await {
@@ -472,19 +489,20 @@ async fn apps_list(
         .unwrap_or_default();
     let apps: Vec<serde_json::Value> = apps_in_order(&order)
         .into_iter()
+        .chain(crate::commands::sports::shortcuts())
         .map(|entry| {
             serde_json::json!({
                 "command": entry.command,
                 "name": entry.name,
                 "icon": format!("/apps/{}/icon", entry.command),
+                "shortcut": crate::commands::sports::shortcut_league(&entry.command).is_some(),
             })
         })
         .collect();
     let mut response = Json(serde_json::json!({ "apps": apps })).into_response();
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 
@@ -518,7 +536,8 @@ async fn phone_setting(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     same_origin(&headers)?;
     phone_authorized(&app, &headers)?;
-    server::change_setting(&app, request.key, request.value).map_err(|_| StatusCode::BAD_REQUEST)?;
+    server::change_setting(&app, request.key, request.value)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Json(serde_json::json!({"accepted": true})))
 }
 
@@ -532,8 +551,7 @@ async fn phone_layout(
     if request.order.len() > 32 || request.order.iter().any(|name| name.len() > 64) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    server::set_app_order(&app, request.order)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    server::set_app_order(&app, request.order).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let state = server::snapshot(&app).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(serde_json::json!({"accepted": true, "state": state})))
 }
@@ -542,9 +560,11 @@ async fn app_icon(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
     axum::extract::Path(command): axum::extract::Path<String>,
-) -> Result<Response, StatusCode> {    remote_authorized(&app, &headers)?;
+) -> Result<Response, StatusCode> {
+    remote_authorized(&app, &headers)?;
     let entry = apps::catalog()
         .into_iter()
+        .chain(crate::commands::sports::shortcuts())
         .find(|entry| entry.command == command)
         .ok_or(StatusCode::NOT_FOUND)?;
     Response::builder()
@@ -638,12 +658,24 @@ async fn pointer(
     headers: HeaderMap,
     Json(request): Json<PointerRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if phone_authorized(&app, &headers).is_ok() { same_origin(&headers)?; }
-    else { authorized(&app, &headers)?; }
-    if request.owner.is_empty() || request.owner.len() > 64 || request.owner.chars().any(char::is_control) {
+    if phone_authorized(&app, &headers).is_ok() {
+        same_origin(&headers)?;
+    } else {
+        authorized(&app, &headers)?;
+    }
+    if request.owner.is_empty()
+        || request.owner.len() > 64
+        || request.owner.chars().any(char::is_control)
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let value = |axis: f32| if axis.is_finite() { axis.clamp(-1.0, 1.0) } else { 0.0 };
+    let value = |axis: f32| {
+        if axis.is_finite() {
+            axis.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        }
+    };
     let (x, y) = (value(request.x), value(request.y));
     let released = match request.action.as_str() {
         "start" => {
@@ -660,7 +692,9 @@ async fn pointer(
     Ok(Json(serde_json::json!({ "released": released })))
 }
 async fn phone_socket(
-    State(app): State<tauri::AppHandle>, headers: HeaderMap, upgrade: WebSocketUpgrade,
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
 ) -> Result<Response, StatusCode> {
     same_origin(&headers)?;
     phone_authorized(&app, &headers)?;
@@ -732,23 +766,41 @@ async fn phone_socket(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct TextRequest { text: String }
+struct TextRequest {
+    text: String,
+}
 
 async fn remote_text(
-    State(app): State<tauri::AppHandle>, headers: HeaderMap, Json(request): Json<TextRequest>,
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<TextRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if phone_authorized(&app, &headers).is_ok() { same_origin(&headers)?; }
-    else { authorized(&app, &headers)?; }
-    if request.text.is_empty() || request.text.len() > 1024 || request.text.chars().any(char::is_control) {
+    if phone_authorized(&app, &headers).is_ok() {
+        same_origin(&headers)?;
+    } else {
+        authorized(&app, &headers)?;
+    }
+    if request.text.is_empty()
+        || request.text.len() > 1024
+        || request.text.chars().any(char::is_control)
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     let result = match server::wake(&app).await {
         Ok(()) => {
-            if let Some(window) = app.get_webview_window("youtube").filter(|window| window.is_visible().unwrap_or(false)) {
-                let text = serde_json::to_string(&request.text).map_err(|_| StatusCode::BAD_REQUEST)?;
-                window.eval(format!("window.__lumaTypeSearch?.({text});")).map_err(|error| error.to_string())
-            } else { server::type_text(&request.text) }
-        },
+            if let Some(window) = app
+                .get_webview_window("youtube")
+                .filter(|window| window.is_visible().unwrap_or(false))
+            {
+                let text =
+                    serde_json::to_string(&request.text).map_err(|_| StatusCode::BAD_REQUEST)?;
+                window
+                    .eval(format!("window.__lumaTypeSearch?.({text});"))
+                    .map_err(|error| error.to_string())
+            } else {
+                server::type_text(&request.text)
+            }
+        }
         Err(error) => Err(error),
     };
     Ok(Json(match result {
@@ -996,7 +1048,10 @@ pub fn phone_remote_qr(app: tauri::AppHandle) -> Result<String, String> {
     let url = phone_remote_url(&status.phone_url, status.phone_code.as_deref());
     let code = qrcode::QrCode::new(url.as_bytes()).map_err(|error| error.to_string())?;
     let svg = code.render::<qrcode::render::svg::Color>().build();
-    Ok(format!("data:image/svg+xml,{}", percent_encoding::utf8_percent_encode(&svg, percent_encoding::NON_ALPHANUMERIC)))
+    Ok(format!(
+        "data:image/svg+xml,{}",
+        percent_encoding::utf8_percent_encode(&svg, percent_encoding::NON_ALPHANUMERIC)
+    ))
 }
 #[tauri::command]
 pub fn open_phone_remote(app: tauri::AppHandle) -> Result<(), String> {
@@ -1046,8 +1101,7 @@ mod tests {
     }
     #[test]
     fn legacy_display_box_file_loads_without_a_phone_credential() {
-        let saved: Saved =
-            serde_json::from_str(r#"{"enabled":true,"token":"saved"}"#).unwrap();
+        let saved: Saved = serde_json::from_str(r#"{"enabled":true,"token":"saved"}"#).unwrap();
         assert!(saved.enabled);
         assert_eq!(saved.token, "saved");
         assert!(saved.phone_token.is_empty());
@@ -1200,11 +1254,9 @@ mod tests {
                 .await
                 .unwrap();
             assert!(bytes.len() > 1024);
-            assert!(
-                web_icon(axum::extract::Path("missing.png".into()))
-                    .await
-                    .is_err()
-            );
+            assert!(web_icon(axum::extract::Path("missing.png".into()))
+                .await
+                .is_err());
         });
     }
 }

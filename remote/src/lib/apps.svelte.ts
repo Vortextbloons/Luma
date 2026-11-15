@@ -4,6 +4,7 @@ import type { AppEntry } from "./types";
 
 export const apps = $state({
   list: [] as AppEntry[],
+  shortcuts: [] as AppEntry[],
   recents: readRecents(),
   loading: false,
   attempted: false,
@@ -24,8 +25,9 @@ export async function loadApps(force = false): Promise<void> {
       apps.error = true;
       return;
     }
+    apps.shortcuts = data.apps.filter(app => app && app.shortcut === true && typeof app.command === "string" && typeof app.name === "string");
     apps.list = data.apps.filter(
-      app => app && typeof app.command === "string" && typeof app.name === "string",
+      app => app && !app.shortcut && typeof app.command === "string" && typeof app.name === "string",
     );
     loaded = apps.list.length > 0;
   } catch (_) {

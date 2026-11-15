@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -6,7 +6,11 @@
     },
     time::Duration,
 };
-use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
+};
 use tauri_plugin_autostart::ManagerExt;
 
 static RETAIN_VIEWS: AtomicBool = AtomicBool::new(false);
@@ -48,7 +52,8 @@ pub(crate) fn retains_views() -> bool {
 }
 
 fn pause(window: &tauri::WebviewWindow) {
-    let _ = window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause());");
+    let _ =
+        window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause());");
 }
 
 pub(crate) fn dismiss(app: &tauri::AppHandle, label: &str) {
@@ -114,10 +119,12 @@ pub(crate) async fn main_window(app: &tauri::AppHandle) -> Result<tauri::Webview
             }
         };
         let _ = sender.send(result);
-    }).map_err(|error| error.to_string())?;
+    })
+    .map_err(|error| error.to_string())?;
     let window = receiver.await.map_err(|error| error.to_string())??;
     tokio::time::timeout(Duration::from_secs(20), ready.wait_for(|ready| *ready))
-        .await.map_err(|_| "Luma took too long to start.".to_string())?
+        .await
+        .map_err(|_| "Luma took too long to start.".to_string())?
         .map_err(|error| error.to_string())?;
     Ok(window)
 }
@@ -126,7 +133,9 @@ pub fn show(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match main_window(&app).await {
-            Ok(window) => { let _ = present(window, None).await; }
+            Ok(window) => {
+                let _ = present(window, None).await;
+            }
             Err(error) => eprintln!("Could not open Luma: {error}"),
         }
     });
@@ -137,7 +146,10 @@ pub fn request_exit(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let window = match main_window(&app).await {
             Ok(window) => window,
-            Err(error) => { eprintln!("Could not open exit confirmation: {error}"); return; }
+            Err(error) => {
+                eprintln!("Could not open exit confirmation: {error}");
+                return;
+            }
         };
         let _ = present(window, None).await;
         let _ = app.emit("exit-requested", ());
@@ -208,7 +220,10 @@ pub(crate) const MOTION_INIT: &str = r#"(() => {
 pub(crate) const COVER: &str = "window.__lumaEnter && window.__lumaEnter.cover();";
 pub(crate) const REVEAL: &str = "window.__lumaEnter && window.__lumaEnter.reveal();";
 
-pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<bool>) -> Result<(), String> {
+pub(crate) async fn present(
+    window: tauri::WebviewWindow,
+    fullscreen: Option<bool>,
+) -> Result<(), String> {
     crate::tv::place(&window)?;
     let audio_error = crate::tv::apply_audio(window.app_handle()).await.err();
     let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -216,37 +231,39 @@ pub(crate) async fn present(window: tauri::WebviewWindow, fullscreen: Option<boo
     let _ = window.eval(COVER);
     let surface = window.clone();
     let dispatcher = window.clone();
-    dispatcher.run_on_main_thread(move || {
-        let result = (|| -> tauri::Result<()> {
-            if let Some(fullscreen) = fullscreen {
-                window.set_fullscreen(fullscreen)?;
-            }
-            window.show()?;
-            if window.is_minimized()? {
-                window.unminimize()?;
-            }
-            for label in ["main", "youtube", "stremio", "sports"] {
-                if label != window.label() {
-                    if let Some(other) = window.app_handle().get_webview_window(label) {
-                        if other.is_visible()? {
-                            if label != "main" {
-                                pause(&other);
-                            }
-                            other.hide()?;
-                            if label == "sports" || (label != "main" && !retains_views()) {
-                                unload(window.app_handle(), label);
+    dispatcher
+        .run_on_main_thread(move || {
+            let result = (|| -> tauri::Result<()> {
+                if let Some(fullscreen) = fullscreen {
+                    window.set_fullscreen(fullscreen)?;
+                }
+                window.show()?;
+                if window.is_minimized()? {
+                    window.unminimize()?;
+                }
+                for label in ["main", "youtube", "stremio", "sports"] {
+                    if label != window.label() {
+                        if let Some(other) = window.app_handle().get_webview_window(label) {
+                            if other.is_visible()? {
+                                if label != "main" {
+                                    pause(&other);
+                                }
+                                other.hide()?;
+                                if label == "sports" || (label != "main" && !retains_views()) {
+                                    unload(window.app_handle(), label);
+                                }
                             }
                         }
                     }
                 }
-            }
-            window.set_focus()?;
-            window.as_ref().show()?;
-            window.as_ref().set_focus()?;
-            Ok(())
-        })();
-        let _ = sender.send(result.map_err(|error| error.to_string()));
-    }).map_err(|error| error.to_string())?;
+                window.set_focus()?;
+                window.as_ref().show()?;
+                window.as_ref().set_focus()?;
+                Ok(())
+            })();
+            let _ = sender.send(result.map_err(|error| error.to_string()));
+        })
+        .map_err(|error| error.to_string())?;
     let presented = receiver.await.map_err(|error| error.to_string())?;
     tokio::time::sleep(Duration::from_millis(70)).await;
     let _ = surface.eval(REVEAL);
@@ -259,28 +276,51 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Luma TV", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Exit Luma…", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
-    let mut tray = TrayIconBuilder::new().tooltip("Luma TV · Remote server").menu(&menu).show_menu_on_left_click(false)
+    let mut tray = TrayIconBuilder::new()
+        .tooltip("Luma TV · Remote server")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show(app),
             "quit" => request_exit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }) { show(tray.app_handle()); }
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                show(tray.app_handle());
+            }
         });
-    if let Some(icon) = app.default_window_icon() { tray = tray.icon(icon.clone()); }
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
     tray.build(app)?;
-    if !std::env::args().any(|arg| arg == "--background") { show(app.handle()); }
+    if !std::env::args().any(|arg| arg == "--background") {
+        show(app.handle());
+    }
     Ok(())
 }
 
 #[tauri::command]
 pub fn startup_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    app.autolaunch().is_enabled().map_err(|error| error.to_string())
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn set_startup(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let launcher = app.autolaunch();
-    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|error| error.to_string())
+    if enabled {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    }
+    .map_err(|error| error.to_string())
 }

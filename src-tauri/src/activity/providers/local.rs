@@ -1,10 +1,7 @@
 use super::{safe_artwork, ActivityItem, ActivityType, PlaybackReport, ProgressSource, ResumeKind};
 
 pub fn youtube(report: &PlaybackReport, now: &str) -> ActivityItem {
-    let thumbnail = format!(
-        "https://i.ytimg.com/vi/{}/hqdefault.jpg",
-        report.video_id
-    );
+    let thumbnail = format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", report.video_id);
     let artwork = safe_artwork(report.artwork.as_deref(), Some(thumbnail));
     let duration = report.duration_seconds.max(0.0);
     let position = report.position_seconds.clamp(0.0, duration);

@@ -1,14 +1,14 @@
 mod activity;
 mod background;
-mod tv;
-mod frame;
-mod network;
 mod commands;
 mod credentials;
+mod customization;
+mod frame;
 mod integrations;
+mod network;
 mod remote;
 mod sound;
-mod customization;
+mod tv;
 
 use commands::{apps, media, services, session, sports, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
@@ -20,8 +20,14 @@ pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,ms
 #[tauri::command]
 fn updates_enabled(app: tauri::AppHandle) -> bool {
     app.config().plugins.0.get("updater").is_some_and(|config| {
-        config.get("pubkey").and_then(|value| value.as_str()).is_some_and(|key| !key.is_empty())
-            && config.get("endpoints").and_then(|value| value.as_array()).is_some_and(|urls| !urls.is_empty())
+        config
+            .get("pubkey")
+            .and_then(|value| value.as_str())
+            .is_some_and(|key| !key.is_empty())
+            && config
+                .get("endpoints")
+                .and_then(|value| value.as_array())
+                .is_some_and(|urls| !urls.is_empty())
     })
 }
 
@@ -30,9 +36,15 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !args.iter().any(|arg| arg == "--background") { background::show(app); }
+            if !args.iter().any(|arg| arg == "--background") {
+                background::show(app);
+            }
         }))
-        .plugin(tauri_plugin_autostart::Builder::new().args(["--background"]).build())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--background"])
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .manage(tv::Tv::default())
         .manage(apps::Apps::default())
@@ -61,12 +73,16 @@ pub fn run() {
             tv::load(app.handle()).map_err(std::io::Error::other)?;
             background::setup(app)?;
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
-            app.manage(activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?);
+            app.manage(
+                activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?,
+            );
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             stremio::load(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = frame::initialize(handle.clone()).await { eprintln!("Display Box: {error}"); }
+                if let Err(error) = frame::initialize(handle.clone()).await {
+                    eprintln!("Display Box: {error}");
+                }
                 tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
             });
             Ok(())
@@ -74,7 +90,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
-                    if let Some(store) = window.app_handle().try_state::<customization::Store>() { store.clear_preview(); }
+                    if let Some(store) = window.app_handle().try_state::<customization::Store>() {
+                        store.clear_preview();
+                    }
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -92,6 +110,9 @@ pub fn run() {
             customization::customization_preview_cancel,
             customization::customization_restore,
             customization::customization_restore_layout,
+            customization::customization_history,
+            customization::customization_restore_version,
+            customization::customization_reset_appearance,
             updates_enabled,
             tv::tv_setup,
             tv::tv_setup_warning,
@@ -170,7 +191,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Luma");
     app.run(|app, event| {
-        if let tauri::RunEvent::ExitRequested { api, code: None, .. } = &event {
+        if let tauri::RunEvent::ExitRequested {
+            api, code: None, ..
+        } = &event
+        {
             api.prevent_exit();
         }
         if matches!(event, tauri::RunEvent::Exit) {

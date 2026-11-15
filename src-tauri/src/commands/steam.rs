@@ -258,14 +258,20 @@ fn local_artwork(cache: &Path, appid: u32, file: &str) -> Option<String> {
     if let Some(image) = data_uri(&directory.join(file)) {
         return Some(image);
     }
-    let mut candidates: Vec<_> = std::fs::read_dir(directory).ok()?.flatten()
+    let mut candidates: Vec<_> = std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
         .filter(|entry| entry.path().is_dir())
         .map(|entry| entry.path().join(file))
         .filter(|path| path.is_file())
         .collect();
-    candidates.sort_by_key(|path| std::cmp::Reverse(
-        std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
-    ));
+    candidates.sort_by_key(|path| {
+        std::cmp::Reverse(
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok(),
+        )
+    });
     candidates.iter().find_map(|path| data_uri(path))
 }
 

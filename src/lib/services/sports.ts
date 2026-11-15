@@ -30,7 +30,27 @@ export interface SportsFavorite {
 export const majorSportsLeagues = ['NBA', 'NFL', 'MLB', 'NHL'];
 
 const favoritesKey = 'luma-sports-favorites-v1';
-let listingCache: SportsListing | null = null;
+interface CachedValue<T> { value: T; updatedAt: number }
+const cachePrefix = 'luma-sports-cache-v1-';
+function readCache<T>(key: string): CachedValue<T> | null {
+  try {
+    const cached = JSON.parse(localStorage.getItem(cachePrefix + key) ?? 'null');
+    return cached && Number.isFinite(cached.updatedAt) && Date.now() - cached.updatedAt < 86400000 && cached.value != null ? cached : null;
+  } catch { return null; }
+}
+function saveCache<T>(key: string, value: T, updatedAt = Date.now()) {
+  try { localStorage.setItem(cachePrefix + key, JSON.stringify({ value, updatedAt })); } catch {}
+}
+const savedListing = readCache<SportsListing>('listing')?.value;
+let listingCache: SportsListing | null = savedListing && Array.isArray(savedListing.events) && savedListing.events.every(event => eventUrl(event.url) && Array.isArray(event.teams) && typeof event.league === 'string') ? savedListing : null;
+const scoreCache = new Map<string, CachedValue<GameScore[]>>();
+const scoreRequests = new Map<string, Promise<GameScore[]>>();
+for (const league of majorSportsLeagues) {
+  const cached = readCache<GameScore[]>('scores-' + league);
+  if (cached && new Date(cached.updatedAt).toDateString() === new Date().toDateString() && Array.isArray(cached.value) && cached.value.every(game => game.league === league && Array.isArray(game.teams))) scoreCache.set(league, cached);
+}
+const artworkCache: Record<string, CachedValue<string>> = readCache<Record<string, CachedValue<string>>>('artwork')?.value ?? {};
+const artworkRequests = new Map<string, Promise<string>>();
 let listingRequest: Promise<SportsListing> | null = null;
 
 const text = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
@@ -102,6 +122,7 @@ export function loadSportsListing(force = false) {
     .then(html => {
       const listing = { events: parseSportsListing(html), updatedAt: Date.now() };
       listingCache = listing;
+      saveCache('listing', listing);
       return listing;
     })
     .finally(() => { listingRequest = null; });
@@ -113,8 +134,44 @@ export const openSportsStream = (url: string, sourceIndex: number, title: string
 
 export const updateSportsScore = (score: string) => invoke<void>('sports_update_score', { score });
 
-export async function loadSportsScores(league: string): Promise<GameScore[]> {
-  return parseScoreboard(await invoke<unknown>('sports_scoreboard', { league }), league);
+export function cachedSportsScores() {
+  return { scores: [...scoreCache.values()].flatMap(cached => cached.value), updatedAt: Math.max(0, ...[...scoreCache.values()].map(cached => cached.updatedAt)) };
+}
+
+export function loadSportsScores(league: string, force = false): Promise<GameScore[]> {
+  const cached = scoreCache.get(league);
+  if (!force && cached && Date.now() - cached.updatedAt < 30000) return Promise.resolve(cached.value);
+  const pending = scoreRequests.get(league);
+  if (pending) return pending;
+  const request = invoke<unknown>('sports_scoreboard', { league }).then(data => {
+    const value = parseScoreboard(data, league);
+    const updatedAt = Date.now();
+    scoreCache.set(league, { value, updatedAt });
+    saveCache('scores-' + league, value, updatedAt);
+    return value;
+  }).finally(() => scoreRequests.delete(league));
+  scoreRequests.set(league, request);
+  return request;
+}
+
+export function cachedSportsArtwork(): [string, string][] {
+  return Object.entries(artworkCache).filter(([, cached]) => cached && typeof cached.value === 'string' && Date.now() - cached.updatedAt < 86400000).map(([id, cached]) => [id, cached.value]);
+}
+
+export function loadSportsArtwork(league: string, eventId: string): Promise<string> {
+  const cached = artworkCache[eventId];
+  if (cached && Date.now() - cached.updatedAt < 86400000) return Promise.resolve(cached.value);
+  const pending = artworkRequests.get(eventId);
+  if (pending) return pending;
+  const request = invoke<string | null>('sports_artwork', { league, eventId }).then(value => {
+    artworkCache[eventId] = { value: value ?? '', updatedAt: Date.now() };
+    const oldest = Object.keys(artworkCache).sort((a, b) => artworkCache[a].updatedAt - artworkCache[b].updatedAt);
+    for (const id of oldest.slice(0, Math.max(0, oldest.length - 24))) delete artworkCache[id];
+    saveCache('artwork', artworkCache);
+    return value ?? '';
+  }).finally(() => artworkRequests.delete(eventId));
+  artworkRequests.set(eventId, request);
+  return request;
 }
 
 export const onSportsClosed = (callback: () => void) => listen('sports-closed', callback);

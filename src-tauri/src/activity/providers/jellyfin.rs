@@ -60,7 +60,11 @@ async fn user_id(base: &str, token: &str, configured: Option<&str>) -> Result<St
     if let Some(value) = configured.filter(|value| !value.trim().is_empty()) {
         return Ok(value.trim().to_string());
     }
-    let value = json(headers(client().get(format!("{base}/Users")), token), "Jellyfin").await?;
+    let value = json(
+        headers(client().get(format!("{base}/Users")), token),
+        "Jellyfin",
+    )
+    .await?;
     let users = value
         .as_array()
         .ok_or("Jellyfin did not return a user list. Set the user ID manually.")?;
@@ -76,7 +80,11 @@ async fn user_id(base: &str, token: &str, configured: Option<&str>) -> Result<St
         .collect::<Vec<_>>();
     Err(format!(
         "Set a Jellyfin user ID. Available users: {}",
-        if names.is_empty() { "none returned".into() } else { names.join(", ") }
+        if names.is_empty() {
+            "none returned".into()
+        } else {
+            names.join(", ")
+        }
     ))
 }
 
@@ -159,16 +167,14 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         token,
     );
     let played = headers(
-        client()
-            .get(format!("{base}/Users/{user}/Items"))
-            .query(&[
-                ("SortBy", "DatePlayed"),
-                ("SortOrder", "Descending"),
-                ("Filters", "IsPlayed"),
-                ("Recursive", "true"),
-                ("IncludeItemTypes", "Movie,Episode"),
-                ("Limit", "50"),
-            ]),
+        client().get(format!("{base}/Users/{user}/Items")).query(&[
+            ("SortBy", "DatePlayed"),
+            ("SortOrder", "Descending"),
+            ("Filters", "IsPlayed"),
+            ("Recursive", "true"),
+            ("IncludeItemTypes", "Movie,Episode"),
+            ("Limit", "50"),
+        ]),
         token,
     );
     let resume = json(resume, "Jellyfin").await;

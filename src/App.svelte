@@ -344,6 +344,12 @@
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
+        track(await listen<string>('open-sports', async event => {
+          if (disposed) return;
+          navigate('Sports');
+          await tick();
+          await sportsHome?.showLeague(event.payload);
+        }));
         track(await listen<string>('tv-setup-error', event => message = event.payload));
         track(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
         track(await listen<{ key: string; value: string }>('app-setting', event => {

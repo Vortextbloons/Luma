@@ -145,21 +145,39 @@ async fn preview_read(State(app): State<tauri::AppHandle>) -> Response {
     }
 }
 
-async fn preview(State(app): State<tauri::AppHandle>, body: Result<Json<Commit>, JsonRejection>) -> Response {
-    let Json(request) = match body { Ok(body) => body, Err(error) => return rejection(error) };
+async fn preview(
+    State(app): State<tauri::AppHandle>,
+    body: Result<Json<Commit>, JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(body) => body,
+        Err(error) => return rejection(error),
+    };
     match super::customization_preview(app, request).await {
         Ok(preview) => Json(preview).into_response(),
         Err(error) => failure(error),
     }
 }
 
-async fn keep(State(app): State<tauri::AppHandle>, body: Result<Json<super::PreviewAction>, JsonRejection>) -> Response {
-    let Json(request) = match body { Ok(body) => body, Err(error) => return rejection(error) };
+async fn keep(
+    State(app): State<tauri::AppHandle>,
+    body: Result<Json<super::PreviewAction>, JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(body) => body,
+        Err(error) => return rejection(error),
+    };
     reply(super::customization_preview_keep(app, request).await)
 }
 
-async fn cancel(State(app): State<tauri::AppHandle>, body: Result<Json<super::PreviewAction>, JsonRejection>) -> Response {
-    let Json(request) = match body { Ok(body) => body, Err(error) => return rejection(error) };
+async fn cancel(
+    State(app): State<tauri::AppHandle>,
+    body: Result<Json<super::PreviewAction>, JsonRejection>,
+) -> Response {
+    let Json(request) = match body {
+        Ok(body) => body,
+        Err(error) => return rejection(error),
+    };
     match super::customization_preview_cancel(app, request).await {
         Ok(()) => Json(serde_json::json!({ "cancelled": true })).into_response(),
         Err(error) => failure(error),
@@ -250,7 +268,13 @@ fn status(code: &str) -> StatusCode {
     match code {
         "unauthorized" => StatusCode::UNAUTHORIZED,
         "forbidden_origin" | "forbidden_host" => StatusCode::FORBIDDEN,
-        "conflict" | "not_initialized" | "no_previous" | "revision_limit" | "preview_busy" | "preview_mismatch" | "launcher_unavailable" => StatusCode::CONFLICT,
+        "conflict"
+        | "not_initialized"
+        | "no_previous"
+        | "revision_limit"
+        | "preview_busy"
+        | "preview_mismatch"
+        | "launcher_unavailable" => StatusCode::CONFLICT,
         "validation" => StatusCode::UNPROCESSABLE_ENTITY,
         "storage" | "invalid_document" | "unsupported_version" => StatusCode::INTERNAL_SERVER_ERROR,
         _ => StatusCode::BAD_REQUEST,

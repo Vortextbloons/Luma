@@ -48,10 +48,7 @@ async fn request(
             auth.refresh().await?;
             continue;
         }
-        let text = response
-            .text()
-            .await
-            .map_err(|error| error.to_string())?;
+        let text = response.text().await.map_err(|error| error.to_string())?;
         if status == reqwest::StatusCode::NO_CONTENT {
             return Ok(None);
         }
@@ -72,7 +69,10 @@ async fn request(
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err("Spotify sign-in expired. Reconnect your account in Settings.".into());
         }
-        if status == reqwest::StatusCode::FORBIDDEN && path.starts_with("/playlists/") && path.ends_with("/items") {
+        if status == reqwest::StatusCode::FORBIDDEN
+            && path.starts_with("/playlists/")
+            && path.ends_with("/items")
+        {
             return Err("Spotify only allows browsing playlists you own or collaborate on. You can still play this playlist using Play playlist.".into());
         }
         if status == reqwest::StatusCode::FORBIDDEN {
@@ -81,14 +81,15 @@ async fn request(
                 message(&text)
             ));
         }
-        if status == reqwest::StatusCode::NOT_FOUND
-            && text.contains("NO_ACTIVE_DEVICE")
-        {
+        if status == reqwest::StatusCode::NOT_FOUND && text.contains("NO_ACTIVE_DEVICE") {
             return Err(
                 "No active Spotify device. Open Spotify on this PC and start a track first.".into(),
             );
         }
-        return Err(format!("Spotify request failed ({status}): {}", message(&text)));
+        return Err(format!(
+            "Spotify request failed ({status}): {}",
+            message(&text)
+        ));
     }
 }
 
@@ -100,7 +101,12 @@ fn message(text: &str) -> String {
                 .pointer("/error/message")
                 .and_then(|value| value.as_str())
                 .map(str::to_string)
-                .or_else(|| value.get("error").and_then(|value| value.as_str()).map(str::to_string))
+                .or_else(|| {
+                    value
+                        .get("error")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string)
+                })
         })
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "The request was rejected.".into())
@@ -169,9 +175,7 @@ pub async fn playback(auth: &Auth) -> Result<PlaybackState, String> {
         can_skip_next: !blocked("skipping_next"),
         can_skip_previous: !blocked("skipping_prev"),
         can_toggle: !blocked("pausing") || !blocked("resuming"),
-        shuffle: value
-            .get("shuffle_state")
-            .and_then(|value| value.as_bool()),
+        shuffle: value.get("shuffle_state").and_then(|value| value.as_bool()),
         repeat: value
             .get("repeat_state")
             .and_then(|value| value.as_str())
@@ -201,7 +205,12 @@ pub async fn home(auth: &Auth) -> Result<HomeData, String> {
     .await
     {
         Ok(value) => value
-            .and_then(|value| value.get("items").and_then(|value| value.as_array()).cloned())
+            .and_then(|value| {
+                value
+                    .get("items")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .map(|items| items.iter().map(track).filter(has_track).collect())
             .unwrap_or_default(),
         Err(error) => {
@@ -219,7 +228,12 @@ pub async fn home(auth: &Auth) -> Result<HomeData, String> {
     .await
     {
         Ok(value) => value
-            .and_then(|value| value.get("items").and_then(|value| value.as_array()).cloned())
+            .and_then(|value| {
+                value
+                    .get("items")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .map(|items| items.iter().map(playlist).collect())
             .unwrap_or_default(),
         Err(error) => {
@@ -237,7 +251,12 @@ pub async fn home(auth: &Auth) -> Result<HomeData, String> {
     .await
     {
         Ok(value) => value
-            .and_then(|value| value.get("items").and_then(|value| value.as_array()).cloned())
+            .and_then(|value| {
+                value
+                    .get("items")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .map(|items| {
                 items
                     .iter()
@@ -261,7 +280,12 @@ pub async fn home(auth: &Auth) -> Result<HomeData, String> {
     .await
     {
         Ok(value) => value
-            .and_then(|value| value.get("items").and_then(|value| value.as_array()).cloned())
+            .and_then(|value| {
+                value
+                    .get("items")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .map(|items| {
                 items
                     .iter()
@@ -278,7 +302,12 @@ pub async fn home(auth: &Auth) -> Result<HomeData, String> {
     };
     let devices = match request(auth, Method::GET, "/me/player/devices", &[], None).await {
         Ok(value) => value
-            .and_then(|value| value.get("devices").and_then(|value| value.as_array()).cloned())
+            .and_then(|value| {
+                value
+                    .get("devices")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .map(|items| items.iter().map(device).collect())
             .unwrap_or_default(),
         Err(error) => {
@@ -362,14 +391,26 @@ pub async fn queue(auth: &Auth) -> Result<Queue, String> {
 pub async fn devices(auth: &Auth) -> Result<Vec<Device>, String> {
     let value = request(auth, Method::GET, "/me/player/devices", &[], None).await?;
     Ok(value
-        .and_then(|value| value.get("devices").and_then(|value| value.as_array()).cloned())
+        .and_then(|value| {
+            value
+                .get("devices")
+                .and_then(|value| value.as_array())
+                .cloned()
+        })
         .map(|items| items.iter().map(device).collect())
         .unwrap_or_default())
 }
 
-pub async fn play(auth: &Auth, uri: &str, device_id: Option<&str>, context_uri: Option<&str>) -> Result<(), String> {
+pub async fn play(
+    auth: &Auth,
+    uri: &str,
+    device_id: Option<&str>,
+    context_uri: Option<&str>,
+) -> Result<(), String> {
     let body = if let Some(context) = context_uri {
-        if !uri.starts_with("spotify:track:") || !(context.starts_with("spotify:album:") || context.starts_with("spotify:playlist:")) {
+        if !uri.starts_with("spotify:track:")
+            || !(context.starts_with("spotify:album:") || context.starts_with("spotify:playlist:"))
+        {
             return Err("Unsupported Spotify playback context.".into());
         }
         json!({ "context_uri": context, "offset": { "uri": uri } })
@@ -534,10 +575,7 @@ fn track(value: &Value) -> Track {
             .and_then(|album| album.get("images"))
             .and_then(images)
             .or_else(|| value.get("images").and_then(images))
-            .or_else(|| {
-                show.and_then(|show| show.get("images"))
-                    .and_then(images)
-            }),
+            .or_else(|| show.and_then(|show| show.get("images")).and_then(images)),
         duration_ms: value.get("duration_ms").and_then(|value| value.as_u64()),
     }
 }
@@ -652,7 +690,12 @@ fn images(value: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-pub async fn browse(auth: &Auth, kind: &str, id: &str, offset: u32) -> Result<super::models::BrowsePage, String> {
+pub async fn browse(
+    auth: &Auth,
+    kind: &str,
+    id: &str,
+    offset: u32,
+) -> Result<super::models::BrowsePage, String> {
     let path = match kind {
         "tracks" => "/me/tracks".to_string(),
         "playlists" => "/me/playlists".to_string(),
@@ -661,21 +704,53 @@ pub async fn browse(auth: &Auth, kind: &str, id: &str, offset: u32) -> Result<su
             if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
                 return Err("Choose a valid Spotify collection.".into());
             }
-            if kind == "playlist" { format!("/playlists/{id}/items") } else { format!("/albums/{id}/tracks") }
+            if kind == "playlist" {
+                format!("/playlists/{id}/items")
+            } else {
+                format!("/albums/{id}/tracks")
+            }
         }
         _ => return Err("Unsupported Spotify collection.".into()),
     };
-    let value = request(auth, Method::GET, &path, &[("limit", "50".into()), ("offset", offset.to_string())], None).await?
-        .ok_or_else(|| "Spotify returned no collection data.".to_string())?;
-    let items = value.get("items").and_then(Value::as_array).ok_or_else(|| "Spotify returned an invalid collection.".to_string())?;
+    let value = request(
+        auth,
+        Method::GET,
+        &path,
+        &[("limit", "50".into()), ("offset", offset.to_string())],
+        None,
+    )
+    .await?
+    .ok_or_else(|| "Spotify returned no collection data.".to_string())?;
+    let items = value
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Spotify returned an invalid collection.".to_string())?;
     let mut page = super::models::BrowsePage {
-        total: value.get("total").and_then(Value::as_u64).unwrap_or_default(),
-        next_offset: value.get("next").and_then(Value::as_str).map(|_| u64::from(offset) + items.len() as u64),
+        total: value
+            .get("total")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        next_offset: value
+            .get("next")
+            .and_then(Value::as_str)
+            .map(|_| u64::from(offset) + items.len() as u64),
         ..Default::default()
     };
     match kind {
-        "playlists" => page.playlists = items.iter().filter(|item| !item.is_null()).map(playlist).collect(),
-        "albums" => page.albums = items.iter().filter_map(|item| item.get("album")).map(album).collect(),
+        "playlists" => {
+            page.playlists = items
+                .iter()
+                .filter(|item| !item.is_null())
+                .map(playlist)
+                .collect()
+        }
+        "albums" => {
+            page.albums = items
+                .iter()
+                .filter_map(|item| item.get("album"))
+                .map(album)
+                .collect()
+        }
         _ => page.tracks = items.iter().map(track).filter(has_track).collect(),
     }
     Ok(page)
@@ -693,7 +768,9 @@ mod tests {
         assert_eq!(parsed.artist, "Artist");
         assert_eq!(parsed.uri.as_deref(), Some("spotify:track:abc"));
         assert!(!has_track(&track(&json!({ "item": null }))));
-        let unavailable = track(&json!({ "item": { "name": "Unavailable song", "uri": "spotify:track:abc", "is_playable": false } }));
+        let unavailable = track(
+            &json!({ "item": { "name": "Unavailable song", "uri": "spotify:track:abc", "is_playable": false } }),
+        );
         assert!(has_track(&unavailable));
         assert!(unavailable.uri.is_none());
     }

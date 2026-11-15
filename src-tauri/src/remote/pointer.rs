@@ -180,8 +180,7 @@ pub fn show_cursor(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn hides_cursor(command: &str) -> bool {
-    !matches!(command, "stop" | "click" | "fullscreen")
-        && !is_music(command)
+    !matches!(command, "stop" | "click" | "fullscreen") && !is_music(command)
 }
 
 pub(crate) fn is_music(command: &str) -> bool {
@@ -386,8 +385,21 @@ mod tests {
             assert!(!hides_cursor(command), "{command}");
         }
         for command in [
-            "up", "down", "left", "right", "activate", "back", "home", "toggle", "previous",
-            "next", "volumeup", "volumedown", "mute", "youtube", "netflix",
+            "up",
+            "down",
+            "left",
+            "right",
+            "activate",
+            "back",
+            "home",
+            "toggle",
+            "previous",
+            "next",
+            "volumeup",
+            "volumedown",
+            "mute",
+            "youtube",
+            "netflix",
         ] {
             assert!(hides_cursor(command), "{command}");
         }

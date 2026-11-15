@@ -16,6 +16,7 @@
   import WidgetSettings from './WidgetSettings.svelte';
   import AppOrderSettings from './AppOrderSettings.svelte';
   import SettingsChoices from './SettingsChoices.svelte';
+  import CustomizationSettings from './CustomizationSettings.svelte';
   import { defaultHomeRows, moveHomeRow, moveHomeRowTo, toggleHomeRow } from '../services/home';
   import { themeById } from '../services/theme';
   import type { HomeDraft } from '../services/customization';
@@ -33,6 +34,15 @@
         { id: 'theme', name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
         { id: 'layout', name: 'Layout', description: 'Density, tile shape, text size, motion, and the order of Home rows.' },
         { id: 'widgets', name: 'Widgets', description: 'Now playing and future widgets.' },
+      ],
+    },
+    {
+      name: 'Customization',
+      description: 'AI access, saved versions, and reset defaults.',
+      sections: [
+        { id: 'ai', name: 'AI access', description: 'Connect an MCP client with review-first access.' },
+        { id: 'versions', name: 'Saved versions', description: 'Restore an earlier appearance, Home layout, or app arrangement.' },
+        { id: 'reset', name: 'Reset', description: 'Return appearance, Home, and widgets to defaults.' },
       ],
     },
     {
@@ -213,7 +223,7 @@
     <div class="settings-brand">
       <img class="settings-brand-logo" src={logo} alt="Luma TV" />
       <h1 id="settings-title">Settings</h1>
-      <p>Appearance, display, apps, remotes, history, and system. Most changes save automatically; Home layout previews before saving.</p>
+      <p>Appearance, display, apps, remotes, customization, history, and system. Most changes save automatically; Home layout previews before saving.</p>
     </div>
     <div class="settings-header-actions">
       <span class="settings-theme-chip"><i style:--chip-bg={theme.tokens['--bg']} style:--chip-accent={theme.tokens['--accent']}></i>{theme.name}</span>
@@ -278,6 +288,8 @@
         {:else if activeSection.id === 'widgets'}
           <WidgetSettings {settings} />
         {/if}
+      {:else if activeCategory.name === 'Customization'}
+        <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => homeDraft = null} />
       {:else if activeCategory.name === 'Display & Sound'}
         {#if activeSection.id === 'display'}
           <section class="settings-group">

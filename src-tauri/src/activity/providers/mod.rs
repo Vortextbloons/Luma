@@ -52,7 +52,10 @@ pub fn validated_base(value: &str) -> Result<String, String> {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err("Use an http:// or https:// server URL without credentials, a query, or a fragment.".into());
+        return Err(
+            "Use an http:// or https:// server URL without credentials, a query, or a fragment."
+                .into(),
+        );
     }
     Ok(url.to_string().trim_end_matches('/').to_string())
 }
@@ -82,7 +85,9 @@ pub async fn refresh(provider: &str, config: &ProviderConfig) -> Result<Vec<Acti
         "plex" => plex::refresh(config).await,
         "jellyfin" => jellyfin::refresh(config).await,
         "trakt" => trakt::refresh(config).await,
-        _ => Err(format!("{provider} does not provide a refreshable activity source.")),
+        _ => Err(format!(
+            "{provider} does not provide a refreshable activity source."
+        )),
     }
 }
 
@@ -109,12 +114,19 @@ mod tests {
     #[test]
     fn artwork_only_accepts_provider_https_hosts() {
         assert_eq!(
-            safe_artwork(Some("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"), None).as_deref(),
+            safe_artwork(
+                Some("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"),
+                None
+            )
+            .as_deref(),
             Some("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg")
         );
         assert_eq!(safe_artwork(Some("http://example.com/a.jpg"), None), None);
         assert_eq!(
-            safe_artwork(Some("https://evil.example/a.jpg"), Some("https://i.ytimg.com/".into())),
+            safe_artwork(
+                Some("https://evil.example/a.jpg"),
+                Some("https://i.ytimg.com/".into())
+            ),
             Some("https://i.ytimg.com/".into())
         );
     }

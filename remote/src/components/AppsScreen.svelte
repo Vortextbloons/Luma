@@ -25,7 +25,7 @@
     launching = app.command;
     const result = await send(app.command);
     if (result.accepted) {
-      rememberApp(app.command);
+      if (!app.shortcut) rememberApp(app.command);
       launching = null;
       closeApps();
       return;
@@ -71,6 +71,16 @@
       <p class="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-muted">Open something on your TV and keep this phone in hand.</p>
     </div>
 
+    {#if apps.shortcuts.length}
+      <section class="mb-7" aria-labelledby="sports-shortcuts-title">
+        <h2 id="sports-shortcuts-title" class="mb-2.5 text-[12px] font-semibold text-muted">Sports</h2>
+        <div class="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {#each apps.shortcuts as app (app.command)}
+            <AppTile {app} {launching} disabled={launching !== null} onlaunch={launch} />
+          {/each}
+        </div>
+      </section>
+    {/if}
     {#if loading || (!apps.attempted && !failed)}
       <div class="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5" aria-label="Loading apps" aria-busy="true">
         {#each Array(8) as _}

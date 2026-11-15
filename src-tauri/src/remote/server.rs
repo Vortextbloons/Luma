@@ -79,10 +79,21 @@ fn default_setting_kind() -> String {
 }
 
 fn setting_option(value: &str, label: &str) -> SettingOption {
-    SettingOption { value: value.into(), label: label.into() }
+    SettingOption {
+        value: value.into(),
+        label: label.into(),
+    }
 }
 
-fn setting_choice(key: &str, group: &str, section: &str, label: &str, description: &str, value: &str, options: Vec<SettingOption>) -> SettingChoice {
+fn setting_choice(
+    key: &str,
+    group: &str,
+    section: &str,
+    label: &str,
+    description: &str,
+    value: &str,
+    options: Vec<SettingOption>,
+) -> SettingChoice {
     SettingChoice {
         key: key.into(),
         group: group.into(),
@@ -97,27 +108,59 @@ fn setting_choice(key: &str, group: &str, section: &str, label: &str, descriptio
 
 fn setting_catalog() -> Vec<SettingChoice> {
     vec![
-        setting_choice("theme", "Appearance", "theme", "App theme", "The look of Luma on the TV and connected displays.", "violet-night", vec![
-            setting_option("violet-night", "Violet Night"),
-            setting_option("sapphire", "Sapphire"),
-            setting_option("mint", "Mint"),
-            setting_option("ember", "Ember"),
-            setting_option("graphite", "Graphite"),
-            setting_option("onyx", "Onyx"),
-        ]),
-        setting_choice("appTileShape", "Layout", "layout", "App tile shape", "Wide cards suit artwork; squares fit more apps.", "wide", vec![
-            setting_option("wide", "Pills"),
-            setting_option("square", "Squares"),
-        ]),
-        setting_choice("density", "Layout", "layout", "Layout density", "Compact fits more rows on screen.", "comfortable", vec![
-            setting_option("comfortable", "Comfortable"),
-            setting_option("compact", "Compact"),
-        ]),
-        setting_choice("textSize", "Layout", "layout", "Text size", "Scales text and controls for easier reading from the sofa.", "standard", vec![
-            setting_option("standard", "Standard"),
-            setting_option("large", "Large"),
-            setting_option("larger", "Extra large"),
-        ]),
+        setting_choice(
+            "theme",
+            "Appearance",
+            "theme",
+            "App theme",
+            "The look of Luma on the TV and connected displays.",
+            "violet-night",
+            vec![
+                setting_option("violet-night", "Violet Night"),
+                setting_option("sapphire", "Sapphire"),
+                setting_option("mint", "Mint"),
+                setting_option("ember", "Ember"),
+                setting_option("graphite", "Graphite"),
+                setting_option("onyx", "Onyx"),
+            ],
+        ),
+        setting_choice(
+            "appTileShape",
+            "Layout",
+            "layout",
+            "App tile shape",
+            "Wide cards suit artwork; squares fit more apps.",
+            "wide",
+            vec![
+                setting_option("wide", "Pills"),
+                setting_option("square", "Squares"),
+            ],
+        ),
+        setting_choice(
+            "density",
+            "Layout",
+            "layout",
+            "Layout density",
+            "Compact fits more rows on screen.",
+            "comfortable",
+            vec![
+                setting_option("comfortable", "Comfortable"),
+                setting_option("compact", "Compact"),
+            ],
+        ),
+        setting_choice(
+            "textSize",
+            "Layout",
+            "layout",
+            "Text size",
+            "Scales text and controls for easier reading from the sofa.",
+            "standard",
+            vec![
+                setting_option("standard", "Standard"),
+                setting_option("large", "Large"),
+                setting_option("larger", "Extra large"),
+            ],
+        ),
         SettingChoice {
             key: "reducedMotion".into(),
             group: "Layout".into(),
@@ -128,21 +171,45 @@ fn setting_catalog() -> Vec<SettingChoice> {
             options: vec![setting_option("true", "On"), setting_option("false", "Off")],
             value: "false".into(),
         },
-        setting_choice("interfaceSounds", "Sound", "sound", "Sound set", "Feedback for focus, select, back, and app launch.", "real", vec![
-            setting_option("real", "Real hardware"),
-            setting_option("google", "Google TV"),
-            setting_option("roku", "Roku"),
-            setting_option("off", "Off"),
-        ]),
-        setting_choice("soundLevel", "Sound", "sound", "Sound level", "Standard is tuned for a quiet room.", "standard", vec![
-            setting_option("soft", "Soft"),
-            setting_option("standard", "Standard"),
-            setting_option("loud", "Loud"),
-        ]),
-        setting_choice("homeColumns", "Layout", "remote-layout", "Home columns", "One or two columns of rows on Home.", "1", vec![
-            setting_option("1", "One column"),
-            setting_option("2", "Two columns"),
-        ]),
+        setting_choice(
+            "interfaceSounds",
+            "Sound",
+            "sound",
+            "Sound set",
+            "Feedback for focus, select, back, and app launch.",
+            "real",
+            vec![
+                setting_option("real", "Real hardware"),
+                setting_option("google", "Google TV"),
+                setting_option("roku", "Roku"),
+                setting_option("off", "Off"),
+            ],
+        ),
+        setting_choice(
+            "soundLevel",
+            "Sound",
+            "sound",
+            "Sound level",
+            "Standard is tuned for a quiet room.",
+            "standard",
+            vec![
+                setting_option("soft", "Soft"),
+                setting_option("standard", "Standard"),
+                setting_option("loud", "Loud"),
+            ],
+        ),
+        setting_choice(
+            "homeColumns",
+            "Layout",
+            "remote-layout",
+            "Home columns",
+            "One or two columns of rows on Home.",
+            "1",
+            vec![
+                setting_option("1", "One column"),
+                setting_option("2", "Two columns"),
+            ],
+        ),
     ]
 }
 
@@ -156,35 +223,71 @@ fn sound_preset(value: &str) -> SoundPreset {
 }
 
 #[tauri::command]
-pub fn update_settings(remote: tauri::State<Remote>, settings: Vec<SettingChoice>) -> Result<(), String> {
-    if settings.is_empty() { return Ok(()); }
-    remote.state.lock().map_err(|error| error.to_string())?.settings = settings;
+pub fn update_settings(
+    remote: tauri::State<Remote>,
+    settings: Vec<SettingChoice>,
+) -> Result<(), String> {
+    if settings.is_empty() {
+        return Ok(());
+    }
+    remote
+        .state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .settings = settings;
     Ok(())
 }
 
-pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+pub(crate) fn change_setting(
+    app: &tauri::AppHandle,
+    key: String,
+    value: String,
+) -> Result<(), String> {
     {
         let remote = app.state::<Remote>();
         let state = remote.state.lock().map_err(|error| error.to_string())?;
-        let choice = state.settings.iter().find(|choice| choice.key == key).ok_or("Unknown setting")?;
+        let choice = state
+            .settings
+            .iter()
+            .find(|choice| choice.key == key)
+            .ok_or("Unknown setting")?;
         if !choice.options.iter().any(|option| option.value == value) {
             return Err("Invalid setting value".into());
         }
     }
-    if !matches!(key.as_str(), "theme" | "density" | "appTileShape" | "textSize" | "reducedMotion" | "interfaceSounds" | "soundLevel" | "homeColumns") {
-        return app.emit_to("main", "app-setting", serde_json::json!({ "key": key, "value": value })).map_err(|error| error.to_string());
+    if !matches!(
+        key.as_str(),
+        "theme"
+            | "density"
+            | "appTileShape"
+            | "textSize"
+            | "reducedMotion"
+            | "interfaceSounds"
+            | "soundLevel"
+            | "homeColumns"
+    ) {
+        return app
+            .emit_to(
+                "main",
+                "app-setting",
+                serde_json::json!({ "key": key, "value": value }),
+            )
+            .map_err(|error| error.to_string());
     }
-    let document = app.state::<crate::customization::Store>().edit(|config| match key.as_str() {
-        "theme" => config.theme = value.clone(),
-        "density" => config.density = value.clone(),
-        "appTileShape" => config.app_tile_shape = value.clone(),
-        "textSize" => config.text_size = value.clone(),
-        "reducedMotion" => config.reduced_motion = value == "true",
-        "interfaceSounds" => config.interface_sounds = value.clone(),
-        "soundLevel" => config.sound_level = value.clone(),
-        "homeColumns" => config.home_columns = if value == "2" { 2 } else { 1 },
-        _ => {},
-    }).map_err(|error| error.message)?;
+    let document = app
+        .state::<crate::customization::Store>()
+        .edit(|config| match key.as_str() {
+            "theme" => config.theme = value.clone(),
+            "density" => config.density = value.clone(),
+            "appTileShape" => config.app_tile_shape = value.clone(),
+            "textSize" => config.text_size = value.clone(),
+            "reducedMotion" => config.reduced_motion = value == "true",
+            "interfaceSounds" => config.interface_sounds = value.clone(),
+            "soundLevel" => config.sound_level = value.clone(),
+            "homeColumns" => config.home_columns = if value == "2" { 2 } else { 1 },
+            _ => {}
+        })
+        .map_err(|error| error.message)?;
     crate::customization::publish(app, &document);
     Ok(())
 }
@@ -306,26 +409,35 @@ pub(crate) fn normalize_app_order(order: Vec<String>) -> Vec<String> {
     result
 }
 
-pub(crate) fn set_app_order(
-    app: &tauri::AppHandle,
-    order: Vec<String>,
-) -> Result<(), String> {
+pub(crate) fn set_app_order(app: &tauri::AppHandle, order: Vec<String>) -> Result<(), String> {
     let order = normalize_app_order(order);
-    let document = app.state::<crate::customization::Store>().edit(|config| config.order = order).map_err(|error| error.message)?;
+    let document = app
+        .state::<crate::customization::Store>()
+        .edit(|config| config.order = order)
+        .map_err(|error| error.message)?;
     crate::customization::publish(app, &document);
     Ok(())
 }
 
-pub(crate) fn sync_customization(app: &tauri::AppHandle, document: &crate::customization::document::Document) -> Result<(), String> {
+pub(crate) fn sync_customization(
+    app: &tauri::AppHandle,
+    document: &crate::customization::document::Document,
+) -> Result<(), String> {
     let remote = app.state::<Remote>();
     let mut state = remote.state.lock().map_err(|error| error.to_string())?;
-    if document.revision < state.customization_revision { return Ok(()); }
+    if document.revision < state.customization_revision {
+        return Ok(());
+    }
     state.customization_revision = document.revision;
     let config = &document.config;
     state.app_order = config.order.clone();
     remote.app_order.send_replace(config.order.clone());
     if let Some(appearance) = &mut state.appearance {
-        if let Some(theme) = appearance.themes.iter().find(|theme| theme.id == config.theme) {
+        if let Some(theme) = appearance
+            .themes
+            .iter()
+            .find(|theme| theme.id == config.theme)
+        {
             appearance.theme = theme.id.clone();
             appearance.tokens = theme.tokens.clone();
         }
@@ -340,7 +452,7 @@ pub(crate) fn sync_customization(app: &tauri::AppHandle, document: &crate::custo
             "reducedMotion" => choice.value = config.reduced_motion.to_string(),
             "interfaceSounds" => choice.value = config.interface_sounds.clone(),
             "soundLevel" => choice.value = config.sound_level.clone(),
-            _ => {},
+            _ => {}
         }
     }
     state.sound = sound_preset(&config.interface_sounds);
@@ -378,8 +490,13 @@ fn should_wake(visible: bool, external_session: bool) -> bool {
 }
 
 pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
-    let visible = ["main", "youtube", "stremio", "sports"].iter().any(|label|
-        app.get_webview_window(label).is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)));
+    let visible = ["main", "youtube", "stremio", "sports"]
+        .iter()
+        .any(|label| {
+            app.get_webview_window(label).is_some_and(|window| {
+                window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+            })
+        });
     if should_wake(visible, crate::commands::session::active(app)) {
         let window = crate::background::main_window(app).await?;
         crate::background::present(window, None).await?;
@@ -393,7 +510,11 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     crate::remote::pointer::show_cursor(app);
     for label in ["main", "youtube", "stremio", "sports"] {
         if let Some(window) = app.get_webview_window(label) {
-            if label != "main" { let _ = window.eval("document.querySelectorAll('video,audio').forEach(media => media.pause())"); }
+            if label != "main" {
+                let _ = window.eval(
+                    "document.querySelectorAll('video,audio').forEach(media => media.pause())",
+                );
+            }
             window.hide().map_err(|error| error.to_string())?;
         }
     }
@@ -407,18 +528,37 @@ pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(windows)]
 pub(crate) fn type_text(text: &str) -> Result<(), String> {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP};
-    let inputs: Vec<INPUT> = text.encode_utf16().flat_map(|unit| [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP].map(|flags| INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wScan: unit, dwFlags: flags, ..Default::default() } },
-    })).collect();
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    };
+    let inputs: Vec<INPUT> = text
+        .encode_utf16()
+        .flat_map(|unit| {
+            [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP].map(|flags| INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wScan: unit,
+                        dwFlags: flags,
+                        ..Default::default()
+                    },
+                },
+            })
+        })
+        .collect();
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-    if sent as usize != inputs.len() { return Err("Windows could not type the text. Focus a text field on the PC and try again.".into()); }
+    if sent as usize != inputs.len() {
+        return Err(
+            "Windows could not type the text. Focus a text field on the PC and try again.".into(),
+        );
+    }
     Ok(())
 }
 
 #[cfg(not(windows))]
-pub(crate) fn type_text(_: &str) -> Result<(), String> { Err("Remote typing requires Windows.".into()) }
+pub(crate) fn type_text(_: &str) -> Result<(), String> {
+    Err("Remote typing requires Windows.".into())
+}
 
 pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
     match command {
@@ -433,7 +573,10 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
         | NavigationCommand::Activate
         | NavigationCommand::Back => crate::remote::pointer::hide_cursor(app),
     }
-    if app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false)) {
+    if app
+        .get_webview_window("sports")
+        .is_some_and(|window| window.is_visible().unwrap_or(false))
+    {
         crate::commands::sports::forward(app, command.as_str());
         return;
     }
@@ -474,8 +617,11 @@ fn show_main(handled: bool, embedded: bool, command: NavigationCommand) -> bool 
 }
 
 pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
-    let watching = crate::commands::media::has_video(app) || crate::commands::session::active(app)
-        || app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false));
+    let watching = crate::commands::media::has_video(app)
+        || crate::commands::session::active(app)
+        || app
+            .get_webview_window("sports")
+            .is_some_and(|window| window.is_visible().unwrap_or(false));
     if watching {
         return Ok(());
     }
@@ -488,6 +634,20 @@ pub(crate) fn open_music(app: &tauri::AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|error| error.to_string())?
         .view = "Music".into();
+    Ok(())
+}
+
+pub(crate) async fn open_sports(app: &tauri::AppHandle, league: &str) -> Result<(), String> {
+    crate::commands::session::release(app)?;
+    let window = crate::background::main_window(app).await?;
+    crate::background::present(window, None).await?;
+    app.emit_to("main", "open-sports", league)
+        .map_err(|error| error.to_string())?;
+    app.state::<Remote>()
+        .state
+        .lock()
+        .map_err(|error| error.to_string())?
+        .view = "Sports".into();
     Ok(())
 }
 
@@ -521,9 +681,7 @@ impl Default for Remote {
 }
 
 impl Remote {
-    pub(crate) fn subscribe_appearance(
-        &self,
-    ) -> tokio::sync::watch::Receiver<Option<Appearance>> {
+    pub(crate) fn subscribe_appearance(&self) -> tokio::sync::watch::Receiver<Option<Appearance>> {
         self.appearance.subscribe()
     }
 
@@ -544,16 +702,21 @@ impl Remote {
 }
 
 fn active_window(app: &tauri::AppHandle) -> Option<(&'static str, tauri::WebviewWindow)> {
-    let windows: Vec<_> = [("main", "Luma"), ("youtube", "YouTube"), ("stremio", "Stremio"), ("sports", "Sports")]
-        .into_iter()
-        .filter_map(|(label, name)| {
-            let window = app.get_webview_window(label)?;
-            if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
-                return None;
-            }
-            Some((name, window))
-        })
-        .collect();
+    let windows: Vec<_> = [
+        ("main", "Luma"),
+        ("youtube", "YouTube"),
+        ("stremio", "Stremio"),
+        ("sports", "Sports"),
+    ]
+    .into_iter()
+    .filter_map(|(label, name)| {
+        let window = app.get_webview_window(label)?;
+        if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+            return None;
+        }
+        Some((name, window))
+    })
+    .collect();
     windows
         .iter()
         .find(|(_, window)| window.is_focused().unwrap_or(false))
@@ -583,11 +746,17 @@ pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> 
     Ok(state.clone())
 }
 
-pub(crate) fn sync_music(app: &tauri::AppHandle, state: &crate::integrations::spotify::models::PlaybackState) {
+pub(crate) fn sync_music(
+    app: &tauri::AppHandle,
+    state: &crate::integrations::spotify::models::PlaybackState,
+) {
     let music = (state.player_available || state.title.is_some()).then(|| MusicState {
         playing: state.playing,
         title: state.title.clone().filter(|value| !value.trim().is_empty()),
-        artist: state.artist.clone().filter(|value| !value.trim().is_empty()),
+        artist: state
+            .artist
+            .clone()
+            .filter(|value| !value.trim().is_empty()),
         has_artwork: state.artwork_url.is_some(),
         position_ms: state.position_ms,
         duration_ms: state.duration_ms,
@@ -603,7 +772,8 @@ pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(result) = crate::commands::session::fullscreen(app) {
         return result;
     }
-    let (_, window) = active_window(app).ok_or("Open Luma or an app before using PC fullscreen.")?;
+    let (_, window) =
+        active_window(app).ok_or("Open Luma or an app before using PC fullscreen.")?;
     let value = !window.is_fullscreen().map_err(|error| error.to_string())?;
     window
         .set_fullscreen(value)
@@ -617,7 +787,11 @@ pub fn update_app_state(
     fullscreen: bool,
     sound: SoundPreset,
 ) -> Result<(), String> {
-    if !["Home", "Watch", "Sports", "Library", "Music", "Apps", "Settings", "Details"].contains(&view.as_str()) {
+    if ![
+        "Home", "Watch", "Sports", "Library", "Music", "Apps", "Settings", "Details",
+    ]
+    .contains(&view.as_str())
+    {
         return Err("Invalid view.".into());
     }
     let mut state = remote.state.lock().map_err(|e| e.to_string())?;
@@ -645,7 +819,7 @@ pub fn update_appearance(
 #[cfg(test)]
 mod tests {
     use super::{
-        frontend_receives, show_main, should_wake, validate_appearance, Appearance,
+        frontend_receives, should_wake, show_main, validate_appearance, Appearance,
         NavigationCommand, SoundPreset, ThemeOption,
     };
     use std::collections::BTreeMap;
@@ -665,10 +839,7 @@ mod tests {
                 ("--bg".into(), "#0b0d12".into()),
                 ("--line".into(), "#ffffff17".into()),
             ]),
-            themes: vec![
-                theme("violet-night", "Violet Night"),
-                theme("mint", "Mint"),
-            ],
+            themes: vec![theme("violet-night", "Violet Night"), theme("mint", "Mint")],
         }
     }
 
@@ -696,7 +867,9 @@ mod tests {
         assert!(validate_appearance(&appearance).is_err());
         appearance.tokens.insert("--accent".into(), "#12345".into());
         assert!(validate_appearance(&appearance).is_err());
-        appearance.tokens.insert("--accent".into(), "#12345g".into());
+        appearance
+            .tokens
+            .insert("--accent".into(), "#12345g".into());
         assert!(validate_appearance(&appearance).is_err());
     }
 
@@ -722,8 +895,16 @@ mod tests {
         assert!(keys.contains(&"reducedMotion"));
         assert!(keys.contains(&"interfaceSounds"));
         assert!(keys.contains(&"soundLevel"));
-        assert_eq!(settings.iter().find(|choice| choice.key == "reducedMotion").map(|choice| choice.kind.as_str()), Some("toggle"));
-        assert!(settings.iter().all(|choice| !choice.section.is_empty() && !choice.options.is_empty()));
+        assert_eq!(
+            settings
+                .iter()
+                .find(|choice| choice.key == "reducedMotion")
+                .map(|choice| choice.kind.as_str()),
+            Some("toggle")
+        );
+        assert!(settings
+            .iter()
+            .all(|choice| !choice.section.is_empty() && !choice.options.is_empty()));
     }
 
     #[test]
@@ -738,7 +919,13 @@ mod tests {
         assert_eq!(order.first().map(String::as_str), Some("Netflix"));
         assert_eq!(order.get(1).map(String::as_str), Some("YouTube"));
         assert_eq!(order.last().map(String::as_str), Some("Custom"));
-        assert_eq!(order.iter().filter(|name| name.as_str() == "Custom").count(), 1);
+        assert_eq!(
+            order
+                .iter()
+                .filter(|name| name.as_str() == "Custom")
+                .count(),
+            1
+        );
         assert!(order.iter().any(|name| name == "Steam"));
     }
 
@@ -774,7 +961,7 @@ mod tests {
             window_fullscreen: Some(true),
             appearance: None,
             app_order: Vec::new(),
-                settings: Vec::new(),
+            settings: Vec::new(),
             music: None,
         };
         let value = serde_json::to_value(state).unwrap();

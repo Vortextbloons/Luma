@@ -69,6 +69,15 @@
 
   <InstallHint />
 
+  <nav class="sports-shortcuts" aria-label="Sports shortcuts">
+    {#each [{ command: 'sports', name: 'Sports' }, { command: 'sportsnfl', name: 'NFL' }, { command: 'sportsnba', name: 'NBA' }, { command: 'sportsmlb', name: 'MLB' }, { command: 'sportsnhl', name: 'NHL' }] as shortcut (shortcut.command)}
+      <RemoteKey command={shortcut.command} label={`Open ${shortcut.name} on the TV`} className="sports-shortcut" onsend={command}>
+        <img src={`/apps/${shortcut.command}/icon`} alt="" width="22" height="22" />
+        <span>{shortcut.name}</span>
+      </RemoteKey>
+    {/each}
+  </nav>
+
   <main class="stage">
     <div class="nav-stack">
       <div class="nav-row" role="group" aria-label="Navigation actions">
@@ -98,6 +107,10 @@
 </div>
 
 <style>
+  .sports-shortcuts { display: flex; gap: 8px; overflow-x: auto; padding: 3px; scrollbar-width: none; }
+  .sports-shortcuts :global(.sports-shortcut) { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text-dim); font-size: 12px; font-weight: 650; white-space: nowrap; }
+  .sports-shortcuts img { flex: none; object-fit: contain; }
+
   .remote-shell {
     --pad: clamp(190px, min(88vw, 46dvh), 380px);
     display: flex;

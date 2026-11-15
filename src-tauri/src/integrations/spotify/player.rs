@@ -1,5 +1,6 @@
 use super::{
-    api, auth::Auth,
+    api,
+    auth::Auth,
     models::{computer_name, parse_command, ConnectionState, Device, PlaybackState},
     process, windows_media,
 };
@@ -110,10 +111,7 @@ async fn windows_state(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackSt
     Ok(state)
 }
 
-pub async fn current(
-    app: &tauri::AppHandle,
-    auth: &Auth,
-) -> Result<PlaybackState, String> {
+pub async fn current(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackState, String> {
     let preferred = app
         .state::<Player>()
         .preferred_device
@@ -128,10 +126,7 @@ pub async fn current(
     Ok(state)
 }
 
-pub async fn snapshot(
-    app: &tauri::AppHandle,
-    auth: &Auth,
-) -> Result<PlaybackState, String> {
+pub async fn snapshot(app: &tauri::AppHandle, auth: &Auth) -> Result<PlaybackState, String> {
     let mut state = windows_state(app, auth).await?;
     if auth.authenticated() {
         match api::playback(auth).await {
@@ -256,7 +251,11 @@ fn merge_api(media: &mut PlaybackState, api: &PlaybackState) {
     }
 }
 
-fn restore_artwork(app: &tauri::AppHandle, state: &mut PlaybackState, cached: Option<&PlaybackState>) {
+fn restore_artwork(
+    app: &tauri::AppHandle,
+    state: &mut PlaybackState,
+    cached: Option<&PlaybackState>,
+) {
     if state.artwork_url.is_some() || state.title.is_none() {
         return;
     }
@@ -352,10 +351,11 @@ pub async fn control(
     }
     let handle = app.clone();
     let windows_command = command.clone();
-    let windows_result =
-        tauri::async_runtime::spawn_blocking(move || windows_media::control(&handle, windows_command))
-            .await
-            .map_err(|error| error.to_string())?;
+    let windows_result = tauri::async_runtime::spawn_blocking(move || {
+        windows_media::control(&handle, windows_command)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     let windows_error = match windows_result {
         Ok(()) => {
             refresh_later(app.clone());
@@ -435,11 +435,7 @@ fn pc_device(devices: &[Device]) -> Option<&Device> {
         })
 }
 
-pub async fn transfer(
-    app: &tauri::AppHandle,
-    auth: &Auth,
-    device_id: &str,
-) -> Result<(), String> {
+pub async fn transfer(app: &tauri::AppHandle, auth: &Auth, device_id: &str) -> Result<(), String> {
     if !auth.authenticated() {
         return Err("Connect a Spotify account to switch playback devices.".into());
     }
@@ -466,17 +462,11 @@ fn refresh_later(app: tauri::AppHandle) {
 
 pub fn connection(app: &tauri::AppHandle, auth: &Auth) -> ConnectionState {
     let player = app.state::<Player>();
-    let cached = player
-        .cache
-        .lock()
-        .ok()
-        .and_then(|cache| cache.clone());
+    let cached = player.cache.lock().ok().and_then(|cache| cache.clone());
     let live = windows_media::available(app);
     let running = process::running();
-    let api_active = auth.authenticated()
-        && cached
-            .as_ref()
-            .is_some_and(|state| state.player_available);
+    let api_active =
+        auth.authenticated() && cached.as_ref().is_some_and(|state| state.player_available);
     ConnectionState {
         authenticated: auth.authenticated(),
         process_running: running,
@@ -555,8 +545,7 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
         set_error(
             &handle,
             (!ready).then(|| {
-                "Spotify started, but no media session appeared. Start a track in Spotify."
-                    .into()
+                "Spotify started, but no media session appeared. Start a track in Spotify.".into()
             }),
         );
         emit_connection(&handle);
