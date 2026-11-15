@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -12,28 +12,64 @@ function argument(name, fallback) {
 const flag = name => process.argv.includes(`--${name}`);
 
 const root = resolve(import.meta.dirname, '..', '..');
-const exe = resolve(argument('exe', join(root, 'src-tauri', 'target', 'release', 'luma.exe')));
-const label = argument('label', 'manual');
-const port = Number(argument('port', '9222'));
+const exe = resolve(argument('exe', join(root, 'src-tauri', 'target', 'debug', 'luma.exe')));
+const label = argument('label', 'dev');
+const port = Number(argument('port', String(9200 + Math.floor(Math.random() * 600))));
 const settleMs = Number(argument('settle', '8000'));
 const idleMs = Number(argument('idle', '30000'));
 const jsonPath = argument('json', '');
 const skipViews = flag('no-views');
+const devServerUrl = argument('dev-url', 'http://127.0.0.1:1420/');
 
 if (!existsSync(exe)) {
-  console.error(`Missing executable: ${exe}\nBuild it with: npm run build && cargo build --release --manifest-path src-tauri/Cargo.toml`);
+  console.error(`Missing executable: ${exe}\nBuild it with: cargo build --manifest-path src-tauri/Cargo.toml`);
   process.exit(1);
+}
+const exeBuilt = statSync(exe).mtime;
+
+const reachable = async (url, timeoutMs = 700) => {
+  try {
+    const reply = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return reply.ok || reply.status < 500;
+  } catch {
+    return false;
+  }
+};
+
+let devServer = null;
+const devServerWasRunning = await reachable(devServerUrl);
+if (!devServerWasRunning) {
+  devServer = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev'], { cwd: root, stdio: 'ignore', windowsHide: true });
+  const deadline = Date.now() + 45000;
+  let up = false;
+  while (Date.now() < deadline) {
+    if (await reachable(devServerUrl)) { up = true; break; }
+    await sleep(250);
+  }
+  if (!up) {
+    console.error(`Vite never started on ${devServerUrl}. Run "npm run dev" yourself and retry.`);
+    devServer.kill();
+    process.exit(1);
+  }
 }
 
 const running = spawnSync('tasklist', ['/FI', 'IMAGENAME eq luma.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout ?? '';
 if (running.includes('luma.exe') && !flag('replace')) {
   console.error('Luma is already running; the single-instance guard would attach to it instead of starting a measured copy.\nClose it first, or pass --replace to stop it.');
+  devServer?.kill();
   process.exit(1);
 }
 if (running.includes('luma.exe')) {
-  spawnSync('taskkill', ['/IM', 'luma.exe', '/F'], { encoding: 'utf8' });
+  spawnSync('taskkill', ['/IM', 'luma.exe', '/T', '/F'], { encoding: 'utf8' });
   await sleep(1500);
 }
+
+const strayWebviews = spawnSync('powershell', ['-NoProfile', '-Command',
+  `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'com\\.luma\\.desktop' } | ForEach-Object { $_.ProcessId }`], { encoding: 'utf8' }).stdout ?? '';
+for (const id of strayWebviews.split(/\r?\n/).filter(Boolean)) {
+  spawnSync('taskkill', ['/PID', id.trim(), '/T', '/F'], { encoding: 'utf8' });
+}
+if (strayWebviews.trim()) await sleep(1000);
 
 const directorySize = path => {
   if (!existsSync(path)) return { files: 0, bytes: 0 };
@@ -73,7 +109,8 @@ while ($timer.ElapsedMilliseconds -lt 600000) {
     $cim = $all | Where-Object { [int]$_.ProcessId -eq $id } | Select-Object -First 1
     $read = 0
     $write = 0
-    $role = 'app'
+    $role = 'browser'
+    if ($process.ProcessName -eq 'luma') { $role = 'host' }
     if ($cim) {
       $read = [double]$cim.ReadTransferCount
       $write = [double]$cim.WriteTransferCount
@@ -161,7 +198,24 @@ while (Date.now() - started < 40000) {
   if (ready) { readyAt = Date.now() - started; break; }
   await sleep(100);
 }
+await send('Page.bringToFront');
 const url = await evaluate('location.href');
+const visibility = await evaluate('document.visibilityState');
+const devFrontend = url.includes(':1420');
+if (devFrontend && flag('strict')) {
+  socket.close();
+  sampler.kill();
+  spawnSync('taskkill', ['/PID', String(hostPid), '/T', '/F'], { encoding: 'utf8' });
+  devServer?.kill();
+  console.error(`The executable loaded the Vite dev server (${url}) instead of bundled assets.\nUse --exe src-tauri/target/release/luma.exe for production numbers, or drop --strict.`);
+  process.exit(1);
+}
+const newestSource = [join(root, 'src'), join(root, 'src-tauri', 'src')]
+  .flatMap(directory => readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => statSync(join(entry.parentPath ?? entry.path, entry.name)).mtimeMs))
+  .reduce((newest, time) => Math.max(newest, time), 0);
+const staleExe = newestSource > exeBuilt.getTime();
 
 for (let attempt = 0; attempt < 4; attempt++) {
   if (!(await evaluate('!!document.querySelector("dialog[open]")'))) break;
@@ -237,18 +291,19 @@ if (!skipViews) {
 }
 
 const roles = new Map();
-const roleScan = spawnSync('powershell', ['-NoProfile', '-Command',
-  `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -match 'type=([a-z-]+)' } | ForEach-Object { "$($Matches[1])" }`], { encoding: 'utf8' });
-for (const role of (roleScan.stdout ?? '').split(/\r?\n/).filter(Boolean)) roles.set(role, (roles.get(role) ?? 0) + 1);
 
 socket.close();
 sampler.kill();
 spawnSync('taskkill', ['/PID', String(hostPid), '/T', '/F'], { encoding: 'utf8' });
+if (devServer) spawnSync('taskkill', ['/PID', String(devServer.pid), '/T', '/F'], { encoding: 'utf8' });
 await sleep(1200);
 
 const storageAfter = { appData: directorySize(appData), webviewCache: directorySize(localAppData) };
 
 const plateau = samples.filter(sample => sample.ms >= settleMs);
+for (const process of plateau.at(-1)?.procs ?? []) {
+  roles.set(process.role, (roles.get(process.role) ?? 0) + 1);
+}
 const cpuDelta = idleEndSample && idleStartSample
   ? ((total(idleEndSample, 'cpu') - total(idleStartSample, 'cpu')) / 1000) / (idleElapsed / 1000)
   : 0;
@@ -260,6 +315,19 @@ const median = values => {
   return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 };
 const peak = values => (values.length ? Math.max(...values) : 0);
+const processes = (idleEndSample?.procs ?? []).map(process => {
+  const before = idleStartSample?.procs.find(entry => entry.id === process.id);
+  return {
+    pid: process.id,
+    role: process.role,
+    ws: Math.round(process.ws),
+    private: Math.round(process.private),
+    threads: process.threads,
+    handles: process.handles,
+    cpu: Math.round(process.cpu - (before?.cpu ?? process.cpu)),
+    disk: Math.round(((process.read - (before?.read ?? process.read)) + (process.write - (before?.write ?? process.write))) / 1024)
+  };
+});
 const exeBytes = spawnSync('powershell', ['-NoProfile', '-Command', `(Get-Item -LiteralPath '${exe}').Length`], { encoding: 'utf8' }).stdout?.trim();
 const cores = Number(spawnSync('powershell', ['-NoProfile', '-Command', '(Get-CimInstance Win32_Processor | Measure-Object NumberOfLogicalProcessors -Sum).Sum'], { encoding: 'utf8' }).stdout?.trim()) || 1;
 
@@ -267,7 +335,12 @@ const report = {
   label,
   exe,
   exeBytes: Number(exeBytes) || 0,
+  exeBuilt: exeBuilt.toISOString(),
+  staleExe,
   url,
+  devFrontend,
+  devServerStarted: !devServerWasRunning,
+  visibility,
   logicalCores: cores,
   startup: { devtoolsMs: connectedAt, interactiveMs: readyAt },
   idle: {
@@ -284,9 +357,10 @@ const report = {
     processes: plateau.at(-1)?.procs.length ?? 0,
     threads: plateau.at(-1) ? total(plateau.at(-1), 'threads') : 0,
     handles: plateau.at(-1) ? total(plateau.at(-1), 'handles') : 0,
-    appProcessWs: plateau.at(-1) ? total(plateau.at(-1), 'ws') - plateau.at(-1).procs.filter(process => process.role !== 'app').reduce((sum, process) => sum + process.ws, 0) : 0
+    appProcessWs: plateau.at(-1) ? plateau.at(-1).procs.filter(process => process.role === 'host').reduce((sum, process) => sum + process.ws, 0) : 0
   },
   webviewRoles: Object.fromEntries(roles),
+  processes,
   storage: {
     executable: Number(exeBytes) || 0,
     appData: storageAfter.appData,
@@ -304,8 +378,10 @@ if (jsonPath) {
 
 const mb = bytes => `${(bytes / 1048576).toFixed(1)} MB`;
 console.log(`\n# Luma perf — ${label}\n`);
-console.log(`- exe: \`${exe}\` (${mb(report.exeBytes)})`);
-console.log(`- frontend: ${url}`);
+console.log(`- exe: \`${exe}\` (${mb(report.exeBytes)}, built ${new Date(report.exeBuilt).toLocaleString()})`);
+console.log(`- frontend: ${url} ${devFrontend ? '(dev server: unminified modules + HMR)' : '(bundled)'}`);
+if (staleExe) console.log(`- warning: sources are newer than the executable; rebuild before trusting these numbers`);
+if (report.devServerStarted) console.log(`- started a temporary Vite dev server for this run`);
 console.log(`- startup: DevTools reachable ${connectedAt} ms, app interactive ${readyAt} ms`);
 console.log(`- idle (${(idleElapsed / 1000).toFixed(0)}s): ${report.idle.cpuOfOneCore.toFixed(2)}% of one core (${report.idle.cpuOfMachine.toFixed(2)}% of ${cores} cores), disk ${(report.idle.diskBytes / 1024).toFixed(0)} KB`);
 console.log(`- memory: ${mb(report.memory.wsMedian)} working set (peak ${mb(report.memory.wsPeak)}), ${mb(report.memory.privateMedian)} private commit`);
@@ -317,4 +393,9 @@ if (views.length) {
   console.log('| View | Working set | Private | JS heap | DOM nodes |');
   console.log('| --- | --- | --- | --- | --- |');
   for (const entry of views) console.log(`| ${entry.view} | ${mb(entry.ws)} | ${mb(entry.private)} | ${(entry.heap / 1048576).toFixed(1)} MB | ${entry.nodes} |`);
+}
+console.log('\n| Process | PID | Working set | Private | Threads | Handles | CPU while idle | Disk while idle |');
+console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
+for (const process of processes.sort((a, b) => b.private - a.private)) {
+  console.log(`| ${process.role} | ${process.pid} | ${mb(process.ws)} | ${mb(process.private)} | ${process.threads} | ${process.handles} | ${process.cpu} ms (${((process.cpu / idleElapsed) * 100).toFixed(2)}% of 1 core) | ${(process.disk / 1024).toFixed(1)} MB |`);
 }

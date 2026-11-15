@@ -17,105 +17,17 @@
   import AppOrderSettings from './AppOrderSettings.svelte';
   import SettingsChoices from './SettingsChoices.svelte';
   import CustomizationSettings from './CustomizationSettings.svelte';
+  import PluginSettings from './PluginSettings.svelte';
+  import PluginOwnershipNotice from './PluginOwnershipNotice.svelte';
+  import { resolveSettingsTarget, settingsCategories, settingsCategory } from '../services/settingsNavigation';
   import { defaultHomeRows, moveHomeRow, moveHomeRowTo, toggleHomeRow } from '../services/home';
   import { themeById } from '../services/theme';
   import type { HomeDraft } from '../services/customization';
+  import type { PluginsState } from '../services/plugins';
   import type { ActivityState } from '../state/activity.svelte';
   import type { ExecutableAppId, MediaItem, Settings } from '../types';
 
-  type SettingsSection = { id: string; name: string; description: string };
-  type SettingsCategory = { name: string; description: string; sections: SettingsSection[] };
-
-  const categories: SettingsCategory[] = [
-    {
-      name: 'Appearance & Home',
-      description: 'Theme, layout, and what appears on Home.',
-      sections: [
-        { id: 'theme', name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
-        { id: 'layout', name: 'Layout', description: 'Density, tile shape, text size, motion, and the order of Home rows.' },
-        { id: 'widgets', name: 'Widgets', description: 'Now playing and future widgets.' },
-      ],
-    },
-    {
-      name: 'Display & Sound',
-      description: 'Fullscreen, TV screen, audio output, and interface sounds.',
-      sections: [
-        { id: 'display', name: 'Display', description: 'Fullscreen and screen fit.' },
-        { id: 'tv', name: 'TV & audio', description: 'TV screen and sound output.' },
-        { id: 'sound', name: 'Sound', description: 'Interface sounds and level.' },
-      ],
-    },
-    {
-      name: 'Apps & Services',
-      description: 'Apps, locations, and connected accounts.',
-      sections: [
-        { id: 'apps', name: 'Apps', description: 'Find, arrange, and locate apps.' },
-        { id: 'accounts', name: 'Accounts', description: 'Spotify, Stremio, and activity services.' },
-      ],
-    },
-    {
-      name: 'Remotes & Devices',
-      description: 'Phone pairing, Display Box, and the keyboard shortcut.',
-      sections: [
-        { id: 'remote', name: 'Remotes', description: 'Phone, Display Box, and connected devices.' },
-        { id: 'keyboard', name: 'Keyboard', description: 'Return-home shortcut.' },
-      ],
-    },
-    {
-      name: 'History & Privacy',
-      description: 'Recording, provider visibility, and clearing history.',
-      sections: [
-        { id: 'recording', name: 'Recording', description: 'What Luma remembers and shows on Home.' },
-        { id: 'clear', name: 'Clear history', description: 'Remove history from this PC.' },
-      ],
-    },
-    {
-      name: 'System',
-      description: 'Startup, tray, memory, and updates.',
-      sections: [
-        { id: 'startup', name: 'Startup & memory', description: 'Startup, tray, and fast app switching.' },
-        { id: 'updates', name: 'Updates', description: 'Version, downloads, and restart.' },
-      ],
-    },
-    {
-      name: 'MCP customization',
-      description: 'AI access, saved versions, and reset defaults.',
-      sections: [
-        { id: 'ai', name: 'AI access', description: 'Connect an MCP client with review-first access.' },
-        { id: 'versions', name: 'Saved versions', description: 'Restore an earlier appearance, Home layout, or app arrangement.' },
-        { id: 'reset', name: 'Reset', description: 'Return appearance, Home, and widgets to defaults.' },
-      ],
-    },
-  ];
-
-  const legacyTargets: Record<string, [string, string]> = {
-    Display: ['Display & Sound', 'display'],
-    Theme: ['Appearance & Home', 'theme'],
-    'Home layout': ['Appearance & Home', 'layout'],
-    Widgets: ['Appearance & Home', 'widgets'],
-    'TV setup': ['Display & Sound', 'tv'],
-    Sound: ['Display & Sound', 'sound'],
-    Activity: ['History & Privacy', 'recording'],
-    Apps: ['Apps & Services', 'apps'],
-    Integrations: ['Apps & Services', 'accounts'],
-    Updates: ['System', 'updates'],
-    Performance: ['System', 'startup'],
-    'Remote & Startup': ['Remotes & Devices', 'remote'],
-  };
-
-  function resolveTarget(value: string) {
-    const direct = categories.find(item => item.name === value);
-    if (direct) return { category: direct.name, section: direct.sections[0].id };
-    const legacy = legacyTargets[value];
-    if (legacy) return { category: legacy[0], section: legacy[1] };
-    for (const item of categories) {
-      const match = item.sections.find(section => section.id === value || section.name === value);
-      if (match) return { category: item.name, section: match.id };
-    }
-    return { category: categories[0].name, section: categories[0].sections[0].id };
-  }
-
-  let { settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display', popular = [], featured = [] }: {
+  let { settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display', popular = [], featured = [], plugins = null, pluginsLoading = false, pluginsError = '', onpluginsreload = async () => {} }: {
     homeDraft?: HomeDraft | null;
     revision?: number;
     onlayoutpreview?: (draft: HomeDraft) => Promise<void>;
@@ -126,12 +38,16 @@
     startCategory?: string;
     popular?: MediaItem[];
     featured?: MediaItem[];
+    plugins?: PluginsState | null;
+    pluginsLoading?: boolean;
+    pluginsError?: string;
+    onpluginsreload?: () => Promise<void>;
   } = $props();
 
-  const initial = untrack(() => resolveTarget(startCategory));
+  const initial = untrack(() => resolveSettingsTarget(startCategory));
   let category = $state(initial.category);
   let section = $state(initial.section);
-  const activeCategory = $derived(categories.find(item => item.name === category) ?? categories[0]);
+  const activeCategory = $derived(settingsCategory(category));
   const activeSection = $derived(activeCategory.sections.find(item => item.id === section) ?? activeCategory.sections[0]);
   const theme = $derived(themeById(settings.theme));
   let resetNote = $state('');
@@ -179,7 +95,7 @@
 
   let content = $state<HTMLDivElement>();
   function selectCategory(name: string) {
-    const next = categories.find(item => item.name === name);
+    const next = settingsCategories.find(item => item.name === name);
     if (!next) return;
     category = next.name;
     section = next.sections[0].id;
@@ -232,7 +148,7 @@
   </header>
   <div class="settings-layout">
     <nav class="settings-categories" aria-label="Settings categories">
-      {#each categories as item (item.name)}
+      {#each settingsCategories as item (item.name)}
         <button class={['settings-category', { selected: category === item.name }]} aria-current={category === item.name ? 'page' : undefined} onclick={() => selectCategory(item.name)}>
           <span class="settings-category-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
           <span class="settings-category-mark" aria-hidden="true">›</span>
@@ -251,41 +167,55 @@
       </nav>
       <p class="settings-section-note">{activeSection.description}</p>
       {#if message}<p role="status" class="panel-feedback">{message}</p>{/if}
-      {#if activeCategory.name === 'Appearance & Home'}
-        {#if activeSection.id === 'theme'}
-          <ThemeSettings {settings} />
-        {:else if activeSection.id === 'layout'}
+      {#if activeCategory.name === 'Plugins'}
+        {#if activeSection.id === 'installed'}
+          <PluginSettings {native} {revision} {plugins} loading={pluginsLoading} error={pluginsError} reload={onpluginsreload} onappearance={() => selectSection('appearance')} />
+        {:else}
           <section class="settings-group">
-            <h3>Layout size</h3>
-            <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
-            <SettingsChoices {settings} section="layout" />
-            <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
-            {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
+            <div class="settings-group-head">
+              <h3>Built-in appearance</h3>
+              <span class="settings-badge is-good">Always on</span>
+            </div>
+            <p class="panel-description">Luma's own appearance and Home settings live here as the built-in plugin. They are always available, cannot be removed, and stay reachable when another plugin is disabled or broken.</p>
           </section>
-          {#if layoutError}<p role="alert" class="panel-feedback">{layoutError}</p>{/if}
-          {#if homeDraft}
-            <HomeLayoutSettings
-              rows={homeDraft.home}
-              columns={homeDraft.homeColumns}
-              busy={layoutBusy}
-              {popular}
-              {featured}
-              activityItems={activity.items}
-              apps={settings.order}
-              widget={settings.widgets.spotify}
-              onmove={(id, direction) => homeDraft && (homeDraft.home = moveHomeRow(homeDraft.home, id, direction))}
-              onmoveto={(id, index) => homeDraft && (homeDraft.home = moveHomeRowTo(homeDraft.home, id, index))}
-              ontoggle={id => homeDraft && (homeDraft.home = toggleHomeRow(homeDraft.home, id))}
-              oncolumns={columns => homeDraft && (homeDraft.homeColumns = columns)}
-              onspan={(id, span) => homeDraft && (homeDraft.home = homeDraft.home.map(row => row.id === id ? { ...row, span } : row))}
-              onreset={() => { if (homeDraft) { homeDraft.home = defaultHomeRows(); homeDraft.homeColumns = 1; } }}
-              onpreview={native ? previewHome : undefined}
-              onreload={reloadHome}
-              onrestore={native ? restoreHome : undefined}
-            />
+          {#if activeSection.id === 'appearance'}
+            <PluginOwnershipNotice {plugins} fields={['theme']} onmanage={() => selectSection('installed')} />
+            <ThemeSettings {settings} />
+          {:else if activeSection.id === 'layout'}
+            <PluginOwnershipNotice {plugins} fields={['density', 'appTileShape', 'textSize', 'reducedMotion', 'homeColumns', 'home']} onmanage={() => selectSection('installed')} />
+            <section class="settings-group">
+              <h3>Layout size</h3>
+              <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
+              <SettingsChoices {settings} section="layout" />
+              <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
+              {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
+            </section>
+            {#if layoutError}<p role="alert" class="panel-feedback">{layoutError}</p>{/if}
+            {#if homeDraft}
+              <HomeLayoutSettings
+                rows={homeDraft.home}
+                columns={homeDraft.homeColumns}
+                busy={layoutBusy}
+                {popular}
+                {featured}
+                activityItems={activity.items}
+                apps={settings.order}
+                widget={settings.widgets.spotify}
+                onmove={(id, direction) => homeDraft && (homeDraft.home = moveHomeRow(homeDraft.home, id, direction))}
+                onmoveto={(id, index) => homeDraft && (homeDraft.home = moveHomeRowTo(homeDraft.home, id, index))}
+                ontoggle={id => homeDraft && (homeDraft.home = toggleHomeRow(homeDraft.home, id))}
+                oncolumns={columns => homeDraft && (homeDraft.homeColumns = columns)}
+                onspan={(id, span) => homeDraft && (homeDraft.home = homeDraft.home.map(row => row.id === id ? { ...row, span } : row))}
+                onreset={() => { if (homeDraft) { homeDraft.home = defaultHomeRows(); homeDraft.homeColumns = 1; } }}
+                onpreview={native ? previewHome : undefined}
+                onreload={reloadHome}
+                onrestore={native ? restoreHome : undefined}
+              />
+            {/if}
+          {:else if activeSection.id === 'widgets'}
+            <PluginOwnershipNotice {plugins} fields={['widgets']} onmanage={() => selectSection('installed')} />
+            <WidgetSettings {settings} />
           {/if}
-        {:else if activeSection.id === 'widgets'}
-          <WidgetSettings {settings} />
         {/if}
       {:else if activeCategory.name === 'MCP customization'}
         <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => { homeDraft = null; layoutError = ''; }} />

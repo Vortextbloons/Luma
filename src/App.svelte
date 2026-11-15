@@ -27,6 +27,7 @@
   import { remoteSettings, applyRemoteSetting } from './lib/services/settings';
   import { createSettings } from './lib/state/settings.svelte';
   import { createCustomizationSync, customizationConfig, type CustomizationPreview, type HomeDraft } from './lib/services/customization';
+  import type { PluginsState } from './lib/services/plugins';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
@@ -61,6 +62,9 @@
   let reviewBusy = $state(false);
   let reviewError = $state('');
   let previewFromEditor = $state(false);
+  let plugins = $state.raw<PluginsState | null>(null);
+  let pluginsLoading = $state(true);
+  let pluginsError = $state('');
   const customization = createCustomizationSync(settings, value => message = value, {
     document: document => {
       customizationRevision = document.revision;
@@ -70,7 +74,25 @@
       const changed = layoutPreview?.id !== candidate?.id;
       layoutPreview = candidate;
       if (!candidate) { previewFromEditor = false; return; }
-      if (changed) { reviewError = ''; panel = false; tab = 'Home'; details = null; playerOpen = false; previewApp = null; heroPick = null; }
+      if (changed) {
+        previewFromEditor = false;
+        reviewError = '';
+        panel = false;
+        tab = 'Home';
+        details = null;
+        playerOpen = false;
+        previewApp = null;
+        heroPick = null;
+      }
+    },
+    plugins: state => {
+      plugins = state;
+      pluginsLoading = false;
+      pluginsError = '';
+    },
+    pluginsError: value => {
+      pluginsLoading = false;
+      pluginsError = value;
     },
   });
   const layoutConfig = $derived(layoutPreview?.config ?? customizationConfig(settings));
@@ -683,11 +705,22 @@
     if (reviewBusy) return;
     reviewError = '';
     reviewBusy = true;
+    const pluginPreview = layoutPreview?.plugin;
     try {
       await customization.keep();
       homeDraft = null;
-      message = 'Layout saved.';
-      requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+      if (pluginPreview) {
+        message = pluginPreview.action === 'settings'
+          ? `${pluginPreview.name} settings saved.`
+          : pluginPreview.action === 'reattach'
+            ? `${pluginPreview.name} controls restored.`
+            : `${pluginPreview.name} enabled.`;
+        settingsCategory = 'Plugins';
+        panel = true;
+      } else {
+        message = 'Layout saved.';
+        requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+      }
     } catch (error) { reviewError = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error); message = reviewError; }
     finally { reviewBusy = false; }
   }
@@ -695,10 +728,19 @@
     if (reviewBusy) return false;
     reviewError = '';
     reviewBusy = true;
+    const pluginPreview = layoutPreview?.plugin;
     try {
       await customization.cancel();
-      if (editing) { settingsCategory = 'Home layout'; panel = true; }
-      else requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+      if (pluginPreview) {
+        settingsCategory = 'Plugins';
+        panel = true;
+        message = 'Plugin change cancelled.';
+      } else if (editing) {
+        settingsCategory = 'Home layout';
+        panel = true;
+      } else {
+        requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+      }
       return true;
     } catch (error) { reviewError = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error); message = reviewError; return false; }
     finally { reviewBusy = false; }
@@ -712,7 +754,7 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
+  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} {plugins} {pluginsLoading} {pluginsError} onpluginsreload={() => customization.refreshPlugins()} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
@@ -768,7 +810,7 @@
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>
-{#if layoutPreview}<LayoutReview busy={reviewBusy} error={reviewError} editing={previewFromEditor} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
+{#if layoutPreview}<LayoutReview busy={reviewBusy} error={reviewError} editing={previewFromEditor} plugin={layoutPreview.plugin ?? null} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
 
 {#if stremioPairing}

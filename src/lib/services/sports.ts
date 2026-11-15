@@ -1,3 +1,4 @@
+import { streamEastUrl, parseStreamEast, mergeSportsSources } from './sportsSources';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { parseScoreboard, type GameScore } from './sportsScores';
@@ -10,6 +11,8 @@ export interface SportsTeam {
 export interface SportsEvent {
   id: string;
   url: string;
+  sources?: string[];
+  provider?: string;
   league: string;
   title: string;
   teams: SportsTeam[];
@@ -41,7 +44,7 @@ function readCache<T>(key: string): CachedValue<T> | null {
 function saveCache<T>(key: string, value: T, updatedAt = Date.now()) {
   try { localStorage.setItem(cachePrefix + key, JSON.stringify({ value, updatedAt })); } catch {}
 }
-const savedListing = readCache<SportsListing>('listing')?.value;
+const savedListing = readCache<SportsListing>('listing-sources-v2')?.value;
 let listingCache: SportsListing | null = savedListing && Array.isArray(savedListing.events) && savedListing.events.every(event => eventUrl(event.url) && Array.isArray(event.teams) && typeof event.league === 'string') ? savedListing : null;
 const scoreCache = new Map<string, CachedValue<GameScore[]>>();
 const scoreRequests = new Map<string, Promise<GameScore[]>>();
@@ -59,7 +62,8 @@ function eventUrl(value: string | null) {
   if (!value) return '';
   try {
     const url = new URL(value, 'https://isportsurge.ws/');
-    if (url.protocol !== 'https:' || url.host !== 'isportsurge.ws') return '';
+    if (url.host !== 'isportsurge.ws') return streamEastUrl(value);
+    if (url.protocol !== 'https:') return '';
     if (!url.pathname.startsWith('/watch/') && !url.pathname.startsWith('/event/')) return '';
     return url.href;
   } catch {
@@ -118,19 +122,24 @@ export const cachedSportsListing = () => listingCache;
 export function loadSportsListing(force = false) {
   if (!force && listingCache && Date.now() - listingCache.updatedAt < 60000) return Promise.resolve(listingCache);
   if (listingRequest) return listingRequest;
-  listingRequest = invoke<string>('sports_listing')
-    .then(html => {
-      const listing = { events: parseSportsListing(html), updatedAt: Date.now() };
+  listingRequest = Promise.allSettled([invoke<unknown>('sports_streameast_listing', { force }).then(parseStreamEast), invoke<string>('sports_listing').then(parseSportsListing)])
+    .then(results => {
+      const primary = results[0].status === 'fulfilled' ? results[0].value : [];
+      const fallback = results[1].status === 'fulfilled' ? results[1].value : [];
+      if (results.every(result => result.status === 'rejected')) throw new Error('Sports sources are unavailable.');
+      const listing = { events: mergeSportsSources(primary, fallback), updatedAt: Date.now() };
       listingCache = listing;
-      saveCache('listing', listing);
+      saveCache('listing-sources-v2', listing);
       return listing;
     })
     .finally(() => { listingRequest = null; });
   return listingRequest;
 }
 
-export const openSportsStream = (url: string, sourceIndex: number, title: string, score: string) =>
-  invoke<void>('sports_open', { url, sourceIndex, title, score });
+export const openSportsStream = (url: string, sourceIndex: number, title: string, score: string, sources?: string[]) => {
+  const index = sources?.length ? sourceIndex % sources.length : 0;
+  return invoke<void>('sports_open', { url: sources?.length ? sources[index] + '#luma-plan=' + index : url, sourceIndex: sources?.length ? 0 : sourceIndex, title, score, sources });
+};
 
 export const updateSportsScore = (score: string) => invoke<void>('sports_update_score', { score });
 

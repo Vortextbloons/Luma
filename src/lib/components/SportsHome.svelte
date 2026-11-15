@@ -113,7 +113,7 @@
     opening = true;
     detailError = '';
     try {
-      await openSportsStream(event.url, index, event.title, scoreSummary(game(event), hideScores));
+      await openSportsStream(event.url, index, event.title, scoreSummary(game(event), hideScores), event.sources);
       sourceIndexes[event.id] = index;
       watching = true;
     } catch { detailError = 'The stream could not open. Try another source.'; }
@@ -231,7 +231,7 @@
     </div>
     {#if detailError}<p class="sports-feedback" role="alert">{detailError}</p>{/if}
     <div class="detail-actions"><button class="btn btn-primary" data-sports-action="watch" disabled={opening} onclick={() => void openStream()}>{opening ? 'Starting stream…' : '▶ Watch fullscreen'}</button><button class="btn btn-glass" disabled={opening} onclick={() => void openStream(true)}>Try another source</button></div>
-    <p class="detail-hint">Use your remote to play, pause, and change sources. Back returns to Sports.</p>
+    <p class="detail-hint">{selected.provider === 'StreamEast' ? 'StreamEast first. Available Sportsurge sources are tried if needed.' : 'Sportsurge fallback.'} Use your remote to play, pause, and change sources. Back returns to Sports.</p>
   </dialog>
 {/if}
 

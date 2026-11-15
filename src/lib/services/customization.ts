@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Settings } from '../types';
+import type { PluginsState } from './plugins';
 
 export type CustomizationConfig = Pick<Settings, 'theme' | 'density' | 'appTileShape' | 'textSize' | 'reducedMotion' | 'interfaceSounds' | 'soundLevel' | 'home' | 'homeColumns' | 'widgets' | 'order'>;
 export interface CustomizationDocument { version: number; revision: number; config: CustomizationConfig }
-export interface CustomizationPreview { id: string; baseRevision: number; config: CustomizationConfig }
+export interface CustomizationPreview { id: string; baseRevision: number; config: CustomizationConfig; plugin?: { id: string; name: string; action: string } }
 export interface HomeDraft { home: Settings['home']; homeColumns: 1 | 2; baseRevision: number }
 
 export function customizationConfig(settings: Settings): CustomizationConfig {
@@ -15,7 +16,7 @@ function errorMessage(error: unknown): string {
   return error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
 }
 
-export function createCustomizationSync(settings: Settings, report: (message: string) => void, callbacks: { document?: (document: CustomizationDocument) => void; preview?: (preview: CustomizationPreview | null) => void } = {}) {
+export function createCustomizationSync(settings: Settings, report: (message: string) => void, callbacks: { document?: (document: CustomizationDocument) => void; preview?: (preview: CustomizationPreview | null) => void; plugins?: (state: PluginsState) => void; pluginsError?: (message: string) => void } = {}) {
   let current: CustomizationDocument | null = null;
   let desired = customizationConfig(settings);
   let ready = false;
@@ -24,6 +25,8 @@ export function createCustomizationSync(settings: Settings, report: (message: st
   let remote: CustomizationDocument | null = null;
   let stop: (() => void) | undefined;
   let stopPreview: (() => void) | undefined;
+  let stopPlugins: (() => void) | undefined;
+  let stopNotice: (() => void) | undefined;
   let activePreview: CustomizationPreview | null = null;
   let previewRead = 0;
   function setPreview(preview: CustomizationPreview | null) {
@@ -36,6 +39,15 @@ export function createCustomizationSync(settings: Settings, report: (message: st
     const preview = await invoke<CustomizationPreview | null>('customization_preview_read');
     if (!disposed && request === previewRead) setPreview(preview);
   }
+  async function refreshPlugins() {
+    if (!callbacks.plugins) return;
+    try {
+      const state = await invoke<PluginsState>('customization_plugins_read');
+      if (!disposed) callbacks.plugins(state);
+    } catch (error) {
+      if (!disposed) callbacks.pluginsError?.(errorMessage(error));
+    }
+  }
   async function reconcileFailure(error: unknown) {
     try {
       if (error && typeof error === 'object' && 'code' in error && (error.code === 'conflict' || error.code === 'preview_mismatch')) {
@@ -43,6 +55,7 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         if (document && !disposed) apply(document);
       }
       await refreshPreview();
+      await refreshPlugins();
     } catch { }
   }
   const same = (a: CustomizationConfig, b: CustomizationConfig) => JSON.stringify(a) === JSON.stringify(b);
@@ -67,6 +80,7 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         apply(remote);
         report('Customization changed elsewhere. The latest saved layout has been loaded.');
       } else if (same(desired, candidate)) apply(document);
+      await refreshPlugins();
     } catch (error) {
       if (disposed) return;
       if (error && typeof error === 'object' && 'code' in error && error.code === 'conflict') {
@@ -100,12 +114,25 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         });
         if (disposed) { unsubscribePreview(); return; }
         stopPreview = unsubscribePreview;
+        if (callbacks.plugins) {
+          const unsubscribePlugins = await listen<PluginsState>('customization-plugins-changed', event => {
+            if (!disposed) callbacks.plugins?.(event.payload);
+          });
+          if (disposed) { unsubscribePlugins(); return; }
+          stopPlugins = unsubscribePlugins;
+          const unsubscribeNotice = await listen<string>('customization-notice', event => {
+            if (!disposed && event.payload) report(event.payload);
+          });
+          if (disposed) { unsubscribeNotice(); return; }
+          stopNotice = unsubscribeNotice;
+        }
         const document = await invoke<CustomizationDocument>('customization_initialize', { config: desired });
         if (disposed) return;
         apply(remote && remote.revision > document.revision ? remote : document);
         remote = null;
         ready = true;
         await refreshPreview();
+        await refreshPlugins();
       } catch (error) {
         if (!disposed) report(`Customization storage is unavailable. ${errorMessage(error)}`);
       }
@@ -129,6 +156,7 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         const document = await invoke<CustomizationDocument>('customization_preview_keep', { request: { previewId: activePreview.id } });
         if (!disposed) apply(document);
         await refreshPreview();
+        await refreshPlugins();
       } catch (error) { await reconcileFailure(error); throw error; }
     },
     async cancel() {
@@ -144,6 +172,7 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         const document = await invoke<CustomizationDocument>('customization_restore', { expectedRevision: current.revision });
         if (!disposed) apply(document);
         await refreshPreview();
+        await refreshPlugins();
       } catch (error) { await reconcileFailure(error); throw error; }
     },
     async restoreLayout() {
@@ -152,8 +181,11 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         const document = await invoke<CustomizationDocument>('customization_restore_layout', { expectedRevision: current.revision });
         if (!disposed) apply(document);
         await refreshPreview();
+        await refreshPlugins();
       } catch (error) { await reconcileFailure(error); throw error; }
     },
-    dispose() { disposed = true; previewRead++; stop?.(); stopPreview?.(); },
+    refreshPlugins,
+    dispose() { disposed = true; previewRead++; stop?.(); stopPreview?.(); stopPlugins?.(); stopNotice?.(); },
   };
 }
+

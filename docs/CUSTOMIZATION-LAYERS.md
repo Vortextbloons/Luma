@@ -1,5 +1,9 @@
 # Luma customization layers: canonical implementation plan
 
+Implementation boundary (2026-11-15): the current batch builds MCP access, recovery, and declarative appearance/Home plugins with settings and portable packages. Plugin lifecycle work is in progress and requires integration review; its presence in source is not completed acceptance. This batch does not implement custom executable widgets/screens, external-data providers, background extension services, or new behavior inside existing integrations. Importing code files does not make them executable.
+
+The broader extension system remains the intended product scope, not an optional replacement with presets. Stages 6 and 7 below establish the executable UI runtime, background supervisor, and remote integration. Their public contracts must support custom widgets/screens, permitted external service access with host-managed credentials where needed, and reuse of existing Luma data/actions/events without duplicate playback or account owners. A weather widget consuming an external service and a music screen using existing playback are representative acceptance cases. Do not call the broader plugin system complete until representative extensions run through install, configure, enable, disable, restart/tray, failure, and recovery journeys. Activity-provider integration remains separately sequenced in Stage 8.
+
 Status: planning document. No application code is implemented by this change. This file owns the cross-layer plan; [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) owns agent transport, tool schema, and final setup-prompt wording, and [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) owns the Display Box client and frame protocol detail.
 
 Assessed: 2026-11-15 against the shared checkout. Concurrent phone-remote and Sports work was present and is not depended on here. Re-read the cited files before implementing; symbols matter more than line numbers.

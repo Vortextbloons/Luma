@@ -50,11 +50,15 @@ fn event_url(value: &str) -> Result<tauri::Url, String> {
         .parse()
         .map_err(|_| "Invalid sports event.".to_string())?;
     if url.scheme() != "https"
-        || url.host_str() != Some("isportsurge.ws")
+        || !match url.host_str() {
+            Some("isportsurge.ws") => url.path().starts_with("/watch/") || url.path().starts_with("/event/"),
+            Some("golygoals.com") => matches!(url.path(), "/streameast.html" | "/streame.html") && url.query_pairs().any(|(key, value)| matches!(key.as_ref(), "id" | "key") && !value.is_empty()),
+            Some("streamec.st") => url.path().starts_with("/embed/ch") && url.path().ends_with(".php"),
+            _ => false,
+        }
         || url.port().is_some()
         || !url.username().is_empty()
         || url.password().is_some()
-        || !(url.path().starts_with("/watch/") || url.path().starts_with("/event/"))
     {
         return Err("Choose an event from the sports listings.".into());
     }
@@ -79,12 +83,45 @@ pub async fn sports_listing() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn sports_streameast_listing(app: AppHandle, force: Option<bool>) -> Result<serde_json::Value, String> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    static CACHE: OnceLock<std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Some((time, data)) = cache.lock().map_err(|error| error.to_string())?.as_ref() {
+        if !force.unwrap_or(false) && time.elapsed() < std::time::Duration::from_secs(60) { return Ok(data.clone()); }
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let sender = std::sync::Mutex::new(Some(sender));
+    let window = WebviewWindowBuilder::new(&app, "sports-catalog", WebviewUrl::External("https://gostreameast.one/".parse().map_err(|_| "Invalid source URL")?))
+        .visible(false).focused(false).skip_taskbar(true)
+        .initialization_script(include_str!("../../resources/sports-catalog.js"))
+        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_navigation(|url| url.scheme() == "https" && url.host_str() == Some("gostreameast.one"))
+        .on_document_title_changed(move |_, title| {
+            if let Some(data) = title.strip_prefix("LumaSportsCatalog:") {
+                if let Ok(mut sender) = sender.lock() {
+                    if let Some(sender) = sender.take() { let _ = sender.send(serde_json::from_str::<serde_json::Value>(data)); }
+                }
+            }
+        }).build().map_err(|error| error.to_string())?;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(12), receiver).await;
+    let _ = window.destroy();
+    let data = result.map_err(|_| "StreamEast took too long to load.".to_string())?
+        .map_err(|error| error.to_string())?.map_err(|error| error.to_string())?;
+    if !data.get("matches").is_some_and(serde_json::Value::is_array) { return Err("StreamEast listings could not load.".into()); }
+    *cache.lock().map_err(|error| error.to_string())? = Some((std::time::Instant::now(), data.clone()));
+    Ok(data)
+}
+
+#[tauri::command]
 pub async fn sports_open(
     app: AppHandle,
     url: String,
     source_index: usize,
     title: String,
     score: String,
+    sources: Option<Vec<String>>,
 ) -> Result<(), String> {
     static WINDOW: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     let _guard = WINDOW
@@ -92,6 +129,9 @@ pub async fn sports_open(
         .lock()
         .await;
     let url = event_url(&url)?;
+    let sources = sources.unwrap_or_else(|| vec![url.to_string()]);
+    if sources.is_empty() || sources.len() > 16 { return Err("Invalid sports source list".into()); }
+    for source in &sources { event_url(source)?; }
     if let Some(window) = app.get_webview_window("sports") {
         window.destroy().map_err(|error| error.to_string())?;
     }
@@ -104,6 +144,7 @@ pub async fn sports_open(
     let scale = main.scale_factor().map_err(|error| error.to_string())?;
     let navigation = app.clone();
     let script = format!("window.__lumaSportsSource = {source_index}; window.__lumaSportsTitle = {}; window.__lumaSportsScore = {};\n{}", serde_json::to_string(&title).map_err(|error| error.to_string())?, serde_json::to_string(&score).map_err(|error| error.to_string())?, include_str!("../../resources/sports.js"));
+    let script = format!("window.__lumaSportsUrls = {};\n{script}", serde_json::to_string(&sources).map_err(|error| error.to_string())?);
     let window = WebviewWindowBuilder::new(&app, "sports", WebviewUrl::External(url))
         .title("Luma Sports")
         .additional_browser_args(crate::BROWSER_ARGS)
@@ -124,7 +165,7 @@ pub async fn sports_open(
                 });
                 return false;
             }
-            url.scheme() == "https" && url.host_str() == Some("isportsurge.ws")
+            event_url(url.as_str()).is_ok()
         })
         .build()
         .map_err(|error| format!("The sports stream could not open: {error}"))?;
@@ -182,6 +223,9 @@ mod tests {
     fn only_source_event_pages_can_be_opened() {
         assert!(event_url("https://isportsurge.ws/watch/nba/game/123").is_ok());
         assert!(event_url("https://isportsurge.ws/event/nfl/redzone").is_ok());
+        assert!(event_url("https://golygoals.com/streameast.html?id=60157").is_ok());
+        assert!(event_url("https://streamec.st/embed/ch73.php").is_ok());
+        assert!(event_url("https://golygoals.com/advert").is_err());
         for url in [
             "http://isportsurge.ws/watch/a",
             "https://isportsurge.ws.evil.com/watch/a",

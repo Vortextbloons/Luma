@@ -182,6 +182,7 @@ pub fn run() {
             server::update_appearance,
             server::update_settings,
             sports::sports_listing,
+            sports::sports_streameast_listing,
             sports::sports_open,
             sports::sports_scoreboard,
             sports::sports_artwork,

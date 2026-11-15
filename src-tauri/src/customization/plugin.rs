@@ -343,20 +343,20 @@ pub struct PluginSnapshotEntry {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct PreparedWrite {
+pub(crate) struct PreparedWrite {
     pub base: Config,
     pub detach: Vec<Detach>,
     pub force: bool,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Detach {
+pub(crate) struct Detach {
     pub plugin: String,
     pub field: &'static str,
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum PluginAction {
+pub(crate) enum PluginAction {
     Enable { plugin_id: String, reattach: bool },
     Settings { plugin_id: String, values: BTreeMap<String, Value> },
 }
@@ -862,19 +862,15 @@ pub(super) fn prepare(
     requested: &Config,
 ) -> Result<PreparedWrite, Error> {
     document::validate(requested).map_err(|message| Error::new("validation", message))?;
-    let mut prepared = base.clone();
+    let mut prepared = requested.clone();
     let mut detach = Vec::new();
     let owners = enabled_owners(connection)?;
     let mut force = false;
     for field in FIELDS {
-        if !field_changed(effective, requested, field) {
-            if !owners.contains_key(field) {
-                prepared = copy_field(prepared, requested, field);
-            }
+        let Some(ids) = owners.get(field) else {
             continue;
-        }
-        prepared = copy_field(prepared, requested, field);
-        if let Some(ids) = owners.get(field) {
+        };
+        if field_changed(effective, requested, field) {
             for id in ids {
                 detach.push(Detach {
                     plugin: id.clone(),
@@ -882,6 +878,8 @@ pub(super) fn prepare(
                 });
                 force = true;
             }
+        } else {
+            prepared = copy_field(prepared, base, field);
         }
     }
     document::validate(&prepared).map_err(|message| Error::new("validation", message))?;
@@ -1181,10 +1179,9 @@ pub(super) fn save_settings(
             })?;
         validate_setting_value(definition, value)?;
     }
-    connection.execute("DELETE FROM plugin_settings WHERE plugin_id = ?1", [plugin_id])?;
     for (key, value) in values {
         connection.execute(
-            "INSERT INTO plugin_settings (plugin_id, key, value) VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO plugin_settings (plugin_id, key, value) VALUES (?1, ?2, ?3)",
             params![
                 plugin_id,
                 key,
@@ -2180,6 +2177,7 @@ pub(super) fn delete_package(store: &Store, plugin_id: &str, version: &str) {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct ImportOutcome {
     pub plugin: PluginRecord,
     pub already_installed: bool,
@@ -2522,3 +2520,492 @@ pub(super) fn snapshot_for_connection(
         config: apply(connection, &document.config)?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::Commit;
+    use super::*;
+    use std::io::Write;
+    use zip::{write::SimpleFileOptions, ZipWriter};
+
+    fn root() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "luma-plugin-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn store() -> (Store, PathBuf) {
+        let root = root();
+        let store = Store::from_connection_with_root(
+            Connection::open_in_memory().unwrap(),
+            Some(root.clone()),
+        )
+        .unwrap();
+        store.initialize(Config::default()).unwrap();
+        (store, root)
+    }
+
+    fn manifest(id: &str, version: &str) -> Value {
+        serde_json::json!({
+            "id": id,
+            "name": "Cinema Lounge",
+            "version": version,
+            "apiVersion": API_VERSION,
+            "description": "Warm appearance with controllable Home rows.",
+            "author": "Test",
+            "settings": [
+                {
+                    "key": "theme",
+                    "label": "Theme",
+                    "description": "Palette used by the pack.",
+                    "type": "enum",
+                    "default": "ember",
+                    "options": [
+                        { "value": "ember", "label": "Ember" },
+                        { "value": "onyx", "label": "Onyx" }
+                    ]
+                },
+                {
+                    "key": "showFeatured",
+                    "label": "Show featured",
+                    "type": "boolean",
+                    "default": true
+                },
+                {
+                    "key": "columns",
+                    "label": "Columns",
+                    "type": "number",
+                    "default": 2,
+                    "min": 1,
+                    "max": 2,
+                    "integer": true
+                },
+                {
+                    "key": "label",
+                    "label": "Label",
+                    "type": "string",
+                    "default": "Home",
+                    "maxLength": 20
+                }
+            ],
+            "contributes": {
+                "theme": { "setting": "theme" },
+                "homeColumns": { "setting": "columns" },
+                "home": {
+                    "rows": {
+                        "featured": { "visible": { "setting": "showFeatured" } }
+                    }
+                }
+            },
+            "runtime": { "kind": "declarative" },
+            "assets": [],
+            "source": []
+        })
+    }
+
+    fn submission(id: &str, version: &str) -> Value {
+        serde_json::json!({ "manifest": manifest(id, version), "files": [] })
+    }
+
+    fn stage(store: &Store, id: &str, version: &str) -> PluginRecord {
+        stage_submission(store, &submission(id, version), "mcp")
+            .unwrap()
+            .plugin
+    }
+
+    fn enable(store: &Store, id: &str) -> Document {
+        let revision = store.read().unwrap().unwrap().revision;
+        let preview = store.preview_plugin(id, revision).unwrap();
+        assert!(preview.config.theme == "ember" || preview.config.home_columns == 2);
+        store.keep(&preview.id).unwrap()
+    }
+
+    fn map(value: Value) -> Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn staged_plugins_are_disabled_and_have_no_activation_tool() {
+        let (store, _root) = store();
+        let record = stage(&store, "com.example.lounge", "1.0.0");
+        assert!(!record.enabled);
+        assert!(record.can_enable);
+        assert!(record.controls.contains(&"theme".into()));
+        assert_eq!(record.settings.len(), 4);
+        assert_eq!(record.settings[0].value, serde_json::json!("ember"));
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config, Config::default());
+        for name in [
+            "luma_plugin_enable",
+            "luma_plugin_keep",
+            "luma_plugin_disable",
+            "luma_plugin_remove",
+            "luma_plugin_export",
+        ] {
+            assert!(!super::super::mcp::known_tool_for_test(name));
+        }
+        assert!(super::super::mcp::known_tool_for_test("luma_plugin_stage"));
+        assert!(super::super::mcp::known_tool_for_test("luma_plugin_settings_stage"));
+    }
+
+    #[test]
+    fn enable_disable_and_settings_preserve_the_underlying_configuration() {
+        let (store, _root) = store();
+        let original = store.read().unwrap().unwrap();
+        stage(&store, "com.example.lounge", "1.0.0");
+        let enabled = enable(&store, "com.example.lounge");
+        assert!(enabled.revision > original.revision);
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "ember");
+        assert_eq!(effective.config.home_columns, 2);
+        assert!(effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.lounge",
+            revision,
+            map(serde_json::json!({ "showFeatured": false, "columns": 1, "theme": "onyx" })),
+        )
+        .unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "onyx");
+        assert_eq!(effective.config.home_columns, 1);
+        assert!(!effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.lounge", revision).unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config, original.config);
+        let state = state_for_store(&store);
+        assert!(!state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+    }
+
+    fn state_for_store(store: &Store) -> PluginsState {
+        let document = store.read().unwrap().unwrap();
+        let connection = store.connection().unwrap();
+        state(&connection, &document.config).unwrap()
+    }
+
+    #[test]
+    fn manual_edits_detach_only_the_changed_field_and_keep_the_plugin_enabled() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let mut requested = store.read_effective().unwrap().unwrap().config;
+        requested.theme = "sapphire".into();
+        let revision = store.read().unwrap().unwrap().revision;
+        let document = store
+            .commit(Commit {
+                expected_revision: revision,
+                config: requested,
+            })
+            .unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "sapphire");
+        assert_eq!(effective.config.home_columns, 2);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert!(!state.plugins[0].controls.contains(&"theme".into()));
+        assert!(state.plugins[0].controls.contains(&"homeColumns".into()));
+        assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
+        assert_eq!(document.config.theme, "sapphire");
+    }
+
+    #[test]
+    fn conflicting_enabled_field_ownership_is_rejected_explicitly() {
+        let (store, _root) = store();
+        stage(&store, "com.example.one", "1.0.0");
+        let mut second = manifest("com.example.two", "1.0.0");
+        second["name"] = serde_json::json!("Second Lounge");
+        stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": second, "files": [] }),
+            "mcp",
+        )
+        .unwrap();
+        enable(&store, "com.example.one");
+        let revision = store.read().unwrap().unwrap().revision;
+        let error = store
+            .preview_plugin("com.example.two", revision)
+            .unwrap_err();
+        assert_eq!(error.code, "plugin_conflict");
+        let state = state_for_store(&store);
+        let second = state.plugins.iter().find(|plugin| plugin.id == "com.example.two").unwrap();
+        assert!(!second.enabled);
+        assert!(!second.conflicts.is_empty());
+    }
+
+    #[test]
+    fn unsupported_runtime_packages_install_disabled_and_cannot_enable() {
+        let (store, _root) = store();
+        let mut code = manifest("com.example.code", "1.0.0");
+        code["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "source/main.js" });
+        let outcome = stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": code,
+                "files": [{ "path": "source/main.js", "text": "console.log('not run')" }]
+            }),
+            "mcp",
+        )
+        .unwrap();
+        assert!(!outcome.plugin.enabled);
+        assert!(outcome.plugin.executable);
+        assert!(!outcome.plugin.can_enable);
+        assert!(outcome.plugin.execution_reason.as_deref().unwrap().contains("cannot be enabled"));
+        let revision = store.read().unwrap().unwrap().revision;
+        let error = store.preview_plugin("com.example.code", revision).unwrap_err();
+        assert_eq!(error.code, "plugin_unsupported");
+    }
+
+    #[test]
+    fn mcp_settings_stage_uses_the_same_values_and_requires_keep() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let revision = store.read().unwrap().unwrap().revision;
+        let values = BTreeMap::from([("showFeatured".to_string(), serde_json::json!(false))]);
+        let preview = store
+            .preview_plugin_settings("com.example.lounge", revision, &values)
+            .unwrap();
+        assert_eq!(preview.plugin.as_ref().unwrap().action, "settings");
+        assert!(!preview.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert_eq!(
+            store.read_effective().unwrap().unwrap().config,
+            preview.config.clone()
+        );
+        let kept = store.keep(&preview.id).unwrap();
+        assert_eq!(kept.revision, revision + 1);
+        let state = state_for_store(&store);
+        assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
+    }
+
+    #[test]
+    fn plugin_state_and_settings_survive_reopening_storage() {
+        let root = root();
+        let path = root.join("customization.sqlite3");
+        let revision;
+        {
+            let store =
+                Store::from_connection_with_root(Connection::open(&path).unwrap(), Some(root.clone()))
+                    .unwrap();
+            store.initialize(Config::default()).unwrap();
+            stage(&store, "com.example.lounge", "1.0.0");
+            enable(&store, "com.example.lounge");
+            revision = store.read().unwrap().unwrap().revision;
+            command_save_settings(
+                &store,
+                "com.example.lounge",
+                revision,
+                map(serde_json::json!({ "showFeatured": false })),
+            )
+            .unwrap();
+        }
+        let store =
+            Store::from_connection_with_root(Connection::open(&path).unwrap(), Some(root.clone()))
+                .unwrap();
+        let document = store.read_effective().unwrap().unwrap();
+        assert!(document.revision > revision);
+        assert_eq!(document.config.theme, "ember");
+        assert!(!document.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
+    }
+
+    #[test]
+    fn history_restore_restores_enabled_state_settings_and_detach_state() {
+        let (store, _root) = store();
+        let first = store.read().unwrap().unwrap();
+        stage(&store, "com.example.lounge", "1.0.0");
+        let enabled = enable(&store, "com.example.lounge");
+        assert!(enabled.revision > first.revision);
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.lounge",
+            revision,
+            map(serde_json::json!({ "showFeatured": false })),
+        )
+        .unwrap();
+        let current = store.read().unwrap().unwrap();
+        let (restored, notices) = store
+            .restore_version(current.revision, first.revision)
+            .unwrap();
+        assert_eq!(restored.config, first.config);
+        assert!(notices.is_empty());
+        let state = state_for_store(&store);
+        assert!(state.plugins.is_empty() || !state.plugins[0].enabled);
+        let (restored, _) = store
+            .restore_version(restored.revision, enabled.revision)
+            .unwrap();
+        assert_eq!(restored.config, enabled.config);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(true));
+    }
+
+    #[test]
+    fn reset_appearance_detaches_plugin_controls_and_keeps_settings() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.lounge",
+            revision,
+            map(serde_json::json!({ "showFeatured": false, "theme": "onyx" })),
+        )
+        .unwrap();
+        let revision = store.read().unwrap().unwrap().revision;
+        store.reset_appearance(revision).unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config, Config::default());
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
+        assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
+        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+    }
+
+    #[test]
+    fn removal_stops_contributions_and_missing_history_packages_do_not_look_enabled() {
+        let (store, root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        let enabled = enable(&store, "com.example.lounge");
+        let revision = store.read().unwrap().unwrap().revision;
+        command_remove(&store, "com.example.lounge", revision).unwrap();
+        assert_eq!(store.read_effective().unwrap().unwrap().config, Config::default());
+        assert!(!root.join("com.example.lounge").join("1.0.0").exists());
+        let (restored, notices) = store
+            .restore_version(revision, enabled.revision)
+            .unwrap();
+        assert_eq!(restored.config, enabled.config);
+        assert!(!notices.is_empty());
+        assert!(state_for_store(&store).plugins.is_empty());
+    }
+
+    #[test]
+    fn archive_roundtrip_export_is_private_and_immutable() {
+        let (store, _root) = store();
+        let manifest_json = manifest("com.example.archive", "1.0.0");
+        let manifest: Manifest = serde_json::from_value(manifest_json.clone()).unwrap();
+        let files = BTreeMap::from([
+            ("source/README.md".to_string(), b"Read me".to_vec()),
+            ("assets/theme.txt".to_string(), b"ember".to_vec()),
+        ]);
+        let mut declared = manifest_json;
+        declared["source"] = serde_json::json!(["source/README.md"]);
+        declared["assets"] = serde_json::json!(["assets/theme.txt"]);
+        let manifest: Manifest = serde_json::from_value(declared).unwrap();
+        let bytes = archive::write(&manifest, &files).unwrap();
+        let first = import_archive(&store, &bytes, "import").unwrap();
+        assert!(!first.plugin.enabled);
+        let second = import_archive(&store, &bytes, "import").unwrap();
+        assert!(second.already_installed);
+        let (name, exported) = export_archive(&store, "com.example.archive").unwrap();
+        assert_eq!(name, "com.example.archive-1.0.0.luma-extension.zip");
+        let package = archive::read(&exported).unwrap();
+        assert_eq!(package.files, files);
+        assert_eq!(package.manifest.id, "com.example.archive");
+        assert!(!String::from_utf8_lossy(&exported).contains("customization.sqlite3"));
+        assert!(!String::from_utf8_lossy(&exported).contains("Users\\"));
+        let mut changed = manifest;
+        changed.name = "Changed".into();
+        let changed_bytes = archive::write(&changed, &files).unwrap();
+        assert_eq!(
+            import_archive(&store, &changed_bytes, "import").unwrap_err().code,
+            "immutable_version"
+        );
+    }
+
+    fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in entries {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn archive_validation_rejects_traversal_windows_paths_duplicates_and_symlinks() {
+        let manifest = serde_json::to_vec(&manifest("com.example.bad", "1.0.0")).unwrap();
+        assert!(archive::read(&zip_bytes(&[
+            ("luma-extension.json", manifest.as_slice()),
+            ("../evil.txt", b"x"),
+        ]))
+        .is_err());
+        assert!(archive::read(&zip_bytes(&[
+            ("luma-extension.json", manifest.as_slice()),
+            ("folder\\evil.txt", b"x"),
+        ]))
+        .is_err());
+        assert!(archive::read(&zip_bytes(&[
+            ("luma-extension.json", manifest.as_slice()),
+            ("A.txt", b"a"),
+            ("a.txt", b"b"),
+        ]))
+        .is_err());
+        let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file("luma-extension.json", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&manifest).unwrap();
+        writer
+            .add_symlink("link.txt", "target.txt", SimpleFileOptions::default())
+            .unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+        assert!(archive::read(&bytes).is_err());
+    }
+
+    #[test]
+    fn archive_validation_rejects_missing_declared_files_and_compression_bombs() {
+        let mut declared = manifest("com.example.missing", "1.0.0");
+        declared["assets"] = serde_json::json!(["assets/icon.png"]);
+        let missing_manifest = serde_json::to_vec(&declared).unwrap();
+        assert!(archive::read(&zip_bytes(&[("luma-extension.json", missing_manifest.as_slice())])).is_err());
+
+        let mut bomb = manifest("com.example.bomb", "1.0.0");
+        bomb["source"] = serde_json::json!(["source/big.txt"]);
+        let bomb_manifest = serde_json::to_vec(&bomb).unwrap();
+        let big = vec![b'a'; 4 * 1024 * 1024];
+        let bytes = zip_bytes(&[
+            ("luma-extension.json", bomb_manifest.as_slice()),
+            ("source/big.txt", big.as_slice()),
+        ]);
+        assert!(archive::read(&bytes).is_err());
+    }
+
+    #[test]
+    fn failed_update_leaves_the_previous_enabled_package_intact() {
+        let (store, root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let before = store.read_effective().unwrap().unwrap();
+        let mut bad = manifest("com.example.lounge", "1.1.0");
+        bad["assets"] = serde_json::json!(["assets/missing.png"]);
+        let bytes = archive::write(
+            &serde_json::from_value(bad).unwrap(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(import_archive(&store, &bytes, "import").is_err());
+        let after = store.read_effective().unwrap().unwrap();
+        assert_eq!(after.config, before.config);
+        assert!(state_for_store(&store).plugins[0].enabled);
+        assert!(root.join("com.example.lounge").join("1.0.0").is_dir());
+    }
+}
+

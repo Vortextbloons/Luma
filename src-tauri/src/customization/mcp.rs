@@ -29,7 +29,7 @@ const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
 const METHOD_HEADER: &str = "mcp-method";
 const NAME_HEADER: &str = "mcp-name";
-const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; executable runtimes are not supported in this Luma version. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. The user must open Luma > Settings > Plugins and press Preview and enable, then Keep. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
+const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; executable runtimes are not supported in this Luma version. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. The user must open Luma > Settings > Plugins and press Preview and enable, then press Keep. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
 const THEMES: [&str; 6] = [
     "violet-night",
@@ -1102,6 +1102,11 @@ fn known_tool(name: &str) -> bool {
     )
 }
 
+#[cfg(test)]
+pub(crate) fn known_tool_for_test(name: &str) -> bool {
+    known_tool(name)
+}
+
 fn unknown_tool_message(name: &str) -> String {
     format!(
         "Unknown tool: {name}. Luma exposes only discover, read, validate, preview, plugin validation, disabled plugin staging, plugin settings staging, candidate status, candidate cancellation, and service status. It never exposes enable, keep, commit, disable, remove, export, restore, reset, launch, install-active, or execute. Ask the user to perform those actions in Luma."
@@ -1246,7 +1251,7 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                 Ok(arguments) => arguments,
                 Err(error) => return tool_protocol_error(format!("Invalid arguments: {error}")),
             };
-            let mut state = match server.backend.plugins().await {
+            let state = match server.backend.plugins().await {
                 Ok(state) => state,
                 Err(error) => return tool_failure(error),
             };
@@ -1948,19 +1953,24 @@ fn capabilities() -> Value {
         "tools": tool_summaries,
         "resources": [
             "luma://customization/capabilities",
-            "luma://customization/guidance"
+            "luma://customization/guidance",
+            plugin::SCHEMA_RESOURCE,
+            plugin::EXAMPLE_RESOURCE
         ],
         "review": {
-            "keep": "The user must press Keep in Luma. No MCP tool can keep, commit, restore, reset, launch, or install.",
+            "keep": "The user must press Keep in Luma. No MCP tool can keep, enable, commit, restore, reset, launch, or install-active.",
             "previewRequiresVisibleLauncher": true,
             "readsWorkInTray": true,
-            "agentCanCancelOnlyOwnPreview": true
+            "agentCanCancelOnlyOwnPreview": true,
+            "pluginStage": "Installs disabled only.",
+            "pluginSettingsStage": "Requires user Keep."
         },
         "unavailable": [
             "Seeing or committing without user Keep.",
+            "Enabling, keeping, disabling, removing, or exporting a plugin.",
             "Restoring history or resetting appearance.",
             "Launching apps, changing app paths, or reading account credentials.",
-            "Installing, activating, or configuring executable extensions.",
+            "Running executable plugin source, scripts, HTML, or native code.",
             "Custom screens."
         ]
     })
@@ -1982,6 +1992,20 @@ fn resource_list() -> Value {
                 "title": "Luma customization guidance",
                 "description": "Worked read, validate, preview, and review examples with the rules an agent must not break.",
                 "mimeType": "text/markdown"
+            },
+            {
+                "uri": plugin::SCHEMA_RESOURCE,
+                "name": "Luma plugin schema",
+                "title": "Luma plugin schema",
+                "description": "Exact declarative plugin manifest, settings binding, contribution, runtime, and limit contract.",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": plugin::EXAMPLE_RESOURCE,
+                "name": "Luma plugin example",
+                "title": "Luma plugin example",
+                "description": "A complete declarative manifest with enum, boolean, and number settings bound to appearance and Home contributions.",
+                "mimeType": "application/json"
             }
         ]
     })
@@ -1994,20 +2018,38 @@ fn read_resource(uri: &str) -> Result<(&'static str, String), String> {
             serde_json::to_string_pretty(&capabilities()).unwrap_or_else(|_| "{}".into()),
         )),
         "luma://customization/guidance" => Ok(("text/markdown", guidance().into())),
+        plugin::SCHEMA_RESOURCE => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&plugin::schema_document())
+                .unwrap_or_else(|_| "{}".into()),
+        )),
+        plugin::EXAMPLE_RESOURCE => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&plugin::example_manifest())
+                .unwrap_or_else(|_| "{}".into()),
+        )),
         _ => Err(format!("Resource not found: {uri}.")),
     }
 }
 
 fn guidance() -> &'static str {
     "# Luma customization guidance\n\n\
-Luma is a Windows TV launcher. Use MCP to inspect the committed customization, validate a complete candidate, and stage it for the user to review.\n\n\
+Luma is a Windows TV launcher. Use MCP to inspect the committed customization, validate a complete candidate, and stage it for the user to review. Appearance and Home are part of the built-in appearance plugin in Luma; external declarative plugins can override those fields.\n\n\
 ## Required flow\n\n\
-1. Call `luma_capabilities_get` and read `luma://customization/guidance`.\n\
+1. Call `luma_capabilities_get`, `luma_plugins_list`, and read `luma://plugins/schema` and `luma://plugins/example`.\n\
 2. Call `luma_config_get` and keep its `revision`.\n\
-3. Build a complete configuration, not a patch.\n\
+3. For a configuration change, build a complete effective configuration, not a patch.\n\
 4. Call `luma_candidate_validate` with `expectedRevision` and `config`.\n\
 5. If it is valid, call `luma_candidate_preview` with the same `expectedRevision` and `config`.\n\
 6. Tell the user that the change is waiting in Luma and that they must press Keep. Stop there.\n\n\
+## Authoring a declarative plugin\n\n\
+1. Write `luma-extension.json` with a stable id, `major.minor.patch` version, `apiVersion: 1`, bounded settings, and declarative contributions. Use only `runtime.kind: \"declarative\"` for an enableable plugin.\n\
+2. Put package-relative source and assets in `files`; never use absolute paths, `..`, backslashes, symlinks, credentials, or machine paths.\n\
+3. Call `luma_plugin_validate` with `manifest` and optional `files` (`text` or `base64`).\n\
+4. Call `luma_plugin_stage` with the same submission. Luma installs it disabled.\n\
+5. Tell the user to open Luma > Settings > Plugins > Installed plugins and press Preview and enable, then Keep. No MCP tool can enable it.\n\n\
+## Plugin settings\n\n\
+A manifest can declare boolean, enum, number, or string settings with validated defaults. Bind settings to supported fields, for example `theme: {\"setting\":\"theme\"}`, `homeColumns: {\"setting\":\"columns\"}`, or `home.rows.featured.visible: {\"setting\":\"showFeatured\"}`. Stage new values with `luma_plugin_settings_stage`; the user must press Keep. Settings for disabled plugins remain stored and apply again when the plugin is enabled.\n\n\
 ## Examples\n\n\
 ### Change the theme\n\n\
 Read the current document. Change only `config.theme` to a value listed by `luma_capabilities_get`. Keep every other field unchanged, including the full `home` array and `order`. Validate and preview the complete document.\n\n\
@@ -2017,11 +2059,12 @@ Read the current document. Reorder `config.home` while keeping exactly one row f
 Read the current document. Reorder `config.order` so every app appears exactly once and `Custom` remains last. Validate and preview the complete document.\n\n\
 ## Rules\n\n\
 - Preview requires the Luma launcher to be open and visible. If it is in the tray, ask the user to open Luma.\n\
-- Keep is a user action in Luma. The MCP tools cannot keep, commit, restore, reset, launch, or install anything.\n\
+- Keep is a user action in Luma. The MCP tools cannot keep, enable, disable, remove, export, commit, restore, reset, launch, or execute anything.\n\
 - A preview creates one pending review. If another review is already pending, ask the user to Keep or Reject it before staging another.\n\
 - Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.\n\
 - Revoking or rotating access stops the next request and cancels this grant's pending preview.\n\
 - Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.\n\
+- Executable plugin runtimes are not supported. Packages may include source for future use, but they are installed disabled and cannot be enabled.\n\
 - Do not ask for or print tokens, passwords, pairing codes, or account credentials. Luma never returns them through these tools.\n"
 }
 
@@ -2117,6 +2160,9 @@ mod tests {
                 id: "manual".into(),
                 base_revision: 1,
                 config,
+                plugin: None,
+                prepared: None,
+                plugin_action: None,
             });
         }
 
@@ -2172,6 +2218,9 @@ mod tests {
                 id: format!("preview-{}", state.next),
                 base_revision: current_revision,
                 config: request.config,
+                plugin: None,
+                prepared: None,
+                plugin_action: None,
             };
             state.preview = Some(preview.clone());
             Ok(preview)
@@ -2218,6 +2267,50 @@ mod tests {
 
         fn launcher_visible<'a>(&'a self) -> BackendFuture<'a, bool> {
             Box::pin(async move { Ok(self.visible.load(Ordering::SeqCst)) })
+        }
+
+        fn plugins<'a>(&'a self) -> BackendFuture<'a, plugin::PluginsState> {
+            Box::pin(async move {
+                let config = self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .document
+                    .as_ref()
+                    .map(|document| document.config.clone())
+                    .unwrap_or_default();
+                Ok(plugin::PluginsState {
+                    plugins: Vec::new(),
+                    effective: config,
+                })
+            })
+        }
+
+        fn validate_plugin<'a>(&'a self, _submission: Value) -> BackendFuture<'a, Value> {
+            Box::pin(async move { Ok(json!({ "valid": true })) })
+        }
+
+        fn stage_plugin<'a>(&'a self, _submission: Value) -> BackendFuture<'a, plugin::ImportResult> {
+            Box::pin(async move {
+                Err(failure(
+                    "storage",
+                    "The test backend does not have plugin storage.",
+                ))
+            })
+        }
+
+        fn stage_plugin_settings<'a>(
+            &'a self,
+            _plugin_id: String,
+            _expected_revision: u64,
+            _values: BTreeMap<String, Value>,
+        ) -> BackendFuture<'a, Preview> {
+            Box::pin(async move {
+                Err(failure(
+                    "storage",
+                    "The test backend does not have plugin storage.",
+                ))
+            })
         }
     }
 
@@ -2894,13 +2987,17 @@ mod tests {
             "luma_reset",
             "luma_launch",
             "luma_extension_install",
+            "luma_plugin_enable",
+            "luma_plugin_keep",
+            "luma_plugin_remove",
+            "luma_plugin_export",
         ] {
             let response = call_rpc(port, AUTH, name, json!({}));
             assert_eq!(response["error"]["code"], -32602);
             assert!(response["error"]["message"]
                 .as_str()
                 .unwrap()
-                .contains("never exposes keep"));
+                .contains("never exposes"));
             assert!(response["result"].is_null());
         }
         assert!(backend.preview().is_none());

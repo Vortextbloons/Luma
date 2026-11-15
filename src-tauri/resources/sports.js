@@ -2,7 +2,15 @@
   if (window.__lumaSportsReady || location.protocol !== 'https:') return;
   window.__lumaSportsReady = true;
   const main = window.top === window;
-  if (main && location.hostname !== 'isportsurge.ws') return;
+  if (main && !['isportsurge.ws', 'golygoals.com', 'streamec.st'].includes(location.hostname)) return;
+  const direct = main && location.hostname !== 'isportsurge.ws';
+  const plans = window.__lumaSportsUrls || [];
+  const planIndex = Math.min(Math.max(0, Number((location.hash || '').match(/luma-plan=(\d+)/)?.[1]) || 0), Math.max(0, plans.length - 1));
+  const nextPlan = () => {
+    if (planIndex + 1 >= plans.length) return false;
+    location.href = plans[planIndex + 1] + '#luma-plan=' + (planIndex + 1);
+    return true;
+  };
   const channel = 'luma-sports-player-v1';
   const id = crypto.randomUUID();
   let video = null;
@@ -63,12 +71,18 @@
       parent = parent.parentElement;
     }
   };
+  const providerPlay = () => document.querySelectorAll('button[data-playpause], .play-wrapper[data-poster]')[0];
+  const play = async () => {
+    const control = !video.currentSrc && providerPlay();
+    if (control) control.click();
+    else await video.play();
+  };
   const command = async payload => {
     if (payload.target === id && video) {
       try {
         const [start, end] = range(video);
         if (payload.action === 'toggle') {
-          if (video.paused) await video.play(); else video.pause();
+          if (video.paused) await play(); else video.pause();
         } else if (payload.action === 'live') video.currentTime = Math.max(start, end - 1);
         else if (payload.action === 'seek' && Number.isFinite(payload.position)) video.currentTime = Math.max(start, Math.min(end, start + payload.position));
         else if (payload.action === 'previous' || payload.action === 'next') video.currentTime = Math.max(start, Math.min(end, video.currentTime + (payload.action === 'next' ? 10 : -10)));
@@ -131,7 +145,7 @@
     if (!payload || payload.channel !== channel) return;
     if (!main && event.source === window.parent && payload.type === 'command') { void command(payload); return; }
     const child = frames().find(candidate => candidate.contentWindow === event.source);
-    if (!child || (main && child.id !== 'cx-iframe') || !['state', 'return', 'key', 'play-error'].includes(payload.type)) return;
+    if (!child || (main && child.id !== 'cx-iframe' && (!direct || child !== frame)) || !['state', 'return', 'key', 'play-error'].includes(payload.type)) return;
     if (payload.type === 'state' && payload.area > 0) fill(child);
     publish(payload);
   });
@@ -139,6 +153,7 @@
     if (started) return;
     const next = sourceButtons.findIndex((_, index) => !attempted.has(index));
     if (next < 0) {
+      if (nextPlan()) return;
       show('None of this game’s sources started. The broadcast may be offline or not live yet. Try again or return to Sports.');
       reveal();
       return;
@@ -148,7 +163,8 @@
   };
   const selectSource = () => {
     sourceButtons = [...document.querySelectorAll('[id^="stream-btn-"]')];
-    if (!sourceButtons.length) { show('No sources are available for this event. Return to Sports and refresh.'); return; }
+    if (direct) sourceButtons = [{ id: location.pathname + location.search, click() {} }];
+    if (!sourceButtons.length) { if (nextPlan()) return; show('No sources are available for this event. Return to Sports and refresh.'); return; }
     if (!attempted.size && !source) {
       const saved = remembered[location.pathname];
       const preferred = saved && Date.now() - saved.at < 86400000 ? sourceButtons.findIndex(button => button.id === saved.id) : -1;
@@ -188,7 +204,7 @@
       message.id = 'luma-sports-message';
       message.setAttribute('role', 'status');
       const footer = document.createElement('footer');
-      for (const [label, action] of [['Back to Sports', () => { location.href = 'https://isportsurge.ws/__luma_close__'; }], ['Rewind 10s', () => act('previous')], ['Play', () => act('toggle')], ['Forward 10s', () => act('next')], ['Go live', () => act('live')], ['Try another source', () => { attempted.clear(); source++; selectSource(); }]]) {
+      for (const [label, action] of [['Back to Sports', () => { location.href = 'https://isportsurge.ws/__luma_close__'; }], ['Rewind 10s', () => act('previous')], ['Play', () => act('toggle')], ['Forward 10s', () => act('next')], ['Go live', () => act('live')], ['Try another source', () => { if (direct && nextPlan()) return; attempted.clear(); source++; selectSource(); }]]) {
         const button = document.createElement('button');
         button.textContent = label;
         button.addEventListener('click', action);
@@ -223,7 +239,9 @@
       selectSource();
     }
     const seen = new WeakSet();
+    const initialized = new WeakSet();
     const observe = () => {
+      if (direct && !video) { const embeds = frames().filter(child => child.getAttribute('src')); embeds.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight); if (embeds[0]) fill(embeds[0]); }
       const videos = [...document.querySelectorAll('video')];
       videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight);
       if (videos[0] && videos[0] !== video) {
@@ -236,7 +254,11 @@
         seen.add(media);
         for (const event of ['loadedmetadata', 'playing', 'pause', 'waiting', 'error', 'seeked', 'durationchange']) media.addEventListener(event, report);
         media.addEventListener('timeupdate', () => { if (Date.now() - lastReport >= 1000) { lastReport = Date.now(); report(); } });
-        media.play().catch(() => publish({ type: 'play-error', id }));
+        if (media.currentSrc) media.play().catch(() => publish({ type: 'play-error', id }));
+      }
+      if (video && !video.currentSrc && !initialized.has(video) && providerPlay()) {
+        initialized.add(video);
+        void play().catch(() => publish({ type: 'play-error', id }));
       }
       report();
     };

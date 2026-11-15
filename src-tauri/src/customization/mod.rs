@@ -96,6 +96,7 @@ impl Store {
         .map_err(|error| error.message)
     }
 
+    #[cfg(test)]
     fn from_connection(connection: Connection) -> Result<Self, Error> {
         Self::from_connection_with_root(connection, None)
     }
@@ -378,8 +379,10 @@ impl Store {
         }
         let previous = history::previous_entry(&transaction, current.revision)?
             .ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?;
+        let before = plugin::snapshot(&transaction)?;
         plugin::restore_snapshot(&transaction, &previous.plugins)?;
-        let document = Self::write(&transaction, &current, previous.config, true)?;
+        let after = plugin::snapshot(&transaction)?;
+        let document = Self::write(&transaction, &current, previous.config, before != after)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -412,7 +415,7 @@ impl Store {
         requested.home_columns = previous.config.home_columns;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -441,8 +444,10 @@ impl Store {
         let selected = history::find_entry(&transaction, revision)?.ok_or_else(|| {
             Error::new("no_version", "That saved version is no longer available.")
         })?;
+        let before = plugin::snapshot(&transaction)?;
         let notices = plugin::restore_snapshot(&transaction, &selected.plugins)?;
-        let document = Self::write(&transaction, &current, selected.config, true)?;
+        let after = plugin::snapshot(&transaction)?;
+        let document = Self::write(&transaction, &current, selected.config, before != after)?;
         transaction.commit()?;
         *preview = None;
         Ok((document, notices))
@@ -477,7 +482,7 @@ impl Store {
         requested.widgets = defaults.widgets;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -687,7 +692,7 @@ impl Store {
             ));
         }
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -1204,7 +1209,8 @@ mod tests {
         );
         let restored = store
             .restore_version(third.revision, first.revision)
-            .unwrap();
+            .unwrap()
+            .0;
         assert_eq!(restored.revision, 4);
         assert_eq!(restored.config, first.config);
         let history = store.history().unwrap();
@@ -1219,7 +1225,8 @@ mod tests {
         assert_eq!(history[1].config, third.config);
         let reverted = store
             .restore_version(restored.revision, third.revision)
-            .unwrap();
+            .unwrap()
+            .0;
         assert_eq!(reverted.config, third.config);
         assert_eq!(store.history().unwrap().len(), 5);
     }
@@ -1533,6 +1540,7 @@ mod tests {
         let store = Store(
             Err("Cannot open customization database".into()),
             Mutex::new(None),
+            None,
         );
         assert_eq!(store.read().unwrap_err().code, "storage");
         assert_eq!(

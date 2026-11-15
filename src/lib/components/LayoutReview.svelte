@@ -1,12 +1,22 @@
 <script lang="ts">
-  let { busy, editing, keep, cancel, error = '' }: { busy: boolean; editing: boolean; keep: () => void; cancel: () => void; error?: string } = $props();
+  let { busy, editing, keep, cancel, error = '', plugin = null }: { busy: boolean; editing: boolean; keep: () => void; cancel: () => void; error?: string; plugin?: { id: string; name: string; action: string } | null } = $props();
   function mount(element: HTMLElement) { element.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true }); }
+  const title = $derived(plugin ? `Previewing ${plugin.name}` : 'Previewing your layout');
+  const description = $derived(plugin
+    ? plugin.action === 'settings'
+      ? 'These plugin settings are not saved until you press Keep.'
+      : plugin.action === 'reattach'
+        ? 'The plugin controls are not restored until you press Keep.'
+        : 'This plugin is not enabled until you press Keep.'
+    : 'Your saved layout is unchanged until you keep this preview.');
+  const keepLabel = $derived(busy ? 'Please wait…' : plugin ? plugin.action === 'settings' ? 'Keep settings' : plugin.action === 'reattach' ? 'Keep and restore' : 'Keep and enable' : 'Keep layout');
+  const cancelLabel = $derived(plugin ? 'Back to Plugins' : editing ? 'Back to editor' : 'Cancel preview');
 </script>
 
-<section class="layout-review" aria-label="Layout preview" {@attach mount}>
-  <div><strong>Previewing your layout</strong><span>Your saved layout is unchanged until you keep this preview.</span>{#if error}<p role="alert">{error}</p>{/if}</div>
-  <button class="panel-secondary is-primary" disabled={busy} onclick={keep}>{busy ? 'Please wait…' : 'Keep layout'}</button>
-  <button class="panel-secondary" disabled={busy} onclick={cancel}>{editing ? 'Back to editor' : 'Cancel preview'}</button>
+<section class="layout-review" aria-label={plugin ? 'Plugin preview' : 'Layout preview'} {@attach mount}>
+  <div><strong>{title}</strong><span>{description}</span>{#if error}<p role="alert">{error}</p>{/if}</div>
+  <button class="panel-secondary is-primary" disabled={busy} onclick={keep}>{keepLabel}</button>
+  <button class="panel-secondary" disabled={busy} onclick={cancel}>{cancelLabel}</button>
 </section>
 
 <style>
