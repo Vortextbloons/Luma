@@ -309,9 +309,6 @@
     if (native) void setFastAppSwitch(settings.fastAppSwitch).catch(error => message = String(error));
   });
   $effect(() => {
-    if (native) void getCurrentWindow().setFullscreen(settings.fullscreen).catch(error => message = String(error));
-  });
-  $effect(() => {
     if (!native) return;
     invoke('update_appearance', { appearance: appearanceFor(theme) }).catch(() => {});
   });

@@ -34,25 +34,16 @@ test('ordinary settings expose sections, kinds, and values for every surface', (
   assert.ok(keys.includes('textSize'));
   assert.ok(keys.includes('reducedMotion'));
   assert.ok(keys.includes('homeColumns'));
-  assert.ok(keys.includes('fullscreen'));
-  assert.ok(keys.includes('fastAppSwitch'));
   assert.equal(remote.find(choice => choice.key === 'reducedMotion').kind, 'toggle');
   assert.equal(remote.find(choice => choice.key === 'reducedMotion').value, 'false');
   assert.equal(remote.find(choice => choice.key === 'homeColumns').value, '1');
-  assert.equal(remote.find(choice => choice.key === 'fullscreen').value, 'false');
   assert.ok(remote.every(choice => choice.section && choice.options.length > 0));
 });
 
 test('remote-only settings round-trip through the same contract', () => {
   const value = settings();
-  assert.equal(applyRemoteSetting(value, { key: 'fullscreen', value: 'true' }), true);
-  assert.equal(value.fullscreen, true);
-  assert.equal(applyRemoteSetting(value, { key: 'fastAppSwitch', value: 'false' }), true);
-  assert.equal(value.fastAppSwitch, false);
   assert.equal(applyRemoteSetting(value, { key: 'homeColumns', value: '2' }), true);
   assert.equal(value.homeColumns, 2);
-  assert.equal(applyRemoteSetting(value, { key: 'fullscreen', value: 'yes' }), false);
-  assert.equal(value.fullscreen, true);
   assert.equal(applyRemoteSetting(value, { key: 'homeColumns', value: '3' }), false);
   assert.equal(value.homeColumns, 2);
 });

@@ -46,16 +46,6 @@ export function applySettingValue(settings: Settings, key: string, value: string
   return true;
 }
 export function applyRemoteSetting(settings: Settings, patch: { key: string; value: string }) {
-  if (patch.key === 'fullscreen') {
-    if (patch.value !== 'true' && patch.value !== 'false') return false;
-    settings.fullscreen = patch.value === 'true';
-    return true;
-  }
-  if (patch.key === 'fastAppSwitch') {
-    if (patch.value !== 'true' && patch.value !== 'false') return false;
-    settings.fastAppSwitch = patch.value === 'true';
-    return true;
-  }
   if (patch.key === 'homeColumns') {
     if (patch.value !== '1' && patch.value !== '2') return false;
     settings.homeColumns = patch.value === '2' ? 2 : 1;
@@ -78,26 +68,6 @@ export function remoteSettings(settings: Settings): RemoteSettingChoice[] {
       description: 'One or two columns of rows on Home.',
       options: [{ value: '1', label: 'One column' }, { value: '2', label: 'Two columns' }],
       value: String(settings.homeColumns),
-    },
-    {
-      key: 'fullscreen',
-      group: 'Display',
-      section: 'remote-display',
-      kind: 'toggle',
-      label: 'Luma fullscreen',
-      description: 'Open Luma and its apps full screen on the TV.',
-      options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }],
-      value: String(settings.fullscreen),
-    },
-    {
-      key: 'fastAppSwitch',
-      group: 'System',
-      section: 'remote-system',
-      kind: 'toggle',
-      label: 'Fast app switching',
-      description: 'Keep YouTube and Stremio paused in the background so switching back is instant.',
-      options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }],
-      value: String(settings.fastAppSwitch),
     },
   ];
 }

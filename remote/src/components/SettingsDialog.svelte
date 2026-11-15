@@ -47,45 +47,32 @@
     },
     "display-sound": {
       title: "Display & Sound",
-      blurb: "Fullscreen, sound, and PC window",
+      blurb: "Sound and active window",
       heading: "Display & Sound",
-      description: "Fullscreen, interface sounds, and the window Luma is controlling.",
-      note: "TV screen and audio output are chosen on the PC.",
+      description: "Interface sounds and the window Luma is controlling.",
+      note: "TV screen and audio are chosen on the PC.",
     },
     "apps-services": {
       title: "Apps & Services",
       blurb: "Dock order and apps",
       heading: "Apps & Services",
       description: "The shared app dock and the apps available on this remote.",
-      note: "App paths and accounts are managed on the PC.",
-    },
-    system: {
-      title: "System",
-      blurb: "Startup and memory",
-      heading: "System",
-      description: "Startup, memory, and background behavior.",
-      note: "Startup, updates, and tray behavior are on the PC.",
+      note: "App paths, accounts, history, and system settings are managed on the PC.",
     },
   };
 
-  const appCategoryOrder = ["appearance-home", "display-sound", "apps-services", "system"];
+  const appCategoryOrder = ["appearance-home", "display-sound", "apps-services"];
 
   const sectionMeta: Record<string, { category: string; heading: string; order: number }> = {
     theme: { category: "appearance-home", heading: "Theme", order: 0 },
     layout: { category: "appearance-home", heading: "Layout", order: 1 },
     "remote-layout": { category: "appearance-home", heading: "Layout", order: 1 },
-    display: { category: "display-sound", heading: "Display", order: 0 },
-    "remote-display": { category: "display-sound", heading: "Display", order: 0 },
     sound: { category: "display-sound", heading: "Sound", order: 1 },
-    startup: { category: "system", heading: "Startup & memory", order: 0 },
-    "remote-system": { category: "system", heading: "Startup & memory", order: 0 },
   };
 
   const cardId = (section: string): string =>
     section === "remote-layout" ? "layout"
-      : section === "remote-display" ? "display"
-        : section === "remote-system" ? "startup"
-          : section;
+      : section;
 
   let lumaCategories: Category[] = $derived.by(() => {
     const categories = new Map<string, Category>();
@@ -146,7 +133,7 @@
     });
     ensure("display-sound", "Display & Sound").sections?.push({
       id: "pc-window",
-      heading: "PC window",
+      heading: "Window",
       choices: [],
       action: "pc",
     });
@@ -599,14 +586,14 @@
             {:else if section.action === "pc"}
               <div class="row">
                 <span class="row-copy">
-                  <b>Fullscreen app</b>
-                  <small>Toggles full screen on the app Luma is controlling.</small>
+                  <b>Fullscreen window</b>
+                  <small>Toggles full screen on the Luma or app window currently in front.</small>
                 </span>
                 <button
                   type="button"
                   class="pill"
                   aria-pressed={pcFullscreen === true}
-                  aria-label="Toggle fullscreen for the PC window"
+                  aria-label="Toggle fullscreen for the active window"
                   onclick={togglePcFullscreen}
                 >
                   {pcLabel}

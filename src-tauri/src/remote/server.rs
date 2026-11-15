@@ -143,26 +143,6 @@ fn setting_catalog() -> Vec<SettingChoice> {
             setting_option("1", "One column"),
             setting_option("2", "Two columns"),
         ]),
-        SettingChoice {
-            key: "fullscreen".into(),
-            group: "Display".into(),
-            section: "remote-display".into(),
-            kind: "toggle".into(),
-            label: "Luma fullscreen".into(),
-            description: "Open Luma and its apps full screen on the TV.".into(),
-            options: vec![setting_option("true", "On"), setting_option("false", "Off")],
-            value: "false".into(),
-        },
-        SettingChoice {
-            key: "fastAppSwitch".into(),
-            group: "System".into(),
-            section: "remote-system".into(),
-            kind: "toggle".into(),
-            label: "Fast app switching".into(),
-            description: "Keep YouTube and Stremio paused in the background so switching back is instant.".into(),
-            options: vec![setting_option("true", "On"), setting_option("false", "Off")],
-            value: "true".into(),
-        },
     ]
 }
 
@@ -191,7 +171,7 @@ pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String)
             return Err("Invalid setting value".into());
         }
     }
-    if !matches!(key.as_str(), "theme" | "density" | "appTileShape" | "textSize" | "reducedMotion" | "interfaceSounds" | "soundLevel") {
+    if !matches!(key.as_str(), "theme" | "density" | "appTileShape" | "textSize" | "reducedMotion" | "interfaceSounds" | "soundLevel" | "homeColumns") {
         return app.emit_to("main", "app-setting", serde_json::json!({ "key": key, "value": value })).map_err(|error| error.to_string());
     }
     let document = app.state::<crate::customization::Store>().edit(|config| match key.as_str() {
@@ -202,6 +182,7 @@ pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String)
         "reducedMotion" => config.reduced_motion = value == "true",
         "interfaceSounds" => config.interface_sounds = value.clone(),
         "soundLevel" => config.sound_level = value.clone(),
+        "homeColumns" => config.home_columns = if value == "2" { 2 } else { 1 },
         _ => {},
     }).map_err(|error| error.message)?;
     crate::customization::publish(app, &document);
