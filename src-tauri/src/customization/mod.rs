@@ -50,6 +50,8 @@ pub struct Preview {
     pub config: Config,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin: Option<plugin::PluginPreview>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub detached: Vec<String>,
     #[serde(skip)]
     pub prepared: Option<plugin::PreparedWrite>,
     #[serde(skip)]
@@ -87,6 +89,17 @@ impl Store {
         let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
         let plugins = data.join("plugins");
         std::fs::create_dir_all(&plugins).map_err(|error| error.to_string())?;
+        if let Ok(entries) = std::fs::read_dir(&plugins) {
+            for entry in entries.flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".staging-")
+                {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+        }
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         Self::from_connection_with_root(
             Connection::open(directory.join("customization.sqlite3"))
@@ -411,8 +424,8 @@ impl Store {
             .ok_or_else(|| Error::new("no_previous", "No previous layout is available."))?;
         let effective = plugin::apply(&transaction, &current.config)?;
         let mut requested = effective.clone();
-        requested.home = previous.config.home;
-        requested.home_columns = previous.config.home_columns;
+        requested.home = previous.effective.home;
+        requested.home_columns = previous.effective.home_columns;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
         let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
@@ -522,6 +535,13 @@ impl Store {
         }
         let effective = plugin::apply(&connection, &current.config)?;
         let prepared = plugin::prepare(&connection, &current.config, &effective, &request.config)?;
+        let mut detached: Vec<String> = prepared
+            .detach
+            .iter()
+            .map(|detach| detach.field.to_string())
+            .collect();
+        detached.sort();
+        detached.dedup();
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
         let candidate = Preview {
@@ -529,6 +549,7 @@ impl Store {
             base_revision: current.revision,
             config: request.config,
             plugin: None,
+            detached,
             prepared: Some(prepared),
             plugin_action: None,
         };
@@ -581,6 +602,7 @@ impl Store {
                 name: record.name,
                 action: if reattach { "reattach" } else { "enable" }.into(),
             }),
+            detached: Vec::new(),
             prepared: None,
             plugin_action: Some(action),
         };
@@ -637,6 +659,7 @@ impl Store {
                 name: record.name,
                 action: "settings".into(),
             }),
+            detached: Vec::new(),
             prepared: None,
             plugin_action: Some(action),
         };

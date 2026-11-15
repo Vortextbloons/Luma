@@ -4,7 +4,7 @@ Implementation boundary (2026-11-15): the current batch ships MCP access, ten-ve
 
 The broader extension system remains the intended product scope, not an optional replacement with presets. Stages 6 and 7 below establish the executable UI runtime, background supervisor, and remote integration. Their public contracts must support custom widgets/screens, permitted external service access with host-managed credentials where needed, and reuse of existing Luma data/actions/events without duplicate playback or account owners. A weather widget consuming an external service and a music screen using existing playback are representative acceptance cases. Do not call the broader plugin system complete until representative extensions run through install, configure, enable, disable, restart/tray, failure, and recovery journeys. Activity-provider integration remains separately sequenced in Stage 8.
 
-Status: planning document. No application code is implemented by this change. This file owns the cross-layer plan; [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) owns agent transport, tool schema, and final setup-prompt wording, and [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) owns the Display Box client and frame protocol detail.
+Status: cross-layer plan with shipped declarative plugin implementation. Executable runtime stages remain proposals. This file owns the cross-layer plan; [PLUGINS.md](PLUGINS.md) owns the shipped declarative manifest, settings, import/export, navigation, and limits; [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) owns agent transport, tool schema, and final setup-prompt wording; and [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) owns the Display Box client and frame protocol detail.
 
 Assessed: 2026-11-15 against the shared checkout. Concurrent phone-remote and Sports work was present and is not depended on here. Re-read the cited files before implementing; symbols matter more than line numbers.
 
@@ -124,7 +124,7 @@ These are facts about the current checkout, not the target design.
 | Remote server | `src-tauri/src/frame.rs` serves the web remote and Display Box on one LAN port (9877), with separate persistent credentials. `/apps` is derived from the native app catalog and app order; app commands resolve through `apps::app_command`. | Extension apps/screens must be projected into this catalog and command map, or the remotes will disagree with the TV. |
 | Remote build | `package.json` builds the TV app and then the standalone `remote/` Svelte app; `scripts/inline-remote.mjs` inlines scripts and styles into `src-tauri/src/phone.html`. | Extension UI for the remote needs either host-rendered components or an isolated runtime; there is no runtime loader in the inlined page. |
 | Packaging | Tauri bundles a Windows installer; release builds use a signed updater. `bundle.resources` is minimal. Updates replace the app, not user configuration. | Extension packages need their own install location, integrity, compatibility, and removal rules. |
-| No extension loader | There is no plugin loader, manifest parser, grant store, or third-party code path. | Everything in §6 through §9 is new work, not an exposed existing feature. |
+| Declarative plugin loader | `src-tauri/src/customization/plugin.rs` validates manifests, installs package files under app-owned storage, persists settings, applies field ownership, and exposes preview/Keep enable, disable, export, and remove. `plugin/archive.rs` validates ZIPs. | Executable code still has no runtime. See [PLUGINS.md](PLUGINS.md). |
 
 ## 4. The three layers and their shared model
 
@@ -653,6 +653,8 @@ The existing category/section pattern stays valid. **Proposal:**
 | History & Privacy | Recording, Clear history | Activity history and privacy; does not clear customization history. |
 | System | Startup & memory, Updates | Tray/startup/fast switch, updater. |
 | **Customization** | Extensions, Screens, Versions, Reset appearance, AI access, Problems | Package list/detail, enable/disable/grant/uninstall, screen pinning, 10-version history, visual reset, MCP setup, degraded-load repair, developer mode. |
+
+**Shipped navigation (2026-11-15):** the desktop first category is **Plugins**, with `Installed plugins`, `Theme`, `Home layout`, and `Widgets`. The built-in appearance plugin owns the three appearance sections; old `Appearance & Home`, `Theme`, `Home layout`, and `Widgets` entry points resolve there. The bottom category remains **MCP customization** with AI access, saved versions, and reset. See [PLUGINS.md](PLUGINS.md).
 
 Notes:
 

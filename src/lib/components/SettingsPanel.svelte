@@ -108,6 +108,7 @@
     resetNote = '';
     layoutError = '';
     if (content) content.scrollTop = 0;
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.settings-section-tab[data-section="${id}"]`)?.focus());
   }
   function resetLayout() {
     resetSettingChoices(settings, ['density', 'appTileShape', 'textSize', 'reducedMotion']);
@@ -139,7 +140,7 @@
     <div class="settings-brand">
       <img class="settings-brand-logo" src={logo} alt="Luma TV" />
       <h1 id="settings-title">Settings</h1>
-      <p>Appearance, display, apps, remotes, customization, history, and system. Most changes save automatically; Home layout previews before saving.</p>
+      <p>Plugins, display, apps, remotes, customization, history, and system. Most changes save automatically; Home layout previews before saving.</p>
     </div>
     <div class="settings-header-actions">
       <span class="settings-theme-chip"><i style:--chip-bg={theme.tokens['--bg']} style:--chip-accent={theme.tokens['--accent']}></i>{theme.name}</span>
@@ -162,7 +163,7 @@
       </header>
       <nav class="settings-sections" aria-label={`${activeCategory.name} sections`}>
         {#each activeCategory.sections as item (item.id)}
-          <button class={['settings-section-tab', { selected: section === item.id }]} aria-current={section === item.id ? 'page' : undefined} onclick={() => selectSection(item.id)}>{item.name}</button>
+          <button class={['settings-section-tab', { selected: section === item.id }]} data-section={item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => selectSection(item.id)}>{item.name}</button>
         {/each}
       </nav>
       <p class="settings-section-note">{activeSection.description}</p>

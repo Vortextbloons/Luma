@@ -107,6 +107,8 @@ A contribution is either a static value or `{ "setting": "key" }`. Bindings are 
 
 A plugin owns every field it contributes. Two enabled plugins cannot own the same field. Enabling the second one fails with an explicit conflict naming the field and current owner. Disabled plugins may be installed with overlapping contributions; the conflict only blocks enabling.
 
+If a user changes a field owned by an enabled plugin, Luma keeps their input, stores it in the underlying configuration, and detaches that field from the plugin. The pre-Keep review names the fields that will detach, and the plugin detail shows the detached controls with a **Preview and restore controls** action. Disabling a plugin clears its detached state so a later enable applies its full declared contribution.
+
 ## Lifecycle
 
 1. **Import or MCP stage** validates the manifest and files, computes a SHA-256 content hash, installs the package under Luma-owned storage, and records it as disabled.
@@ -171,7 +173,7 @@ No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, l
 | Settings per plugin | 24 |
 | Options per enum setting | 20 |
 | Declared assets/source entries | 64 each |
-| Package path | 180 bytes |
+| Package path | 120 bytes |
 
 Before activation, Luma rejects absolute paths, `..`, backslashes, drive/UNC paths, Windows-reserved names and characters, case-insensitive duplicate paths, file/directory collisions, symbolic links, executable binaries (`.exe`, `.dll`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.scr`, `.com`, `.cpl`), missing declared files, oversized entries, too many entries, and suspicious compression ratios. Import never runs an unzip script or package install script.
 

@@ -1,3 +1,43 @@
+export function slideIndicator(element: HTMLElement, options: { selector?: string; key?: unknown } = {}) {
+  const selector = options.selector ?? '.is-active';
+  let frame = 0;
+  function measure() {
+    frame = 0;
+    const target = element.querySelector<HTMLElement>(selector);
+    if (!target || !target.getClientRects().length) {
+      delete element.dataset.indicator;
+      return;
+    }
+    const box = element.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    element.style.setProperty('--indicator-x', `${rect.left - box.left - element.clientLeft}px`);
+    element.style.setProperty('--indicator-y', `${rect.top - box.top - element.clientTop}px`);
+    element.style.setProperty('--indicator-w', `${rect.width}px`);
+    element.style.setProperty('--indicator-h', `${rect.height}px`);
+    element.dataset.indicator = 'ready';
+  }
+  function update() {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(measure);
+  }
+  const resize = new ResizeObserver(update);
+  resize.observe(element);
+  const mutation = new MutationObserver(update);
+  mutation.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('resize', update);
+  if (document.fonts) void document.fonts.ready.then(update);
+  update();
+  return {
+    update,
+    destroy() {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutation.disconnect();
+      window.removeEventListener('resize', update);
+    },
+  };
+}
+
 export function smoothHeight(element: HTMLElement) {
   const content = element.firstElementChild;
   if (!(content instanceof HTMLElement)) return;

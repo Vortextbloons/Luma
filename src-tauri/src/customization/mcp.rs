@@ -1172,9 +1172,10 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                     Ok(preview) => tool_success(json!({
                         "previewId": preview.id,
                         "baseRevision": preview.base_revision,
+                        "detached": preview.detached,
                         "status": "waiting_for_user_review",
                         "reviewRequiresVisibleLauncher": true,
-                        "next": "Tell the user that the change is waiting for review in Luma. The user must press Keep in Luma; no MCP tool can keep, commit, restore, reset, launch, or install changes."
+                        "next": "Tell the user that the change is waiting for review in Luma. The user must press Keep in Luma; no MCP tool can keep, commit, restore, reset, launch, or install changes. Keeping this candidate detaches any listed fields from their controlling plugin."
                     })),
                     Err(error) => tool_failure(error),
                 }
@@ -1674,7 +1675,7 @@ fn plugin_submission_schema() -> Value {
             },
             "files": {
                 "type": "array",
-                "maxItems": 128,
+                "maxItems": 256,
                 "items": {
                     "type": "object",
                     "additionalProperties": false,
@@ -2078,6 +2079,7 @@ Read the current document. Reorder `config.order` so every app appears exactly o
 - Preview requires the Luma launcher to be open and visible. If it is in the tray, ask the user to open Luma.\n\
 - Keep is a user action in Luma. The MCP tools cannot keep, enable, disable, remove, export, commit, restore, reset, launch, or execute anything.\n\
 - A preview creates one pending review. If another review is already pending, ask the user to Keep or Reject it before staging another.\n\
+- If a configuration candidate changes a field controlled by an enabled plugin, the preview reports the detached fields and Keep preserves the user's value while detaching that field. Do not describe this as applying the plugin.\n\
 - Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.\n\
 - Revoking or rotating access stops the next request and cancels this grant's pending preview.\n\
 - Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.\n\
@@ -2178,6 +2180,7 @@ mod tests {
                 base_revision: 1,
                 config,
                 plugin: None,
+                detached: Vec::new(),
                 prepared: None,
                 plugin_action: None,
             });
@@ -2236,6 +2239,7 @@ mod tests {
                 base_revision: current_revision,
                 config: request.config,
                 plugin: None,
+                detached: Vec::new(),
                 prepared: None,
                 plugin_action: None,
             };

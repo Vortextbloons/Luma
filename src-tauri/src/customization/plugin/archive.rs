@@ -101,7 +101,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<PreparedPackage, Error> {
         if relative.is_empty() {
             continue;
         }
-        let lower = relative.to_ascii_lowercase();
+        let lower = relative.to_lowercase();
         if !seen.insert(lower) {
             return Err(Error::new(
                 "validation",

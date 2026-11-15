@@ -812,7 +812,7 @@
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>
-{#if layoutPreview}<LayoutReview busy={reviewBusy} error={reviewError} editing={previewFromEditor} plugin={layoutPreview.plugin ?? null} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
+{#if layoutPreview}<LayoutReview busy={reviewBusy} error={reviewError} editing={previewFromEditor} plugin={layoutPreview.plugin ?? null} detached={layoutPreview.detached ?? []} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
 
 {#if stremioPairing}

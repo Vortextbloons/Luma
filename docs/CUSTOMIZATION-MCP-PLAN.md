@@ -35,14 +35,14 @@ The following are facts about the current checkout, recorded so later sections c
 - **Shipped.** Every route requires the bearer token, an exact `127.0.0.1:9878` Host header, and no `Origin` header; bodies are capped at 32 KiB and responses are `no-store` (`src-tauri/src/customization/server.rs:97`).
 - **Shipped.** Token holders can read, validate, preview, Keep, commit directly, restore, and cancel. There is no separate read-only or review-only credential. The documentation states this explicitly (`docs/CUSTOMIZATION-SERVER.md:26`).
 - **Shipped.** Routes are `/v1/config`, `/v1/validate`, `/v1/preview`, `/v1/preview/keep`, `/v1/preview/cancel`, and `/v1/restore` (`src-tauri/src/customization/server.rs:60`).
-- **Shipped.** There is no MCP server, MCP transport, MCP SDK dependency, or MCP configuration UI anywhere in the checkout.
+- **Shipped.** A local MCP endpoint listens on `127.0.0.1:9879` when Luma runs and is enabled from Settings → MCP customization → AI access with a session token. It exposes read, validate, preview, plugin list/validate/disabled-stage, and plugin-settings-stage tools; no tool can keep or activate anything (`src-tauri/src/customization/mcp.rs`).
 
 ### Frontend, appearance, surfaces
 
 - **Shipped.** `src/lib/services/customization.ts` subscribes before initialization, serializes saves, ignores stale events, reconciles conflicts by reading the native document, and tears down listeners. It exposes preview, Keep, cancel, restore, and layout restore to `src/App.svelte`.
 - **Shipped.** Appearance is a fixed set of six themes built on twenty semantic CSS tokens in `src/lib/services/theme.ts:3`. The Rust remote mirrors the palette, validating token names and hex values, with at most 24 tokens and 8 themes (`src-tauri/src/remote/server.rs:220`).
 - **Shipped.** Remote setting presentation is data-driven through `SettingChoice { key, group, section, kind, label, description, options, value }`; the web remote renders choice and toggle kinds from that payload (`src-tauri/src/remote/server.rs:64`, `remote/src/lib/types.ts:49`).
-- **Shipped.** Desktop Settings has six categories and fourteen sections, including Appearance & Home, Display & Sound, Apps & Services, Remotes & Devices, History & Privacy, and System (`src/lib/components/SettingsPanel.svelte:28`).
+- **Shipped.** Desktop Settings now has seven categories: Plugins, Display & Sound, Apps & Services, Remotes & Devices, History & Privacy, System, and MCP customization. Plugins owns Installed plugins plus the built-in appearance plugin's Theme, Home layout, and Widgets sections; MCP customization remains last (`src/lib/components/SettingsPanel.svelte`, `src/lib/services/settingsNavigation.ts`).
 - **Shipped.** The Home layout section already presents a separate draft, Preview, Back to editor, reload, default-layout draft, previous-configuration restore, and a Home-only restore.
 - **Shipped.** The LAN server on `0.0.0.0:9877` serves the Display Box protocol and the standalone Svelte web remote, with separate pairing credentials. Customization writes from the remote route through the native store (`src-tauri/src/remote/server.rs:165`).
 - **Shipped.** Closing the launcher destroys the `main` webview and keeps the process in the tray; `background.rs` rebuilds the launcher on demand, and background startup creates no launcher (`src-tauri/src/background.rs:32`).
@@ -192,6 +192,8 @@ Rules:
 **Proposal:** expose the capability document by both a tool and a resource so clients that only read resources still see it. Do not expose the current configuration as a resource; reading committed settings belongs to an explicit tool call so logs and conversations are attributable.
 
 ### Initial tool surface
+
+**Shipped 2026-11-15:** `luma_capabilities_get`, `luma_config_get`, `luma_candidate_validate`, `luma_candidate_preview`, `luma_candidate_get`, `luma_candidate_cancel`, `luma_status`, `luma_plugins_list`, `luma_plugin_validate`, disabled-only `luma_plugin_stage`, and review-only `luma_plugin_settings_stage`, plus `luma://plugins/schema` and `luma://plugins/example`. [PLUGINS.md](PLUGINS.md) owns the exact contract. No tool enables, keeps, disables, removes, exports, commits, restores, resets, launches, or executes a plugin.
 
 **Proposal.** Read and stage only. Nothing here commits.
 

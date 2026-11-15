@@ -36,9 +36,10 @@ const reachable = async (url, timeoutMs = 700) => {
   }
 };
 
+const needsDevServer = flag('dev') || /[\\/]debug[\\/]/i.test(exe) || argument('dev-url', '') !== '';
 let devServer = null;
-const devServerWasRunning = await reachable(devServerUrl);
-if (!devServerWasRunning) {
+const devServerWasRunning = needsDevServer ? await reachable(devServerUrl) : true;
+if (needsDevServer && !devServerWasRunning) {
   devServer = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev'], { cwd: root, stdio: 'ignore', windowsHide: true });
   const deadline = Date.now() + 45000;
   let up = false;
@@ -238,6 +239,17 @@ for (let attempt = 0; attempt < 4; attempt++) {
 }
 
 const total = (sample, key) => sample.procs.reduce((sum, process) => sum + process[key], 0);
+const privateWorkingSetOf = ids => {
+  const map = new Map();
+  if (!ids.length) return map;
+  const scan = spawnSync('powershell', ['-NoProfile', '-Command',
+    `Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { @(${ids.join(',')}) -contains $_.IDProcess } | ForEach-Object { "$($_.IDProcess) $($_.WorkingSetPrivate)" }`], { encoding: 'utf8' }).stdout ?? '';
+  for (const line of scan.split(/\r?\n/).filter(Boolean)) {
+    const [id, bytes] = line.trim().split(/\s+/).map(Number);
+    if (id) map.set(id, bytes);
+  }
+  return map;
+};
 const snapshot = async () => {
   const live = (await evaluate(`({
     nodes: document.querySelectorAll('*').length,
@@ -245,11 +257,13 @@ const snapshot = async () => {
   })`)) ?? {};
   const heap = await send('Runtime.getHeapUsage');
   const latest = samples.at(-1);
+  const pws = privateWorkingSetOf((latest?.procs ?? []).map(process => process.id));
   return {
     ...live,
     heap: Math.round(heap.result?.usedSize ?? 0),
     ws: latest ? total(latest, 'ws') : 0,
     private: latest ? total(latest, 'private') : 0,
+    privateWorkingSet: [...pws.values()].reduce((sum, bytes) => sum + bytes, 0),
     processes: latest ? latest.procs.length : 0
   };
 };
@@ -277,6 +291,7 @@ const view = async name => {
     view: name,
     ws: Math.round(settled.reduce((sum, item) => sum + item.ws, 0) / settled.length),
     private: Math.round(settled.reduce((sum, item) => sum + item.private, 0) / settled.length),
+    privateWorkingSet: Math.round(settled.reduce((sum, item) => sum + item.privateWorkingSet, 0) / settled.length),
     heap: Math.round(settled.reduce((sum, item) => sum + item.heap, 0) / settled.length),
     nodes: Math.round(settled.reduce((sum, item) => sum + item.nodes, 0) / settled.length)
   };
@@ -294,7 +309,7 @@ if (!skipViews) {
   await evaluate(`document.querySelector('[aria-label="Open settings"]')?.click()`);
   await sleep(2500);
   const settingsView = await snapshot();
-  views.push({ view: 'Settings', ws: Math.round(settingsView.ws), private: Math.round(settingsView.private), heap: settingsView.heap, nodes: settingsView.nodes });
+  views.push({ view: 'Settings', ws: Math.round(settingsView.ws), private: Math.round(settingsView.private), privateWorkingSet: settingsView.privateWorkingSet, heap: settingsView.heap, nodes: settingsView.nodes });
   await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
   await sleep(1500);
   for (const name of ['Home', 'Watch', 'Sports', 'Library', 'Music', 'Apps']) {
@@ -305,6 +320,18 @@ if (!skipViews) {
 }
 
 const roles = new Map();
+
+const lastSample = samples.at(-1);
+const privateWorkingSet = new Map();
+if (lastSample) {
+  const ids = lastSample.procs.map(process => process.id).join(',');
+  const scan = spawnSync('powershell', ['-NoProfile', '-Command',
+    `Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { @(${ids}) -contains $_.IDProcess } | ForEach-Object { "$($_.IDProcess) $($_.WorkingSetPrivate)" }`], { encoding: 'utf8' }).stdout ?? '';
+  for (const line of scan.split(/\r?\n/).filter(Boolean)) {
+    const [id, bytes] = line.trim().split(/\s+/).map(Number);
+    if (id) privateWorkingSet.set(id, bytes);
+  }
+}
 
 socket.close();
 sampler.kill();
@@ -336,6 +363,7 @@ const processes = (idleEndSample?.procs ?? []).map(process => {
     role: process.role,
     ws: Math.round(process.ws),
     private: Math.round(process.private),
+    privateWorkingSet: privateWorkingSet.get(process.id) ?? 0,
     threads: process.threads,
     handles: process.handles,
     cpu: Math.round(process.cpu - (before?.cpu ?? process.cpu)),
@@ -368,6 +396,7 @@ const report = {
     wsPeak: Math.round(peak(plateau.map(sample => total(sample, 'ws')))),
     privateMedian: Math.round(median(plateau.map(sample => total(sample, 'private')))),
     privatePeak: Math.round(peak(plateau.map(sample => total(sample, 'private')))),
+    privateWorkingSet: [...privateWorkingSet.values()].reduce((sum, bytes) => sum + bytes, 0),
     processes: plateau.at(-1)?.procs.length ?? 0,
     threads: plateau.at(-1) ? total(plateau.at(-1), 'threads') : 0,
     handles: plateau.at(-1) ? total(plateau.at(-1), 'handles') : 0,
@@ -398,18 +427,18 @@ if (staleExe) console.log(`- warning: sources are newer than the executable; reb
 if (report.devServerStarted) console.log(`- started a temporary Vite dev server for this run`);
 console.log(`- startup: DevTools reachable ${connectedAt} ms, app interactive ${readyAt} ms`);
 console.log(`- idle (${(idleElapsed / 1000).toFixed(0)}s): ${report.idle.cpuOfOneCore.toFixed(2)}% of one core (${report.idle.cpuOfMachine.toFixed(2)}% of ${cores} cores), I/O ${(report.idle.ioBytes / 1024).toFixed(0)} KB`);
-console.log(`- memory: ${mb(report.memory.wsMedian)} working set (peak ${mb(report.memory.wsPeak)}), ${mb(report.memory.privateMedian)} private commit`);
+console.log(`- memory: ${mb(report.memory.privateWorkingSet)} private working set (Task Manager equivalent), ${mb(report.memory.wsMedian)} summed working set (double counts shared pages), ${mb(report.memory.privateMedian)} private commit`);
 console.log(`- ${report.memory.processes} processes, ${report.memory.threads} threads, ${report.memory.handles} handles`);
 console.log(`- webview roles: ${Object.entries(report.webviewRoles).map(([role, count]) => `${role}×${count}`).join(', ') || 'n/a'}`);
 console.log(`- storage: app data ${mb(report.storage.appData.bytes)} (${report.storage.appData.files} files), webview cache ${mb(report.storage.webviewCache.bytes)} (${report.storage.webviewCache.files} files)`);
 console.log(`- per launch: app data +${(report.storage.appDataDelta / 1024).toFixed(0)} KB, webview cache +${(report.storage.webviewCacheDelta / 1024).toFixed(0)} KB\n`);
 if (views.length) {
-  console.log('| View | Working set | Private | JS heap | DOM nodes |');
+  console.log('| View | Private working set | Summed working set | JS heap | DOM nodes |');
   console.log('| --- | --- | --- | --- | --- |');
-  for (const entry of views) console.log(`| ${entry.view} | ${mb(entry.ws)} | ${mb(entry.private)} | ${(entry.heap / 1048576).toFixed(1)} MB | ${entry.nodes} |`);
+  for (const entry of views) console.log(`| ${entry.view} | ${mb(entry.privateWorkingSet)} | ${mb(entry.ws)} | ${(entry.heap / 1048576).toFixed(1)} MB | ${entry.nodes} |`);
 }
-console.log('\n| Process | PID | Working set | Private | Threads | Handles | CPU while idle | I/O while idle |');
-console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
-for (const process of processes.sort((a, b) => b.private - a.private)) {
-  console.log(`| ${process.role} | ${process.pid} | ${mb(process.ws)} | ${mb(process.private)} | ${process.threads} | ${process.handles} | ${process.cpu} ms (${((process.cpu / idleElapsed) * 100).toFixed(2)}% of 1 core) | ${(process.io / 1024).toFixed(1)} MB |`);
+console.log('\n| Process | PID | Private working set | Working set | Private commit | Threads | Handles | CPU while idle | I/O while idle |');
+console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+for (const process of processes.sort((a, b) => b.privateWorkingSet - a.privateWorkingSet)) {
+  console.log(`| ${process.role} | ${process.pid} | ${mb(process.privateWorkingSet)} | ${mb(process.ws)} | ${mb(process.private)} | ${process.threads} | ${process.handles} | ${process.cpu} ms (${((process.cpu / idleElapsed) * 100).toFixed(2)}% of 1 core) | ${(process.io / 1024).toFixed(1)} MB |`);
 }

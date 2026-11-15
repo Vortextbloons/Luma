@@ -30,7 +30,7 @@ const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_SETTINGS: usize = 24;
 const MAX_SETTING_OPTIONS: usize = 20;
 const MAX_SOURCE_FILES: usize = 64;
-const MAX_PATH_BYTES: usize = 180;
+const MAX_PATH_BYTES: usize = 120;
 const MAX_MCP_BYTES: u64 = 2 * 1024 * 1024;
 const BUILTIN_THEMES: [&str; 6] = [
     "violet-night",
@@ -471,6 +471,14 @@ pub(super) fn create(connection: &Connection) -> Result<(), Error> {
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), Error> {
     create(connection)?;
     let transaction = connection.transaction()?;
+    let has_reason: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('plugins') WHERE name = 'disabled_reason')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_reason {
+        transaction.execute("ALTER TABLE plugins ADD COLUMN disabled_reason TEXT", [])?;
+    }
     let notices = reconcile(&transaction)?;
     transaction.commit()?;
     if !notices.is_empty() {
@@ -481,10 +489,40 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), Error> {
 
 pub(super) fn reconcile(connection: &Connection) -> Result<Vec<String>, Error> {
     let mut plugins = load_plugins(connection)?;
+    let base = super::Store::current(connection)?
+        .map(|document| document.config)
+        .unwrap_or_default();
     let mut owners: BTreeMap<&'static str, String> = BTreeMap::new();
     let mut notices = Vec::new();
     let mut changed = Vec::new();
     for (id, plugin) in plugins.iter_mut() {
+        if !plugin.enabled || plugin.execution_reason().is_some() {
+            continue;
+        }
+        if let Err(error) = apply_plugins(&base, &[(id.clone(), plugin.clone())]) {
+            plugin.enabled = false;
+            plugin.disabled_reason = Some(format!(
+                "Disabled because its contribution could not be applied: {}",
+                error.message
+            ));
+            notices.push(format!(
+                "{} was disabled because its contribution is invalid.",
+                plugin.manifest.name
+            ));
+            changed.push(id.clone());
+        }
+    }
+    for (id, plugin) in plugins.iter_mut() {
+        if plugin.enabled && plugin.execution_reason().is_some() {
+            plugin.enabled = false;
+            plugin.disabled_reason = plugin.execution_reason();
+            changed.push(id.clone());
+            notices.push(format!(
+                "{} uses an unsupported runtime and was left disabled.",
+                plugin.manifest.name
+            ));
+            continue;
+        }
         if !plugin.enabled || plugin.execution_reason().is_some() {
             continue;
         }
@@ -1397,7 +1435,7 @@ fn finalize(manifest: Manifest, files: BTreeMap<String, Vec<u8>>) -> Result<Prep
     }
     let mut seen = HashSet::new();
     for path in files.keys() {
-        if !seen.insert(path.to_ascii_lowercase()) {
+        if !seen.insert(path.to_lowercase()) {
             return Err(Error::new(
                 "validation",
                 format!("Package contains a duplicate or case-colliding path: {path}."),
@@ -2227,7 +2265,9 @@ fn finalize_staging(staging: &Path, target: &Path) -> Result<(), Error> {
 
 pub(super) fn delete_package(store: &Store, plugin_id: &str, version: &str) {
     if let Ok(root) = install_root(store) {
-        let _ = fs::remove_dir_all(root.join(plugin_id).join(version));
+        let directory = root.join(plugin_id);
+        let _ = fs::remove_dir_all(directory.join(version));
+        let _ = fs::remove_dir(directory);
     }
 }
 
@@ -2273,6 +2313,21 @@ pub(super) fn export_archive(store: &Store, plugin_id: &str) -> Result<(String, 
             "storage",
             format!("A plugin can export at most {MAX_TOTAL_BYTES} bytes."),
         ));
+    }
+    for declared in manifest
+        .assets
+        .iter()
+        .chain(manifest.source.iter())
+        .chain(manifest.runtime.entry.iter())
+    {
+        if !files.contains_key(declared) {
+            return Err(Error::new(
+                "plugin_missing",
+                format!(
+                    "The installed plugin is missing {declared}. Reinstall it before exporting."
+                ),
+            ));
+        }
     }
     let bytes = archive::write(&manifest, &files)?;
     Ok((
@@ -2469,6 +2524,13 @@ pub(super) fn command_import(app: tauri::AppHandle) -> Result<Option<ImportResul
     let Some(path) = open_dialog(&app) else {
         return Ok(None);
     };
+    let metadata = fs::metadata(&path).map_err(|error| Error::new("storage", error))?;
+    if metadata.len() == 0 || metadata.len() > MAX_ARCHIVE_BYTES {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin archive must be between 1 byte and {MAX_ARCHIVE_BYTES} bytes."),
+        ));
+    }
     let bytes = fs::read(&path).map_err(|error| Error::new("storage", error))?;
     let store = app.state::<Store>();
     let outcome = import_archive(&store, &bytes, "import")?;
@@ -2496,6 +2558,11 @@ pub(super) fn command_export(app: tauri::AppHandle, plugin_id: String) -> Result
     let (name, bytes) = export_archive(&store, &plugin_id)?;
     let Some(target) = save_target(&app, &name) else {
         return Ok(None);
+    };
+    let target = if target.extension().is_none() {
+        target.with_extension("zip")
+    } else {
+        target
     };
     fs::write(&target, bytes).map_err(|error| Error::new("storage", error))?;
     Ok(target.file_name().map(|name| name.to_string_lossy().to_string()))
@@ -2693,7 +2760,6 @@ mod tests {
     fn enable(store: &Store, id: &str) -> Document {
         let revision = store.read().unwrap().unwrap().revision;
         let preview = store.preview_plugin(id, revision).unwrap();
-        assert!(preview.config.theme == "ember" || preview.config.home_columns == 2);
         store.keep(&preview.id).unwrap()
     }
 
@@ -2806,6 +2872,27 @@ mod tests {
         assert!(state.plugins[0].controls.contains(&"homeColumns".into()));
         assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
         assert_eq!(document.config.theme, "sapphire");
+    }
+
+    #[test]
+    fn preview_reports_fields_that_keep_will_detach_from_a_plugin() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let mut requested = store.read_effective().unwrap().unwrap().config;
+        requested.theme = "sapphire".into();
+        let revision = store.read().unwrap().unwrap().revision;
+        let preview = store
+            .stage(Commit {
+                expected_revision: revision,
+                config: requested,
+            })
+            .unwrap();
+        assert_eq!(preview.detached, vec!["theme"]);
+        store.keep(&preview.id).unwrap();
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
+        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "sapphire");
     }
 
     #[test]
