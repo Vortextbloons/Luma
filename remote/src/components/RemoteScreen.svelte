@@ -139,7 +139,8 @@
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    margin-top: auto;
+    flex: 1;
+    justify-content: center;
   }
 
   @media (min-width: 760px) and (min-height: 520px), (min-width: 560px) and (orientation: landscape) {
@@ -171,7 +172,7 @@
     }
 
     .pad-group {
-      margin-top: 0;
+      flex: initial;
     }
   }
 </style>

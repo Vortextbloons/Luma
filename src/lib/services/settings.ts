@@ -12,6 +12,11 @@ export interface SettingChoice {
   description: string;
   options: { value: string; label: string }[];
 }
+
+export interface RemoteSettingChoice extends Omit<SettingChoice, 'key'> {
+  key: string;
+  value: string;
+}
 export const settingChoices: SettingChoice[] = [
   { key: 'theme', group: 'Appearance', section: 'theme', kind: 'choice', label: 'App theme', description: 'The look of Luma on the TV and connected displays.', options: themes.map(theme => ({ value: theme.id, label: theme.name })) },
   { key: 'appTileShape', group: 'Layout', section: 'layout', kind: 'choice', label: 'App tile shape', description: 'Wide cards suit artwork; squares fit more apps.', options: [{ value: 'wide', label: 'Pills' }, { value: 'square', label: 'Squares' }] },
@@ -41,11 +46,58 @@ export function applySettingValue(settings: Settings, key: string, value: string
   return true;
 }
 export function applyRemoteSetting(settings: Settings, patch: { key: string; value: string }) {
+  if (patch.key === 'fullscreen') {
+    if (patch.value !== 'true' && patch.value !== 'false') return false;
+    settings.fullscreen = patch.value === 'true';
+    return true;
+  }
+  if (patch.key === 'fastAppSwitch') {
+    if (patch.value !== 'true' && patch.value !== 'false') return false;
+    settings.fastAppSwitch = patch.value === 'true';
+    return true;
+  }
+  if (patch.key === 'homeColumns') {
+    if (patch.value !== '1' && patch.value !== '2') return false;
+    settings.homeColumns = patch.value === '2' ? 2 : 1;
+    return true;
+  }
   return applySettingValue(settings, patch.key, patch.value);
 }
 export function resetSettingChoices(settings: Settings, keys: ChoiceKey[]) {
   for (const key of keys) Object.assign(settings, { [key]: defaults[key] });
 }
-export function remoteSettings(settings: Settings) {
-  return settingChoices.map(choice => ({ ...choice, value: settingValue(settings, choice.key) }));
+export function remoteSettings(settings: Settings): RemoteSettingChoice[] {
+  return [
+    ...settingChoices.map(choice => ({ ...choice, value: settingValue(settings, choice.key) })),
+    {
+      key: 'homeColumns',
+      group: 'Layout',
+      section: 'remote-layout',
+      kind: 'choice',
+      label: 'Home columns',
+      description: 'One or two columns of rows on Home.',
+      options: [{ value: '1', label: 'One column' }, { value: '2', label: 'Two columns' }],
+      value: String(settings.homeColumns),
+    },
+    {
+      key: 'fullscreen',
+      group: 'Display',
+      section: 'remote-display',
+      kind: 'toggle',
+      label: 'Luma fullscreen',
+      description: 'Open Luma and its apps full screen on the TV.',
+      options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }],
+      value: String(settings.fullscreen),
+    },
+    {
+      key: 'fastAppSwitch',
+      group: 'System',
+      section: 'remote-system',
+      kind: 'toggle',
+      label: 'Fast app switching',
+      description: 'Keep YouTube and Stremio paused in the background so switching back is instant.',
+      options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }],
+      value: String(settings.fastAppSwitch),
+    },
+  ];
 }

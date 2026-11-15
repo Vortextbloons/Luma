@@ -17,9 +17,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/home.webp" width="100%" alt="The Luma home screen, with Continue Watching, the app dock, and rows of movie posters" />
+  <img src="docs/screenshots/home.webp" width="100%" alt="The Luma home screen: a featured movie hero above Continue Watching, the app dock, and rows of movie posters" />
   <br />
-  <em>Apps, catalogs, and unfinished titles on one home screen.</em>
+  <em>Featured picks, apps, catalogs, and unfinished titles on one home screen.</em>
 </p>
 
 ## One screen
@@ -52,12 +52,12 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/details.webp" width="49%" alt="A movie details dialog with artwork, description, rating and an Open in Stremio action" />
-  <img src="docs/screenshots/settings.webp" width="49%" alt="Theme and home layout settings with live preview" />
+  <img src="docs/screenshots/details.webp" width="49%" alt="A title details dialog over the home screen, with artwork, description, metadata, and an Open in Stremio action" />
+  <img src="docs/screenshots/settings.webp" width="49%" alt="Settings with Theme, Layout, and Widgets sections and the six theme cards" />
 </p>
 
 <p align="center">
-  <em>Title details and home layout settings are a few key presses from the home screen.</em>
+  <em>Title details and a theme picker, a few key presses from the home screen.</em>
 </p>
 
 ## Run it

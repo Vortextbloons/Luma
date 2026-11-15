@@ -155,7 +155,12 @@ export function applyState(state: RemoteState): void {
     settings: Array.isArray(state.settings) ? state.settings : previous?.settings ?? [],
     appOrder: Array.isArray(state.appOrder) ? state.appOrder : previous?.appOrder ?? [],
   };
-  const preset = PRESETS.includes(state.sound) ? state.sound : "real";
+  const sounds = state.settings?.find(item => item.key === "interfaceSounds")?.value;
+  const preset = sounds && PRESETS.includes(sounds as SoundPreset)
+    ? (sounds as SoundPreset)
+    : PRESETS.includes(state.sound)
+      ? state.sound
+      : "real";
   sound.setPreset(preset);
   sound.setLevel(state.settings?.find(item => item.key === "soundLevel")?.value ?? "standard");
   if (state.appearance) applySessionAppearance(state.appearance);
@@ -182,6 +187,10 @@ export function setTheme(choice: string): void {
 
 export function setSoundLevel(level: string): void {
   sound.setLevel(level);
+}
+
+export function setSoundPreset(preset: string): void {
+  if (PRESETS.includes(preset as SoundPreset)) sound.setPreset(preset as SoundPreset);
 }
 
 export async function pair(code: string): Promise<boolean> {

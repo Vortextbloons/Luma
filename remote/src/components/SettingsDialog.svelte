@@ -8,10 +8,17 @@
   import { themeColors, themeLabel } from "../lib/appearance";
   import { control, setControlMode } from "../lib/control.svelte";
   import { installEnvironment, installSteps, isStandalone } from "../lib/install";
-  import { disconnect, refresh, send, session, setSoundLevel, setTheme } from "../lib/session.svelte";
+  import { disconnect, refresh, send, session, setSoundLevel, setSoundPreset, setTheme } from "../lib/session.svelte";
   import type { SettingChoice } from "../lib/types";
 
   let { open = false, onclose }: { open?: boolean; onclose: () => void } = $props();
+
+  type SettingSection = {
+    id: string;
+    heading: string;
+    choices: SettingChoice[];
+    action?: "order" | "pc";
+  };
 
   type Category = {
     id: string;
@@ -20,8 +27,8 @@
     blurb: string;
     heading: string;
     description: string;
-    settingGroup?: string;
-    cardHeading?: string;
+    note?: string;
+    sections?: SettingSection[];
   };
 
   const remoteCategories: Category[] = [
@@ -30,58 +37,136 @@
     { id: "connection", group: "This remote", title: "Connection", blurb: "Pairing and this session", heading: "Connection", description: "The link between this browser and your PC." },
   ];
 
-  const appActions: Category[] = [
-    { id: "order", group: "Luma app", title: "App order", blurb: "Arrange the dock everywhere", heading: "App order", description: "Arrange the app dock on the TV, the Display Box, and this remote." },
-    { id: "pc", group: "Luma app", title: "PC actions", blurb: "Fullscreen on the PC", heading: "PC actions", description: "Control the Luma window running on your PC." },
-  ];
-
-  const settingMeta: Record<string, { blurb: string; description: string; cardHeading: string }> = {
-    Appearance: {
-      blurb: "TV theme",
-      description: "The look of Luma on the TV and connected displays.",
-      cardHeading: "TV appearance",
+  const appCategoryMeta: Record<string, { title: string; blurb: string; heading: string; description: string; note: string }> = {
+    "appearance-home": {
+      title: "Appearance & Home",
+      blurb: "Theme, layout, and Home",
+      heading: "Appearance & Home",
+      description: "The look and layout of Luma on the TV and connected displays.",
+      note: "Home rows and widgets are arranged on the PC.",
     },
-    Layout: {
-      blurb: "Cards, text, and motion",
-      description: "How cards, text, and motion fill the TV. Changes apply to every connected display.",
-      cardHeading: "Cards, text, and motion",
+    "display-sound": {
+      title: "Display & Sound",
+      blurb: "Fullscreen, sound, and PC window",
+      heading: "Display & Sound",
+      description: "Fullscreen, interface sounds, and the window Luma is controlling.",
+      note: "TV screen and audio output are chosen on the PC.",
     },
-    Sound: {
-      blurb: "Sounds and level",
-      description: "Interface sounds on the TV and this remote.",
-      cardHeading: "Interface sounds",
+    "apps-services": {
+      title: "Apps & Services",
+      blurb: "Dock order and apps",
+      heading: "Apps & Services",
+      description: "The shared app dock and the apps available on this remote.",
+      note: "App paths and accounts are managed on the PC.",
+    },
+    system: {
+      title: "System",
+      blurb: "Startup and memory",
+      heading: "System",
+      description: "Startup, memory, and background behavior.",
+      note: "Startup, updates, and tray behavior are on the PC.",
     },
   };
 
-  let settingCategories: Category[] = $derived.by(() => {
-    const groups = new Map<string, SettingChoice[]>();
-    for (const choice of session.state?.settings ?? []) {
-      if (!choice.group) continue;
-      if (!groups.has(choice.group)) groups.set(choice.group, []);
-      groups.get(choice.group)!.push(choice);
-    }
-    return [...groups.keys()].map(group => {
-      const meta = settingMeta[group] ?? {
-        blurb: "Luma app settings",
-        description: "Settings shared with the TV and connected displays.",
-        cardHeading: group,
-      };
-      return {
-        id: `app:${group.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+  const appCategoryOrder = ["appearance-home", "display-sound", "apps-services", "system"];
+
+  const sectionMeta: Record<string, { category: string; heading: string; order: number }> = {
+    theme: { category: "appearance-home", heading: "Theme", order: 0 },
+    layout: { category: "appearance-home", heading: "Layout", order: 1 },
+    "remote-layout": { category: "appearance-home", heading: "Layout", order: 1 },
+    display: { category: "display-sound", heading: "Display", order: 0 },
+    "remote-display": { category: "display-sound", heading: "Display", order: 0 },
+    sound: { category: "display-sound", heading: "Sound", order: 1 },
+    startup: { category: "system", heading: "Startup & memory", order: 0 },
+    "remote-system": { category: "system", heading: "Startup & memory", order: 0 },
+  };
+
+  const cardId = (section: string): string =>
+    section === "remote-layout" ? "layout"
+      : section === "remote-display" ? "display"
+        : section === "remote-system" ? "startup"
+          : section;
+
+  let lumaCategories: Category[] = $derived.by(() => {
+    const categories = new Map<string, Category>();
+    for (const id of appCategoryOrder) {
+      const meta = appCategoryMeta[id];
+      categories.set(id, {
+        id,
         group: "Luma app",
-        title: group,
-        heading: group,
-        settingGroup: group,
-        ...meta,
+        title: meta.title,
+        blurb: meta.blurb,
+        heading: meta.heading,
+        description: meta.description,
+        note: meta.note,
+        sections: [],
+      });
+    }
+
+    const ensure = (id: string, fallbackTitle: string): Category => {
+      let category = categories.get(id);
+      if (!category) {
+        category = {
+          id,
+          group: "Luma app",
+          title: fallbackTitle,
+          blurb: "Luma app settings",
+          heading: fallbackTitle,
+          description: "Settings shared with the TV and connected displays.",
+          note: "",
+          sections: [],
+        };
+        categories.set(id, category);
+      }
+      return category;
+    };
+
+    for (const choice of session.state?.settings ?? []) {
+      const section = choice.section || choice.group.toLowerCase();
+      const meta = sectionMeta[section] ?? {
+        category: `app:${choice.group.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        heading: choice.group || "Luma app",
+        order: 50,
       };
+      const category = ensure(meta.category, choice.group || "Luma app");
+      const id = cardId(section);
+      let card = category.sections?.find(item => item.id === id);
+      if (!card) {
+        card = { id, heading: meta.heading, choices: [] };
+        category.sections?.push(card);
+      }
+      card.choices.push(choice);
+    }
+
+    ensure("apps-services", "Apps & Services").sections?.push({
+      id: "order",
+      heading: "Dock",
+      choices: [],
+      action: "order",
     });
+    ensure("display-sound", "Display & Sound").sections?.push({
+      id: "pc-window",
+      heading: "PC window",
+      choices: [],
+      action: "pc",
+    });
+
+    const sectionRank = (section: SettingSection): number => {
+      if (section.action === "order") return 0;
+      if (section.action === "pc") return 3;
+      return sectionMeta[section.id]?.order ?? 50;
+    };
+    for (const category of categories.values()) {
+      category.sections?.sort((left, right) => sectionRank(left) - sectionRank(right));
+    }
+    return [...categories.values()].filter(category => (category.sections?.length ?? 0) > 0);
   });
 
-  let categories: Category[] = $derived([...remoteCategories, ...settingCategories, ...appActions]);
+  let categories: Category[] = $derived([...remoteCategories, ...lumaCategories]);
 
   let groups: { label: string; ids: string[] }[] = $derived([
     { label: "This remote", ids: remoteCategories.map(item => item.id) },
-    { label: "Luma app", ids: [...settingCategories.map(item => item.id), ...appActions.map(item => item.id)] },
+    { label: "Luma app", ids: lumaCategories.map(item => item.id) },
   ]);
 
   let category = $state("controls");
@@ -117,11 +202,6 @@
   );
   let pcFullscreen = $derived(session.state?.windowFullscreen);
   let pcLabel = $derived(pcFullscreen === true ? "Exit" : pcFullscreen === false ? "Fullscreen" : "Toggle");
-
-  function settingsFor(group?: string): SettingChoice[] {
-    if (!group) return [];
-    return (session.state?.settings ?? []).filter(item => item.group === group);
-  }
 
   function categoryClass(id: string): string {
     return `settings-category ${category === id ? "is-current" : ""}`;
@@ -209,6 +289,7 @@
         );
       }
       if (choice.key === "soundLevel") setSoundLevel(value);
+      else if (choice.key === "interfaceSounds") setSoundPreset(value);
       settingsNote = "Change sent to Luma.";
       settingsTone = "good";
     } catch (_) {
@@ -348,20 +429,22 @@
       {#each groups as group (group.label)}
         <p class="nav-group">{group.label}</p>
         {#each group.ids as id (id)}
-          {@const item = categories.find(entry => entry.id === id)!}
-          <button
-            type="button"
-            class={categoryClass(id)}
-            data-category={id}
-            aria-current={category === id ? "page" : undefined}
-            onclick={() => selectCategory(id)}
-          >
-            <span class="category-copy">
-              <b>{item.title}</b>
-              <small>{item.blurb}</small>
-            </span>
-            <Icon name="right" className="category-mark size-4" />
-          </button>
+          {@const item = categories.find(entry => entry.id === id)}
+          {#if item}
+            <button
+              type="button"
+              class={categoryClass(id)}
+              data-category={id}
+              aria-current={category === id ? "page" : undefined}
+              onclick={() => selectCategory(id)}
+            >
+              <span class="category-copy">
+                <b>{item.title}</b>
+                <small>{item.blurb}</small>
+              </span>
+              <Icon name="right" className="category-mark size-4" />
+            </button>
+          {/if}
         {/each}
       {/each}
     </nav>
@@ -496,85 +579,79 @@
         </section>
       {/if}
 
-      {#if active.settingGroup}
-        <section class="group">
-          <h3>{active.cardHeading}</h3>
-          {#if settingsNote}
-            <p class="settings-note" data-tone={settingsTone} role="status" aria-live="polite">{settingsNote}</p>
-          {/if}
-          {#if settingsFor(active.settingGroup).length}
-            {#each settingsFor(active.settingGroup) as choice (choice.key)}
-              {#if choice.kind === "toggle"}
-                <div class="row">
-                  <span class="row-copy">
-                    <b>{choice.label}</b>
-                    <small>{choice.description}</small>
-                  </span>
-                  <SettingSwitch
-                    checked={(drafts[choice.key] ?? choice.value) === "true"}
-                    label={choice.label}
-                    disabled={settingsSaving}
-                    onchange={value => saveSetting(choice, String(value))}
-                  />
-                </div>
-              {:else}
-                <label class="field" for={`setting-${choice.key}`}>
-                  <span class="row-copy">
-                    <b>{choice.label}</b>
-                    <small>{choice.description}</small>
-                  </span>
-                  <select
-                    id={`setting-${choice.key}`}
-                    value={drafts[choice.key] ?? choice.value}
-                    disabled={settingsSaving}
-                    onchange={event => saveSetting(choice, event.currentTarget.value)}
-                  >
-                    {#each choice.options as option (option.value)}
-                      <option value={option.value}>{option.label}</option>
-                    {/each}
-                  </select>
-                </label>
-              {/if}
-            {/each}
-          {:else}
-            <p class="row-note">{session.state ? "No settings are available for this section." : "Connecting to Luma…"}</p>
-          {/if}
-        </section>
-      {/if}
+      {#if active.sections}
+        {#if settingsNote}
+          <p class="settings-note" data-tone={settingsTone} role="status" aria-live="polite">{settingsNote}</p>
+        {/if}
 
-      {#if category === "order"}
-        <section class="group">
-          <h3>Dock</h3>
-          <div class="row">
-            <span class="row-copy">
-              <b>App order</b>
-              <small>Move apps into the order you want.</small>
-            </span>
-            <button type="button" class="pill" data-order-trigger onclick={() => (orderOpen = true)}>Edit</button>
-          </div>
-        </section>
-      {/if}
+        {#each active.sections as section (section.id)}
+          <section class="group">
+            <h3>{section.heading}</h3>
 
-      {#if category === "pc"}
-        <section class="group">
-          <h3>Window</h3>
-          <div class="row">
-            <span class="row-copy">
-              <b>Fullscreen app</b>
-              <small>Toggles full screen on the app Luma is controlling.</small>
-            </span>
-            <button
-              type="button"
-              class="pill"
-              aria-pressed={pcFullscreen === true}
-              aria-label="Toggle fullscreen for the PC window"
-              onclick={togglePcFullscreen}
-            >
-              {pcLabel}
-            </button>
-          </div>
-          {#if pcNote}<p class="row-note" role="status">{pcNote}</p>{/if}
-        </section>
+            {#if section.action === "order"}
+              <div class="row">
+                <span class="row-copy">
+                  <b>App order</b>
+                  <small>Move apps into the order you want.</small>
+                </span>
+                <button type="button" class="pill" data-order-trigger onclick={() => (orderOpen = true)}>Edit</button>
+              </div>
+            {:else if section.action === "pc"}
+              <div class="row">
+                <span class="row-copy">
+                  <b>Fullscreen app</b>
+                  <small>Toggles full screen on the app Luma is controlling.</small>
+                </span>
+                <button
+                  type="button"
+                  class="pill"
+                  aria-pressed={pcFullscreen === true}
+                  aria-label="Toggle fullscreen for the PC window"
+                  onclick={togglePcFullscreen}
+                >
+                  {pcLabel}
+                </button>
+              </div>
+              {#if pcNote}<p class="row-note" role="status">{pcNote}</p>{/if}
+            {:else}
+              {#each section.choices as choice (choice.key)}
+                {#if choice.kind === "toggle"}
+                  <div class="row">
+                    <span class="row-copy">
+                      <b>{choice.label}</b>
+                      <small>{choice.description}</small>
+                    </span>
+                    <SettingSwitch
+                      checked={(drafts[choice.key] ?? choice.value) === "true"}
+                      label={choice.label}
+                      disabled={settingsSaving}
+                      onchange={value => saveSetting(choice, String(value))}
+                    />
+                  </div>
+                {:else}
+                  <label class="field" for={`setting-${choice.key}`}>
+                    <span class="row-copy">
+                      <b>{choice.label}</b>
+                      <small>{choice.description}</small>
+                    </span>
+                    <select
+                      id={`setting-${choice.key}`}
+                      value={drafts[choice.key] ?? choice.value}
+                      disabled={settingsSaving}
+                      onchange={event => saveSetting(choice, event.currentTarget.value)}
+                    >
+                      {#each choice.options as option (option.value)}
+                        <option value={option.value}>{option.label}</option>
+                      {/each}
+                    </select>
+                  </label>
+                {/if}
+              {/each}
+            {/if}
+          </section>
+        {/each}
+
+        {#if active.note}<p class="row-note">{active.note}</p>{/if}
       {/if}
     </div>
   </div>
@@ -880,14 +957,18 @@
   }
 
   .settings-note {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     margin: 8px 0 4px;
     padding: 9px 12px;
     border: 1px solid var(--line-strong);
     border-radius: 10px;
-    background: color-mix(in srgb, var(--surface-3) 90%, transparent);
+    background: color-mix(in srgb, var(--surface-3) 94%, transparent);
     color: var(--text-dim);
     font-size: 11.5px;
     line-height: 1.4;
+    backdrop-filter: blur(10px);
   }
 
   .settings-note[data-tone="good"] {

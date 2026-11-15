@@ -139,6 +139,30 @@ fn setting_catalog() -> Vec<SettingChoice> {
             setting_option("standard", "Standard"),
             setting_option("loud", "Loud"),
         ]),
+        setting_choice("homeColumns", "Layout", "remote-layout", "Home columns", "One or two columns of rows on Home.", "1", vec![
+            setting_option("1", "One column"),
+            setting_option("2", "Two columns"),
+        ]),
+        SettingChoice {
+            key: "fullscreen".into(),
+            group: "Display".into(),
+            section: "remote-display".into(),
+            kind: "toggle".into(),
+            label: "Luma fullscreen".into(),
+            description: "Open Luma and its apps full screen on the TV.".into(),
+            options: vec![setting_option("true", "On"), setting_option("false", "Off")],
+            value: "false".into(),
+        },
+        SettingChoice {
+            key: "fastAppSwitch".into(),
+            group: "System".into(),
+            section: "remote-system".into(),
+            kind: "toggle".into(),
+            label: "Fast app switching".into(),
+            description: "Keep YouTube and Stremio paused in the background so switching back is instant.".into(),
+            options: vec![setting_option("true", "On"), setting_option("false", "Off")],
+            value: "true".into(),
+        },
     ]
 }
 
