@@ -2,17 +2,32 @@
 
 Notable changes to Luma, newest first. The Release workflow publishes the matching section as the GitHub release notes and in-app update notes.
 
-## Unreleased
+## [0.6.1] - 2026-11-15
 
 ### Added
 
-- Music keeps playing while a movie or Stremio runs, instead of closing the video window when Spotify opens.
+- Declarative plugins: import, preview, enable, disable, export, and remove `.luma-extension.zip` packages from **Settings → Plugins**, with bounded plugin settings and clear handling when a plugin changes a setting it owns.
+- AI customization: **Settings → MCP customization** turns on a local MCP endpoint where an agent can read, validate, and preview changes, and stage plugins, alongside ten saved versions, restore, and reset. An opt-in local REST API offers the same reach for scripted changes.
+- A rebuilt web remote with QR pairing, add-to-home-screen guidance and icons, and touch-friendly settings that follow Luma's own settings payload.
+- Fast app switching keeps YouTube and Stremio loaded in the background so they reopen without reloading.
+- Sports with scores for the NBA, NFL, MLB, and NHL, and StreamEast listings beside Sportsurge sources with automatic fallback.
+- Sports shortcuts in the app catalog and phone remote that open the league's games.
 - A music strip on the web remote and the Display Box TV Remote tab with album art, play/pause, previous, and next, controlling Spotify on the PC without disturbing the movie.
 
 ### Changed
 
+- Music keeps playing while a movie or Stremio runs, instead of closing the video window when Spotify opens.
 - Play/pause, previous, and next follow the window in front as before; the new music controls always target Spotify.
+- Phone remote settings are grouped into Appearance & Home, Display & Sound, and Apps & Services, with dock ordering and PC window actions in place, and clearer touch targets, switches, and dialogs.
 - Split Settings into **Appearance & Home** for Luma's own theme, Home layout, and widgets, and a separate **Plugins** category for importing, exporting, and managing plugins. Plugins sits above MCP customization.
+- Home renders through a registry-driven renderer, and existing Home layouts migrate automatically.
+- Import and export reject oversized or mispackaged plugin archives instead of failing partway through.
+
+### Fixed
+
+- Plugin errors offer a retry action, name detached fields by their plugin setting, and stop repeating the same message twice.
+- Leftover plugin staging files are cleaned up, and invalid plugin contributions are repaired rather than left blocking settings.
+- Sports playback keeps stream selection, source fallback, and progress consistent across providers.
 
 ## [0.4.0] - 2026-11-14
 
