@@ -1,12 +1,17 @@
 pub mod document;
 pub mod history;
 pub mod mcp;
+pub mod plugin;
 pub mod server;
 
 use document::{Config, Document};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Mutex, MutexGuard},
+};
 use tauri::{Emitter, Manager};
 
 #[derive(Debug, Serialize)]
@@ -43,6 +48,12 @@ pub struct Preview {
     pub id: String,
     pub base_revision: u64,
     pub config: Config,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<plugin::PluginPreview>,
+    #[serde(skip)]
+    pub prepared: Option<plugin::PreparedWrite>,
+    #[serde(skip)]
+    pub plugin_action: Option<plugin::PluginAction>,
 }
 
 #[derive(Deserialize)]
@@ -51,11 +62,21 @@ pub struct PreviewAction {
     pub preview_id: String,
 }
 
-pub struct Store(Result<Mutex<Connection>, String>, Mutex<Option<Preview>>);
+#[derive(Clone)]
+pub struct Snapshot {
+    pub document: Document,
+    pub plugins: plugin::PluginsState,
+}
+
+pub struct Store(
+    Result<Mutex<Connection>, String>,
+    Mutex<Option<Preview>>,
+    Option<PathBuf>,
+);
 
 impl Store {
     pub fn open(app: &tauri::AppHandle) -> Self {
-        Self::load(app).unwrap_or_else(|error| Self(Err(error), Mutex::new(None)))
+        Self::load(app).unwrap_or_else(|error| Self(Err(error), Mutex::new(None), None))
     }
 
     fn load(app: &tauri::AppHandle) -> Result<Self, String> {
@@ -63,19 +84,39 @@ impl Store {
             .path()
             .app_config_dir()
             .map_err(|error| error.to_string())?;
+        let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        let plugins = data.join("plugins");
+        std::fs::create_dir_all(&plugins).map_err(|error| error.to_string())?;
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-        Self::from_connection(
+        Self::from_connection_with_root(
             Connection::open(directory.join("customization.sqlite3"))
                 .map_err(|error| error.to_string())?,
+            Some(plugins),
         )
         .map_err(|error| error.message)
     }
 
-    fn from_connection(mut connection: Connection) -> Result<Self, Error> {
+    fn from_connection(connection: Connection) -> Result<Self, Error> {
+        Self::from_connection_with_root(connection, None)
+    }
+
+    fn from_connection_with_root(
+        mut connection: Connection,
+        root: Option<PathBuf>,
+    ) -> Result<Self, Error> {
         connection.execute_batch("CREATE TABLE IF NOT EXISTS customization (id INTEGER PRIMARY KEY CHECK(id = 1), document TEXT NOT NULL, previous TEXT);")?;
         history::create(&connection)?;
+        plugin::create(&connection)?;
         Self::migrate(&mut connection)?;
-        Ok(Self(Ok(Mutex::new(connection)), Mutex::new(None)))
+        Ok(Self(
+            Ok(Mutex::new(connection)),
+            Mutex::new(None),
+            root,
+        ))
+    }
+
+    fn plugin_root(&self) -> Option<PathBuf> {
+        self.2.clone()
     }
 
     fn migrate(connection: &mut Connection) -> Result<(), Error> {
@@ -110,6 +151,7 @@ impl Store {
         }
         history::migrate(&transaction, current.as_ref(), previous.as_ref())?;
         transaction.commit()?;
+        plugin::migrate(connection)?;
         Ok(())
     }
 
@@ -124,7 +166,7 @@ impl Store {
     fn decode(value: &str) -> Result<Document, Error> {
         let raw: serde_json::Value =
             serde_json::from_str(value).map_err(|error| Error::new("invalid_document", error))?;
-        let document: Document = match raw.get("version").and_then(serde_json::Value::as_u64) {
+        let mut document: Document = match raw.get("version").and_then(serde_json::Value::as_u64) {
             Some(1) => document::migrate_legacy(value)
                 .map_err(|error| Error::new("invalid_document", error))?,
             Some(2) => document::migrate_v2(value)
@@ -150,6 +192,7 @@ impl Store {
                 "Invalid customization revision.",
             ));
         }
+        document::migrate_app_order(&mut document.config.order);
         document::validate(&document.config).map_err(|error| Error::new("validation", error))?;
         Ok(document)
     }
@@ -170,6 +213,26 @@ impl Store {
         Self::current(&connection)
     }
 
+    pub fn read_effective(&self) -> Result<Option<Document>, Error> {
+        let connection = self.connection()?;
+        let Some(document) = Self::current(&connection)? else {
+            return Ok(None);
+        };
+        Ok(Some(plugin::snapshot_for_connection(&connection, &document)?))
+    }
+
+    pub fn snapshot(&self) -> Result<Option<Snapshot>, Error> {
+        let connection = self.connection()?;
+        let Some(document) = Self::current(&connection)? else {
+            return Ok(None);
+        };
+        let effective = plugin::snapshot_for_connection(&connection, &document)?;
+        Ok(Some(Snapshot {
+            document: effective,
+            plugins: plugin::state(&connection, &document.config)?,
+        }))
+    }
+
     pub fn initialize(&self, config: Config) -> Result<Document, Error> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
@@ -188,7 +251,13 @@ impl Store {
             "INSERT INTO customization (id, document) VALUES (1, ?1)",
             [raw],
         )?;
-        history::record(&transaction, &document)?;
+        let effective = plugin::apply(&transaction, &document.config)?;
+        history::record(
+            &transaction,
+            &document,
+            &effective,
+            &plugin::snapshot(&transaction)?,
+        )?;
         transaction.commit()?;
         Ok(document)
     }
@@ -240,8 +309,11 @@ impl Store {
         if revision.is_some_and(|revision| revision != current.revision) {
             return Err(Error::new("conflict", "Customization changed elsewhere. Read the current revision before applying your changes."));
         }
-        let config = edit(current.config.clone())?;
-        let document = Self::write(&transaction, &current, config)?;
+        let effective = plugin::apply(&transaction, &current.config)?;
+        let requested = edit(effective.clone())?;
+        let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
+        plugin::apply_prepared(&transaction, &prepared)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
         transaction.commit()?;
         Ok(document)
     }
@@ -250,9 +322,10 @@ impl Store {
         transaction: &Connection,
         current: &Document,
         config: Config,
+        force: bool,
     ) -> Result<Document, Error> {
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
-        if config == current.config {
+        if config == current.config && !force {
             return Ok(current.clone());
         }
         if current.revision >= 9_007_199_254_740_991 {
@@ -266,13 +339,19 @@ impl Store {
             revision: history::next_revision(transaction, current.revision)?,
             config,
         };
+        let effective = plugin::apply(transaction, &document.config)?;
         let raw =
             serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute(
             "UPDATE customization SET previous = document, document = ?1 WHERE id = 1",
             [raw],
         )?;
-        history::record(transaction, &document)?;
+        history::record(
+            transaction,
+            &document,
+            &effective,
+            &plugin::snapshot(transaction)?,
+        )?;
         Ok(document)
     }
 
@@ -297,9 +376,10 @@ impl Store {
         if current.revision != expected_revision {
             return Err(Error::new("conflict", "Customization changed elsewhere."));
         }
-        let previous = history::previous(&transaction, current.revision)?
+        let previous = history::previous_entry(&transaction, current.revision)?
             .ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?;
-        let document = Self::write(&transaction, &current, previous.config)?;
+        plugin::restore_snapshot(&transaction, &previous.plugins)?;
+        let document = Self::write(&transaction, &current, previous.config, true)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -324,12 +404,15 @@ impl Store {
                 "The saved layout changed. Reload it before restoring.",
             ));
         }
-        let previous = history::previous(&transaction, current.revision)?
+        let previous = history::previous_entry(&transaction, current.revision)?
             .ok_or_else(|| Error::new("no_previous", "No previous layout is available."))?;
-        let mut config = current.config.clone();
-        config.home = previous.config.home;
-        config.home_columns = previous.config.home_columns;
-        let document = Self::write(&transaction, &current, config)?;
+        let effective = plugin::apply(&transaction, &current.config)?;
+        let mut requested = effective.clone();
+        requested.home = previous.config.home;
+        requested.home_columns = previous.config.home_columns;
+        let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
+        plugin::apply_prepared(&transaction, &prepared)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -339,7 +422,7 @@ impl Store {
         &self,
         expected_revision: u64,
         revision: u64,
-    ) -> Result<Document, Error> {
+    ) -> Result<(Document, Vec<String>), Error> {
         let mut preview = self
             .1
             .lock()
@@ -355,13 +438,14 @@ impl Store {
         if current.revision != expected_revision {
             return Err(Error::new("conflict", "Customization changed elsewhere."));
         }
-        let selected = history::find(&transaction, revision)?.ok_or_else(|| {
+        let selected = history::find_entry(&transaction, revision)?.ok_or_else(|| {
             Error::new("no_version", "That saved version is no longer available.")
         })?;
-        let document = Self::write(&transaction, &current, selected.config)?;
+        let notices = plugin::restore_snapshot(&transaction, &selected.plugins)?;
+        let document = Self::write(&transaction, &current, selected.config, true)?;
         transaction.commit()?;
         *preview = None;
-        Ok(document)
+        Ok((document, notices))
     }
 
     pub fn reset_appearance(&self, expected_revision: u64) -> Result<Document, Error> {
@@ -381,16 +465,19 @@ impl Store {
             return Err(Error::new("conflict", "Customization changed elsewhere."));
         }
         let defaults = Config::default();
-        let mut config = current.config.clone();
-        config.theme = defaults.theme;
-        config.density = defaults.density;
-        config.app_tile_shape = defaults.app_tile_shape;
-        config.text_size = defaults.text_size;
-        config.reduced_motion = defaults.reduced_motion;
-        config.home_columns = defaults.home_columns;
-        config.home = defaults.home;
-        config.widgets = defaults.widgets;
-        let document = Self::write(&transaction, &current, config)?;
+        let effective = plugin::apply(&transaction, &current.config)?;
+        let mut requested = effective.clone();
+        requested.theme = defaults.theme;
+        requested.density = defaults.density;
+        requested.app_tile_shape = defaults.app_tile_shape;
+        requested.text_size = defaults.text_size;
+        requested.reduced_motion = defaults.reduced_motion;
+        requested.home_columns = defaults.home_columns;
+        requested.home = defaults.home;
+        requested.widgets = defaults.widgets;
+        let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
+        plugin::apply_prepared(&transaction, &prepared)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -415,7 +502,8 @@ impl Store {
                 "Finish or cancel the current preview first.",
             ));
         }
-        let current = self.read()?.ok_or_else(|| {
+        let connection = self.connection()?;
+        let current = Self::current(&connection)?.ok_or_else(|| {
             Error::new(
                 "not_initialized",
                 "Open Luma once before previewing a layout.",
@@ -427,13 +515,125 @@ impl Store {
                 "The saved layout changed. Reload it before previewing your draft.",
             ));
         }
-        document::validate(&request.config).map_err(|error| Error::new("validation", error))?;
+        let effective = plugin::apply(&connection, &current.config)?;
+        let prepared = plugin::prepare(&connection, &current.config, &effective, &request.config)?;
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
         let candidate = Preview {
             id: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
             base_revision: current.revision,
             config: request.config,
+            plugin: None,
+            prepared: Some(prepared),
+            plugin_action: None,
+        };
+        *preview = Some(candidate.clone());
+        Ok(candidate)
+    }
+
+    pub fn preview_plugin(&self, plugin_id: &str, expected_revision: u64) -> Result<Preview, Error> {
+        let mut preview = self
+            .1
+            .lock()
+            .map_err(|error| Error::new("storage", error))?;
+        if preview.is_some() {
+            return Err(Error::new(
+                "preview_busy",
+                "Finish or cancel the current preview first.",
+            ));
+        }
+        let connection = self.connection()?;
+        let current = Self::current(&connection)?.ok_or_else(|| {
+            Error::new(
+                "not_initialized",
+                "Open Luma once before previewing a plugin.",
+            )
+        })?;
+        if current.revision != expected_revision {
+            return Err(Error::new(
+                "conflict",
+                "Customization changed elsewhere. Read it again before previewing this plugin.",
+            ));
+        }
+        let (config, action) = plugin::prepare_enable(&connection, &current.config, plugin_id)?;
+        let record = plugin::state(&connection, &current.config)?
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.id == plugin_id)
+            .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+        let reattach = matches!(
+            action,
+            plugin::PluginAction::Enable { reattach: true, .. }
+        );
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
+        let candidate = Preview {
+            id: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+            base_revision: current.revision,
+            config,
+            plugin: Some(plugin::PluginPreview {
+                id: record.id,
+                name: record.name,
+                action: if reattach { "reattach" } else { "enable" }.into(),
+            }),
+            prepared: None,
+            plugin_action: Some(action),
+        };
+        *preview = Some(candidate.clone());
+        Ok(candidate)
+    }
+
+    pub fn preview_plugin_settings(
+        &self,
+        plugin_id: &str,
+        expected_revision: u64,
+        values: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Preview, Error> {
+        let mut preview = self
+            .1
+            .lock()
+            .map_err(|error| Error::new("storage", error))?;
+        if preview.is_some() {
+            return Err(Error::new(
+                "preview_busy",
+                "Finish or cancel the current preview first.",
+            ));
+        }
+        let connection = self.connection()?;
+        let current = Self::current(&connection)?.ok_or_else(|| {
+            Error::new(
+                "not_initialized",
+                "Open Luma once before previewing plugin settings.",
+            )
+        })?;
+        if current.revision != expected_revision {
+            return Err(Error::new(
+                "conflict",
+                "Customization changed elsewhere. Read it again before staging settings.",
+            ));
+        }
+        let map: serde_json::Map<String, serde_json::Value> =
+            values.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+        let (config, action) =
+            plugin::prepare_settings(&connection, &current.config, plugin_id, &map)?;
+        let record = plugin::state(&connection, &current.config)?
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.id == plugin_id)
+            .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
+        let candidate = Preview {
+            id: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+            base_revision: current.revision,
+            config,
+            plugin: Some(plugin::PluginPreview {
+                id: record.id,
+                name: record.name,
+                action: "settings".into(),
+            }),
+            prepared: None,
+            plugin_action: Some(action),
         };
         *preview = Some(candidate.clone());
         Ok(candidate)
@@ -454,7 +654,41 @@ impl Store {
                 )
             })?
             .clone();
-        let document = self.change(candidate.base_revision, |_| Ok(candidate.config))?;
+        if let Some(action) = &candidate.plugin_action {
+            let mut connection = self.connection()?;
+            let transaction = connection.transaction()?;
+            let current = Self::current(&transaction)?.ok_or_else(|| {
+                Error::new("not_initialized", "Customization is not initialized.")
+            })?;
+            if current.revision != candidate.base_revision {
+                return Err(Error::new(
+                    "preview_mismatch",
+                    "Customization changed elsewhere. Preview the plugin again.",
+                ));
+            }
+            plugin::apply_action(&transaction, &current, action)?;
+            let document = Self::write(&transaction, &current, current.config.clone(), true)?;
+            transaction.commit()?;
+            *preview = None;
+            return Ok(document);
+        }
+        let prepared = candidate.prepared.clone().ok_or_else(|| {
+            Error::new("preview_mismatch", "This preview has no pending change.")
+        })?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let current = Self::current(&transaction)?.ok_or_else(|| {
+            Error::new("not_initialized", "Customization is not initialized.")
+        })?;
+        if current.revision != candidate.base_revision {
+            return Err(Error::new(
+                "preview_mismatch",
+                "Customization changed elsewhere. Preview your draft again.",
+            ));
+        }
+        plugin::apply_prepared(&transaction, &prepared)?;
+        let document = Self::write(&transaction, &current, prepared.base.clone(), true)?;
+        transaction.commit()?;
         *preview = None;
         Ok(document)
     }
@@ -482,9 +716,23 @@ impl Store {
 }
 
 pub fn publish(app: &tauri::AppHandle, document: &Document) {
-    let _ = crate::remote::server::sync_customization(app, document);
-    let _ = app.emit_to("main", "customization-changed", document);
+    let store = app.state::<Store>();
+    let (effective, plugins) = match store.snapshot() {
+        Ok(Some(snapshot)) => (snapshot.document, Some(snapshot.plugins)),
+        _ => (document.clone(), None),
+    };
+    let _ = crate::remote::server::sync_customization(app, &effective);
+    let _ = app.emit_to("main", "customization-changed", &effective);
+    if let Some(plugins) = plugins {
+        let _ = app.emit_to("main", "customization-plugins-changed", plugins);
+    }
     publish_preview(app);
+}
+
+fn effective(app: &tauri::AppHandle, document: Document) -> Result<Document, Error> {
+    let store = app.state::<Store>();
+    let connection = store.connection()?;
+    plugin::snapshot_for_connection(&connection, &document)
 }
 
 fn publish_preview(app: &tauri::AppHandle) {
@@ -541,7 +789,7 @@ pub async fn customization_preview_keep(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().keep(&request.preview_id)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -565,7 +813,7 @@ pub async fn customization_restore(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().restore(expected_revision)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -579,7 +827,7 @@ pub async fn customization_restore_layout(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().restore_layout(expected_revision)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -601,11 +849,14 @@ pub async fn customization_restore_version(
     revision: u64,
 ) -> Result<Document, Error> {
     tauri::async_runtime::spawn_blocking(move || {
-        let document = app
+        let (document, notices) = app
             .state::<Store>()
             .restore_version(expected_revision, revision)?;
         publish(&app, &document);
-        Ok(document)
+        if !notices.is_empty() {
+            plugin::notice(&app, notices.join(" "));
+        }
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -619,7 +870,7 @@ pub async fn customization_reset_appearance(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().reset_appearance(expected_revision)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -627,7 +878,7 @@ pub async fn customization_reset_appearance(
 
 #[tauri::command]
 pub async fn customization_read(app: tauri::AppHandle) -> Result<Option<Document>, Error> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Store>().read())
+    tauri::async_runtime::spawn_blocking(move || app.state::<Store>().read_effective())
         .await
         .map_err(|error| Error::new("storage", error))?
 }
@@ -640,7 +891,7 @@ pub async fn customization_initialize(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().initialize(config)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -654,7 +905,99 @@ pub async fn customization_commit(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().commit(request)?;
         publish(&app, &document);
-        Ok(document)
+        effective(&app, document)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugins_read(app: tauri::AppHandle) -> Result<plugin::PluginsState, Error> {
+    plugin::state_for_app(&app)
+}
+
+#[tauri::command]
+pub async fn customization_plugin_import(
+    app: tauri::AppHandle,
+) -> Result<Option<plugin::ImportResult>, Error> {
+    tauri::async_runtime::spawn_blocking(move || plugin::command_import(app))
+        .await
+        .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_export(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, Error> {
+    tauri::async_runtime::spawn_blocking(move || plugin::command_export(app, plugin_id))
+        .await
+        .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_preview(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+) -> Result<Preview, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview = plugin::command_preview(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        publish_preview(&app);
+        Ok::<_, Error>(preview)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_disable(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+) -> Result<plugin::PluginsState, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin::command_disable(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
+            publish(&app, &snapshot.document);
+        }
+        plugin::state_for_app(&app)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_remove(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+) -> Result<plugin::PluginsState, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin::command_remove(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
+            publish(&app, &snapshot.document);
+        }
+        plugin::state_for_app(&app)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_settings_save(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+    settings: BTreeMap<String, serde_json::Value>,
+) -> Result<plugin::PluginsState, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let map: serde_json::Map<String, serde_json::Value> = settings.into_iter().collect();
+        plugin::command_save_settings(&app.state::<Store>(), &plugin_id, expected_revision, map)?;
+        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
+            publish(&app, &snapshot.document);
+        }
+        plugin::state_for_app(&app)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -666,6 +1009,21 @@ mod tests {
 
     fn store() -> Store {
         Store::from_connection(Connection::open_in_memory().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn saved_app_order_adds_leagues_without_resetting_existing_apps() {
+        let mut config = Config::default();
+        config.order.retain(|id| !["NBA", "NFL", "MLB", "NHL"].contains(&id.as_str()));
+        config.order.swap(0, 4);
+        let previous = config.order.clone();
+        let raw = serde_json::to_string(&Document { version: 3, revision: 7, config }).unwrap();
+        let document = Store::decode(&raw).unwrap();
+        assert_eq!(document.revision, 7);
+        assert_eq!(&document.config.order[..previous.len() - 1], &previous[..previous.len() - 1]);
+        assert_eq!(&document.config.order[previous.len() - 1..], &["NBA", "NFL", "MLB", "NHL", "Custom"]);
+        document::validate(&document.config).unwrap();
+        assert_eq!(Store::decode(&serde_json::to_string(&document).unwrap()).unwrap(), document);
     }
 
     #[test]

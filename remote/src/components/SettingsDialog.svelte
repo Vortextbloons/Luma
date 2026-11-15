@@ -414,26 +414,28 @@
 
   <div class="settings-layout" class:is-detail={detail}>
     <nav class="settings-nav" aria-label="Settings categories">
-      {#each groups as group (group.label)}
-        <p class="nav-group">{group.label}</p>
-        {#each group.ids as id (id)}
-          {@const item = categories.find(entry => entry.id === id)}
-          {#if item}
-            <button
-              type="button"
-              class={categoryClass(id)}
-              data-category={id}
-              aria-current={category === id ? "page" : undefined}
-              onclick={() => selectCategory(id)}
-            >
-              <span class="category-copy">
-                <b>{item.title}</b>
-                <small>{item.blurb}</small>
-              </span>
-              <Icon name="right" className="category-mark size-4" />
-            </button>
-          {/if}
-        {/each}
+      {#each groups as group, index (group.label)}
+        <div class="nav-section" class:nav-section-separated={index > 0}>
+          <p class="nav-group">{group.label}</p>
+          {#each group.ids as id (id)}
+            {@const item = categories.find(entry => entry.id === id)}
+            {#if item}
+              <button
+                type="button"
+                class={categoryClass(id)}
+                data-category={id}
+                aria-current={category === id ? "page" : undefined}
+                onclick={() => selectCategory(id)}
+              >
+                <span class="category-copy">
+                  <b>{item.title}</b>
+                  <small>{item.blurb}</small>
+                </span>
+                <Icon name="right" className="category-mark size-4" />
+              </button>
+            {/if}
+          {/each}
+        </div>
       {/each}
     </nav>
 
@@ -742,15 +744,34 @@
     background: color-mix(in srgb, var(--surface-2) 55%, transparent);
   }
 
+  .nav-section {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .nav-section-separated {
+    margin-top: 6px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-strong);
+  }
+
   .nav-group {
-    margin: 14px 10px 3px;
+    margin: 0 10px 6px;
     color: var(--faint);
     font-size: 10.5px;
     font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
-  .nav-group:first-child {
+  .nav-section:first-child .nav-group {
     margin-top: 2px;
+  }
+
+  .nav-section-separated .nav-group {
+    margin-bottom: 8px;
+    color: var(--muted);
   }
 
   .settings-category {
@@ -1165,8 +1186,9 @@
       display: none;
     }
 
-    .nav-group {
-      margin-top: 12px;
+    .nav-section-separated {
+      margin-top: 10px;
+      padding-top: 14px;
     }
 
     .settings-category {

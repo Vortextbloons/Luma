@@ -10,6 +10,18 @@
   let player = null;
   let state = null;
   let source = window.__lumaSportsSource || 0;
+  const attempted = new Set();
+  const retiredPlayers = new Set();
+  let sourceStarted = 0;
+  let progressPosition = null;
+  let started = false;
+  let sourceButtons = [];
+  const sourceKey = 'luma-sports-source-v1';
+  let remembered = {};
+  if (main) {
+    try { remembered = JSON.parse(localStorage.getItem(sourceKey) || '{}'); } catch {}
+    if (!remembered || typeof remembered !== 'object' || Array.isArray(remembered)) remembered = {};
+  }
   let overlay;
   let message;
   let playButton;
@@ -32,7 +44,7 @@
     const [start, end] = range(video);
     const bounds = video.getBoundingClientRect();
     publish({ type: 'state', id, paused: video.paused, waiting: video.readyState < 3,
-      position: Math.max(0, video.currentTime - start), duration: Math.max(0, end - start),
+      playbackTime: video.currentTime, position: Math.max(0, video.currentTime - start), duration: Math.max(0, end - start),
       area: bounds.width * bounds.height, error: !!video.error });
   };
   const fill = element => {
@@ -87,12 +99,28 @@
     if (payload.type === 'return') { location.href = 'https://isportsurge.ws/__luma_close__'; return; }
     if (payload.type === 'key') { window.__lumaSportsNavigate(payload.action); return; }
     if (payload.type === 'play-error' && payload.id === player) { show('Playback could not start. Press Play or try another source.'); reveal(); return; }
+    if (retiredPlayers.has(payload.id)) return;
     if (payload.type !== 'state' || typeof payload.id !== 'string' || !Number.isFinite(payload.area) || payload.area <= 0) return;
     if (player && player !== payload.id && state && state.area > payload.area) return;
     const wasPlaying = state && !state.paused && !state.waiting;
     player = payload.id;
     state = payload;
-    if (!state.waiting && !state.error) clearTimeout(waitingTimer);
+    if (!state.paused && !state.waiting && !state.error && Number.isFinite(state.playbackTime)) {
+      if (progressPosition !== null && state.playbackTime > progressPosition + 0.1) {
+        clearTimeout(waitingTimer);
+        if (!started) {
+          started = true;
+          remembered[location.pathname] = { id: sourceButtons[source]?.id, at: Date.now() };
+          const entries = Object.entries(remembered).sort((a, b) => (b[1]?.at || 0) - (a[1]?.at || 0)).slice(0, 64);
+          try { localStorage.setItem(sourceKey, JSON.stringify(Object.fromEntries(entries))); } catch {}
+        }
+      }
+      progressPosition = state.playbackTime;
+    }
+    if (state.error && !started && Date.now() - sourceStarted > 1000) {
+      clearTimeout(waitingTimer);
+      waitingTimer = setTimeout(nextSource, 0);
+    }
     if (playButton) playButton.textContent = state.paused ? 'Play' : 'Pause';
     show(state.error ? 'This source could not play. Try another source.' : state.waiting ? 'Buffering…' : '');
     if (state.paused || state.waiting || state.error) reveal();
@@ -107,19 +135,40 @@
     if (payload.type === 'state' && payload.area > 0) fill(child);
     publish(payload);
   });
+  const nextSource = () => {
+    if (started) return;
+    const next = sourceButtons.findIndex((_, index) => !attempted.has(index));
+    if (next < 0) {
+      show('None of this game’s sources started. The broadcast may be offline or not live yet. Try again or return to Sports.');
+      reveal();
+      return;
+    }
+    source = next;
+    selectSource();
+  };
   const selectSource = () => {
-    const buttons = [...document.querySelectorAll('[id^="stream-btn-"]')];
-    if (!buttons.length) { show('No sources are available for this event. Return to Sports and refresh.'); return; }
-    source %= buttons.length;
+    sourceButtons = [...document.querySelectorAll('[id^="stream-btn-"]')];
+    if (!sourceButtons.length) { show('No sources are available for this event. Return to Sports and refresh.'); return; }
+    if (!attempted.size && !source) {
+      const saved = remembered[location.pathname];
+      const preferred = saved && Date.now() - saved.at < 86400000 ? sourceButtons.findIndex(button => button.id === saved.id) : -1;
+      if (preferred >= 0) source = preferred;
+    }
+    source %= sourceButtons.length;
+    attempted.add(source);
+    if (player) retiredPlayers.add(player);
     player = null;
     state = null;
-    buttons[source].click();
+    started = false;
+    progressPosition = null;
+    sourceStarted = Date.now();
+    sourceButtons[source].click();
     const stream = document.getElementById('cx-iframe');
     if (stream) fill(stream);
-    show(`Connecting to source ${source + 1}…`);
+    show(`Trying source ${source + 1} of ${sourceButtons.length}...`);
     reveal();
     clearTimeout(waitingTimer);
-    waitingTimer = setTimeout(() => { if (!state || state.waiting || state.error) { show('The stream has not started. Press Play or try another source.'); reveal(); } }, 15000);
+    waitingTimer = setTimeout(nextSource, 12000);
   };
   const mount = () => {
     if (main) {
@@ -139,7 +188,7 @@
       message.id = 'luma-sports-message';
       message.setAttribute('role', 'status');
       const footer = document.createElement('footer');
-      for (const [label, action] of [['Back to Sports', () => { location.href = 'https://isportsurge.ws/__luma_close__'; }], ['Rewind 10s', () => act('previous')], ['Play', () => act('toggle')], ['Forward 10s', () => act('next')], ['Go live', () => act('live')], ['Try another source', () => { source++; selectSource(); }]]) {
+      for (const [label, action] of [['Back to Sports', () => { location.href = 'https://isportsurge.ws/__luma_close__'; }], ['Rewind 10s', () => act('previous')], ['Play', () => act('toggle')], ['Forward 10s', () => act('next')], ['Go live', () => act('live')], ['Try another source', () => { attempted.clear(); source++; selectSource(); }]]) {
         const button = document.createElement('button');
         button.textContent = label;
         button.addEventListener('click', action);

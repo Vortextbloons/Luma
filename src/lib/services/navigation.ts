@@ -104,6 +104,13 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       current.click();
       return;
     }
+    const rail = current.closest?.('.sports-grid, .app-track');
+    if (rail && (command === 'left' || command === 'right')) {
+      const row = candidates.filter(element => rail.contains(element));
+      const next = row[row.indexOf(current) + (command === 'right' ? 1 : -1)];
+      if (next) focus(next, true);
+      return;
+    }
     const categories = current.closest?.('.settings-categories');
     const content = current.closest?.('.settings-content');
     const page = current.closest?.('.settings-page');

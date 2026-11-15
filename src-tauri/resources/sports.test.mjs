@@ -5,7 +5,9 @@ import vm from 'node:vm';
 
 const script = readFileSync(new URL('./sports.js', import.meta.url), 'utf8');
 
-function boot(sourceIndex = 0, framed = false) {
+function boot(sourceIndex = 0, framed = false, storage = new Map()) {
+  let now = 1000, timerId = 0;
+  const timers = new Map();
   const selected = [], sent = [], listeners = {}, windowListeners = {};
   let document;
   const node = tag => ({ tag, children: [], dataset: {}, style: { cssText: '', setProperty() {} },
@@ -20,15 +22,26 @@ function boot(sourceIndex = 0, framed = false) {
   document = { title: 'Example game', readyState: 'complete', activeElement: null, body: node('body'), documentElement: node('html'),
     addEventListener: (name, callback) => { listeners[name] = callback; }, createElement: node,
     getElementById: id => id === 'cx-iframe' ? stream : null,
-    querySelectorAll: selector => selector === '[id^="stream-btn-"]' ? [0, 1, 2].map(index => ({ click: () => selected.push(index) })) : selector === 'iframe' ? [stream] : [],
+    querySelectorAll: selector => selector === '[id^="stream-btn-"]' ? [0, 1, 2].map(index => ({ id: `stream-btn-${index}`, click: () => selected.push(index) })) : selector === 'iframe' ? [stream] : [],
   };
   stream.parentElement = document.body;
-  const location = { protocol: 'https:', hostname: framed ? 'player.example' : 'isportsurge.ws', href: '' };
+  const location = { protocol: 'https:', hostname: framed ? 'player.example' : 'isportsurge.ws', pathname: '/watch/nba/example', href: '' };
   const window = { __lumaSportsSource: sourceIndex, addEventListener: (name, callback) => { windowListeners[name] = callback; } };
   window.top = framed ? {} : window; window.parent = framed ? { postMessage: value => sent.push(value) } : window;
-  vm.runInNewContext(script, { window, document, location, crypto: { randomUUID: () => 'frame-id' }, MutationObserver: class { observe() {} disconnect() {} }, setTimeout: () => 1, clearTimeout() {}, console });
+  vm.runInNewContext(script, { window, document, location, crypto: { randomUUID: () => 'frame-id' }, MutationObserver: class { observe() {} disconnect() {} }, setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, at: now + delay }); return id; }, clearTimeout: id => timers.delete(id), Date: class extends Date { static now() { return now; } }, localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) }, console });
   const overlay = document.body.children[0];
-  return { selected, sent, location, listeners, windowListeners, window, stream, overlay, controls: overlay?.querySelectorAll('button') ?? [] };
+  const advance = milliseconds => {
+    const end = now + milliseconds;
+    while (true) {
+      const pending = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!pending) break;
+      now = pending[1].at;
+      timers.delete(pending[0]);
+      pending[1].callback();
+    }
+    now = end;
+  };
+  return { advance, storage, selected, sent, location, listeners, windowListeners, window, stream, overlay, controls: overlay?.querySelectorAll('button') ?? [] };
 }
 
 test('source selection fills the video frame and manual alternatives wrap', () => {
@@ -70,4 +83,32 @@ test('nested player frames do not receive duplicate Luma controls', () => {
   const state = boot(0, true);
   assert.equal(state.controls.length, 0);
   assert.deepEqual(state.selected, []);
+});
+
+test('automatic selection tries each stalled source once and stops when exhausted', () => {
+  const state = boot();
+  state.advance(36000);
+  assert.deepEqual(state.selected, [0, 1, 2]);
+  assert.match(state.overlay.children[1].textContent, /None of this game/);
+  state.advance(60000);
+  assert.deepEqual(state.selected, [0, 1, 2]);
+});
+
+test('actual video progress stops fallback and remembers the successful source', () => {
+  const state = boot(1);
+  const report = position => state.windowListeners.message({ source: state.stream.contentWindow, data: { channel: 'luma-sports-player-v1', type: 'state', id: 'working-video', area: 100000, paused: false, waiting: false, position: 10, playbackTime: position, duration: 120 } });
+  report(10);
+  state.advance(1000);
+  report(11);
+  state.advance(30000);
+  assert.deepEqual(state.selected, [1]);
+  const reopened = boot(0, false, state.storage);
+  assert.deepEqual(reopened.selected, [1]);
+});
+
+test('ready metadata without video progress does not qualify as a working stream', () => {
+  const state = boot();
+  state.windowListeners.message({ source: state.stream.contentWindow, data: { channel: 'luma-sports-player-v1', type: 'state', id: 'stuck-video', area: 100000, paused: false, waiting: false, position: 0, playbackTime: 0, duration: 120 } });
+  state.advance(12000);
+  assert.deepEqual(state.selected, [0, 1]);
 });

@@ -68,7 +68,6 @@
   <div class="mx-auto w-full max-w-[900px] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-5">
     <div class="mb-7">
       <h1 class="text-[34px] font-semibold leading-[.98] tracking-[-0.055em] text-ink">Apps</h1>
-      <p class="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-muted">Open something on your TV and keep this phone in hand.</p>
     </div>
 
     {#if loading || (!apps.attempted && !failed)}
@@ -106,8 +105,7 @@
         </section>
       {/if}
 
-      <section aria-labelledby="all-apps-title">
-        <h2 id="all-apps-title" class="mb-2.5 text-[12px] font-semibold text-muted">All apps</h2>
+      <section>
         <div class="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
           {#each apps.list as app (app.command)}
             <AppTile {app} {launching} disabled={launching !== null} onlaunch={launch} />

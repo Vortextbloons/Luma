@@ -36,6 +36,12 @@
   import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, setFastAppSwitch, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail, steamRecentGames, steamStoreRecommendations, steamOpenGame, steamOpenStore } from './lib/services/tauri';
   import { loadCatalog, searchMovies } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
+  import { cachedSportsArtwork, cachedSportsScores, loadSportsScores, loadSportsArtwork, majorSportsLeagues } from './lib/services/sports';
+  import type { GameScore } from './lib/services/sportsScores';
+  import nbaCover from '../src-tauri/resources/icons/sports-nba.png';
+  import nflCover from '../src-tauri/resources/icons/sports-nfl.png';
+  import mlbCover from '../src-tauri/resources/icons/sports-mlb.png';
+  import nhlCover from '../src-tauri/resources/icons/sports-nhl.png';
   import type { MusicCardItem } from './lib/types/spotify';
 
   const preferences = createSettings();
@@ -98,6 +104,44 @@
   let steamRecommendationSource = $state.raw<SteamGame | null>(null);
   let previewApp = $state<AppId | null>(null);
   let heroPick = $state<HeroSlide | null>(null);
+  let leagueScores = $state.raw<GameScore[]>(cachedSportsScores().scores);
+  let leagueArtwork = $state<Record<string, string>>(Object.fromEntries(cachedSportsArtwork()));
+  const leagueCovers: Record<string, string> = { NBA: nbaCover, NFL: nflCover, MLB: mlbCover, NHL: nhlCover };
+  const previewLeague = $derived(previewApp && majorSportsLeagues.includes(previewApp) ? previewApp : null);
+  const leagueGames = $derived(leagueScores.filter(game => game.league === previewLeague).sort((a, b) => ['in', 'pre', 'post'].indexOf(a.state) - ['in', 'pre', 'post'].indexOf(b.state)).slice(0, 5));
+  $effect(() => {
+    const league = previewLeague;
+    if (!native || !league) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void loadSportsScores(league).then(async games => {
+        if (!active) return;
+        leagueScores = [...leagueScores.filter(game => game.league !== league), ...games];
+        const first = [...games].sort((a, b) => ['in', 'pre', 'post'].indexOf(a.state) - ['in', 'pre', 'post'].indexOf(b.state))[0];
+        if (first) {
+          const art = await loadSportsArtwork(league, first.id);
+          if (active) leagueArtwork[first.id] = art;
+        }
+      }).catch(() => {});
+    }, 180);
+    return () => { active = false; clearTimeout(timer); };
+  });
+  function leagueSlide(league: string, game?: GameScore): HeroSlide {
+    const art = game ? leagueArtwork[game.id] : '';
+    return {
+      key: game ? `league:${league}:${game.id}` : `league:${league}`,
+      eyebrow: `FROM ${league}`,
+      title: game ? game.teams.map(team => team.name).join(' vs ') : league,
+      chips: [{ label: league }, ...(game ? [{ label: game.status }] : [])],
+      description: game?.venue || 'Live and upcoming games',
+      art: art || game?.leagueLogo || leagueCovers[league],
+      artShape: art ? undefined : 'square',
+      primaryLabel: `Open ${league}`,
+      primaryIcon: 'open',
+      primary: () => { void launch(league as AppId); },
+    };
+  }
+
   let youTubeFeed = $state.raw<YouTubeFeedItem[]>([]);
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
@@ -248,9 +292,10 @@
   function previewSteamRecommendation(item: SteamGame | null) { heroPick = item ? steamRecommendationSlide(item) : null; }
   function previewVideo(item: YouTubeFeedItem | null) { heroPick = item ? videoSlide(item) : null; }
   function previewMusicItem(item: MusicCardItem | null) { heroPick = item ? musicSlide(item) : null; }
-  const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : previewApp && (appHeroItems.length || spotifyHero.length || stremioHero.length || steamHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
+  const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : previewApp && (previewLeague || appHeroItems.length || spotifyHero.length || stremioHero.length || steamHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
   const heroSlides = $derived.by<HeroSlide[]>(() => {
     if (heroPick) return [heroPick];
+    if (previewLeague) return leagueGames.length ? leagueGames.map(game => leagueSlide(previewLeague, game)) : [leagueSlide(previewLeague)];
     if (previewApp) {
       const eyebrow = `FROM ${providerName(appProviders[previewApp]).toUpperCase()}`;
       if (appHeroItems.length) return appHeroItems.slice(0, 5).map(item => activitySlide(item, eyebrow));
@@ -277,7 +322,7 @@
 
   function horizontalWheel(node: HTMLElement) {
     function wheel(event: WheelEvent) {
-      const track = event.target instanceof Element ? event.target.closest<HTMLElement>('.app-track, .card-track, .activity-track, .video-track, .music-card-track') : null;
+      const track = event.target instanceof Element ? event.target.closest<HTMLElement>('.app-track, .card-track, .activity-track, .video-track, .music-card-track, .sports-grid') : null;
       if (!track || track.scrollWidth <= track.clientWidth || event.ctrlKey) return;
       const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
       const max = track.scrollWidth - track.clientWidth;
@@ -483,10 +528,10 @@
     }
     navigation.keydown(event);
   }
-  const tabOrder = ['Home', 'Watch', 'Library', 'Music', 'Apps'];
+  const tabOrder = ['Home', 'Watch', 'Sports', 'Library', 'Music', 'Apps'];
   let previousTab = 0;
   function animateView(view: string) {
-    const index = Math.max(0, tabOrder.indexOf(view === 'Sports' ? 'Apps' : view));
+    const index = Math.max(0, tabOrder.indexOf(view));
     const direction = index < previousTab ? -1 : 1;
     previousTab = index;
     return (element: HTMLElement) => {
@@ -669,7 +714,7 @@
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
   {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
-  <TopNav active={tab === 'Sports' ? 'Apps' : tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
+  <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if showHome}

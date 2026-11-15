@@ -243,7 +243,6 @@
       <header class="settings-content-header">
         <h2>{activeCategory.name}</h2>
         <p>{activeCategory.description}</p>
-        <p class="settings-save-note">Changes save automatically unless a section says otherwise. App locations use Save app settings.</p>
       </header>
       <nav class="settings-sections" aria-label={`${activeCategory.name} sections`}>
         {#each activeCategory.sections as item (item.id)}

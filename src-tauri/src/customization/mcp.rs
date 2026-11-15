@@ -1,6 +1,6 @@
 use super::{
     document::{self, Config, Document},
-    Commit, Error, Preview,
+    plugin, Commit, Error, Preview,
 };
 use axum::{
     body::Bytes,
@@ -13,14 +13,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
 use tauri::Manager;
 use tokio::sync::Mutex;
 
 const PORT: u16 = 9879;
 const ADDRESS: &str = "127.0.0.1:9879";
 const ENDPOINT: &str = "http://127.0.0.1:9879/mcp";
-const MAX_BODY: usize = 64 * 1024;
+const MAX_BODY: usize = 6 * 1024 * 1024;
 const LEGACY_PROTOCOL: &str = "2025-11-25";
 const MODERN_PROTOCOL: &str = "2026-07-28";
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
@@ -29,7 +29,7 @@ const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
 const METHOD_HEADER: &str = "mcp-method";
 const NAME_HEADER: &str = "mcp-name";
-const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview flow for customization. Start with luma_capabilities_get and luma_config_get. Validate a complete candidate before previewing it. Preview requires the Luma launcher to be open and visible. A preview only places a candidate in Luma for the user to review; the user must press Keep in Luma, and no MCP tool can keep, commit, restore, reset, launch, or install anything. Revoked or rotated access stops the next request and cancels this grant's pending preview. Report validation and revision errors exactly, then re-read before retrying.";
+const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; executable runtimes are not supported in this Luma version. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. The user must open Luma > Settings > Plugins and press Preview and enable, then Keep. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
 const THEMES: [&str; 6] = [
     "violet-night",
@@ -53,11 +53,15 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
-const APP_IDS: [&str; 12] = [
+const APP_IDS: [&str; 16] = [
     "YouTube",
     "Spotify",
     "Stremio",
     "Steam",
+    "NBA",
+    "NFL",
+    "MLB",
+    "NHL",
     "Netflix",
     "Disney+",
     "Prime Video",
@@ -77,6 +81,15 @@ trait Backend: Send + Sync + 'static {
     fn cancel_preview<'a>(&'a self, id: &'a str) -> BackendFuture<'a, ()>;
     fn current_preview<'a>(&'a self) -> BackendFuture<'a, Option<Preview>>;
     fn launcher_visible<'a>(&'a self) -> BackendFuture<'a, bool>;
+    fn plugins<'a>(&'a self) -> BackendFuture<'a, plugin::PluginsState>;
+    fn validate_plugin<'a>(&'a self, submission: Value) -> BackendFuture<'a, Value>;
+    fn stage_plugin<'a>(&'a self, submission: Value) -> BackendFuture<'a, plugin::ImportResult>;
+    fn stage_plugin_settings<'a>(
+        &'a self,
+        plugin_id: String,
+        expected_revision: u64,
+        values: BTreeMap<String, Value>,
+    ) -> BackendFuture<'a, Preview>;
 }
 
 #[derive(Clone)]
@@ -86,7 +99,7 @@ impl Backend for AppBackend {
     fn read<'a>(&'a self) -> BackendFuture<'a, Option<Document>> {
         let app = self.0.clone();
         Box::pin(async move {
-            tauri::async_runtime::spawn_blocking(move || app.state::<super::Store>().read())
+            tauri::async_runtime::spawn_blocking(move || app.state::<super::Store>().read_effective())
                 .await
                 .map_err(|error| failure("storage", error))?
         })
@@ -115,6 +128,67 @@ impl Backend for AppBackend {
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
         });
         Box::pin(async move { Ok(visible) })
+    }
+
+    fn plugins<'a>(&'a self) -> BackendFuture<'a, plugin::PluginsState> {
+        let app = self.0.clone();
+        Box::pin(async move {
+            tauri::async_runtime::spawn_blocking(move || plugin::state_for_app(&app))
+                .await
+                .map_err(|error| failure("storage", error))?
+        })
+    }
+
+    fn validate_plugin<'a>(&'a self, submission: Value) -> BackendFuture<'a, Value> {
+        Box::pin(async move {
+            let package = plugin::validate_submission(&submission)?;
+            Ok(json!({
+                "valid": true,
+                "manifest": package.manifest,
+                "contentHash": package.hash,
+                "files": package.files.len(),
+                "bytes": package.size
+            }))
+        })
+    }
+
+    fn stage_plugin<'a>(&'a self, submission: Value) -> BackendFuture<'a, plugin::ImportResult> {
+        let app = self.0.clone();
+        Box::pin(async move {
+            tauri::async_runtime::spawn_blocking(move || {
+                let store = app.state::<super::Store>();
+                let outcome = plugin::stage_submission(&store, &submission, "mcp")?;
+                if let Ok(Some(snapshot)) = store.snapshot() {
+                    super::publish(&app, &snapshot.document);
+                }
+                Ok(plugin::ImportResult {
+                    plugin: outcome.plugin,
+                    already_installed: outcome.already_installed,
+                    replaced_version: outcome.replaced_version,
+                })
+            })
+            .await
+            .map_err(|error| failure("storage", error))?
+        })
+    }
+
+    fn stage_plugin_settings<'a>(
+        &'a self,
+        plugin_id: String,
+        expected_revision: u64,
+        values: BTreeMap<String, Value>,
+    ) -> BackendFuture<'a, Preview> {
+        let app = self.0.clone();
+        Box::pin(async move {
+            tauri::async_runtime::spawn_blocking(move || {
+                let store = app.state::<super::Store>();
+                let preview = store.preview_plugin_settings(&plugin_id, expected_revision, &values)?;
+                super::publish_preview(&app);
+                Ok(preview)
+            })
+            .await
+            .map_err(|error| failure("storage", error))?
+        })
     }
 }
 
@@ -1021,12 +1095,16 @@ fn known_tool(name: &str) -> bool {
             | "luma_candidate_get"
             | "luma_candidate_cancel"
             | "luma_status"
+            | "luma_plugins_list"
+            | "luma_plugin_validate"
+            | "luma_plugin_stage"
+            | "luma_plugin_settings_stage"
     )
 }
 
 fn unknown_tool_message(name: &str) -> String {
     format!(
-        "Unknown tool: {name}. Luma exposes only discover, read, validate, preview, candidate status, candidate cancellation, and service status. It never exposes keep, commit, restore, reset, launch, or install. Ask the user to perform those actions in Luma."
+        "Unknown tool: {name}. Luma exposes only discover, read, validate, preview, plugin validation, disabled plugin staging, plugin settings staging, candidate status, candidate cancellation, and service status. It never exposes enable, keep, commit, disable, remove, export, restore, reset, launch, install-active, or execute. Ask the user to perform those actions in Luma."
     )
 }
 
@@ -1130,6 +1208,83 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
             },
             Err(message) => tool_protocol_error(message),
         },
+        "luma_plugins_list" => match no_arguments(arguments) {
+            Ok(()) => match server.backend.plugins().await {
+                Ok(state) => tool_success(json!({
+                    "plugins": state.plugins,
+                    "effective": state.effective,
+                    "enable": "Installed plugins start disabled. The user must open Luma > Settings > Plugins, preview the plugin, and press Keep to enable it.",
+                    "settingsReview": "Use luma_plugin_settings_stage to stage setting values. The user must press Keep."
+                })),
+                Err(error) => tool_failure(error),
+            },
+            Err(message) => tool_protocol_error(message),
+        },
+        "luma_plugin_validate" => match plugin_submission_arguments(arguments) {
+            Ok(submission) => match server.backend.validate_plugin(submission).await {
+                Ok(result) => tool_success(result),
+                Err(error) => tool_failure(error),
+            },
+            Err(message) => tool_protocol_error(message),
+        },
+        "luma_plugin_stage" => match plugin_submission_arguments(arguments) {
+            Ok(submission) => match server.backend.stage_plugin(submission).await {
+                Ok(result) => tool_success(json!({
+                    "plugin": result.plugin,
+                    "alreadyInstalled": result.already_installed,
+                    "replacedVersion": result.replaced_version,
+                    "enabled": false,
+                    "status": "installed_disabled",
+                    "next": "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview it, and press Keep to enable it. No MCP tool can enable or keep it."
+                })),
+                Err(error) => tool_failure(error),
+            },
+            Err(message) => tool_protocol_error(message),
+        },
+        "luma_plugin_settings_stage" => {
+            let arguments: PluginSettingsArguments = match serde_json::from_value(arguments) {
+                Ok(arguments) => arguments,
+                Err(error) => return tool_protocol_error(format!("Invalid arguments: {error}")),
+            };
+            let mut state = match server.backend.plugins().await {
+                Ok(state) => state,
+                Err(error) => return tool_failure(error),
+            };
+            let Some(record) = state.plugins.iter().find(|plugin| plugin.id == arguments.plugin_id) else {
+                return tool_failure(failure(
+                    "plugin_missing",
+                    "That plugin is not installed. Stage the plugin first.",
+                ));
+            };
+            let declared: Vec<&str> = record.settings.iter().map(|setting| setting.key.as_str()).collect();
+            for key in arguments.settings.keys() {
+                if !declared.contains(&key.as_str()) && !record.settings.iter().any(|setting| &setting.qualified_key == key) {
+                    return tool_failure(failure(
+                        "plugin_settings",
+                        format!("{} does not declare a setting named {key}.", record.name),
+                    ));
+                }
+            }
+            let mut values = BTreeMap::new();
+            for (key, value) in arguments.settings {
+                let key = key.rsplit_once('.').map(|(_, key)| key.to_string()).unwrap_or(key);
+                values.insert(key, value);
+            }
+            match server
+                .backend
+                .stage_plugin_settings(record.id.clone(), arguments.expected_revision, values)
+                .await
+            {
+                Ok(preview) => tool_success(json!({
+                    "previewId": preview.id,
+                    "baseRevision": preview.base_revision,
+                    "pluginId": record.id,
+                    "status": "waiting_for_user_review",
+                    "next": "Tell the user that the plugin settings are waiting for review in Luma. They must press Keep."
+                })),
+                Err(error) => tool_failure(error),
+            }
+        }
         forbidden => tool_protocol_error(unknown_tool_message(forbidden)),
     }
 }
@@ -1186,6 +1341,25 @@ fn candidate_arguments(arguments: Value) -> Result<(u64, Value), String> {
     let arguments: CandidateArguments =
         serde_json::from_value(arguments).map_err(|error| format!("Invalid arguments: {error}"))?;
     Ok((arguments.expected_revision, arguments.config))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PluginSettingsArguments {
+    plugin_id: String,
+    expected_revision: u64,
+    settings: BTreeMap<String, Value>,
+}
+
+fn plugin_submission_arguments(arguments: Value) -> Result<Value, String> {
+    let object = arguments
+        .as_object()
+        .ok_or_else(|| "Arguments must be an object.".to_string())?;
+    if object.contains_key("manifest") {
+        Ok(arguments)
+    } else {
+        Err("Plugin submission requires manifest and optional files.".into())
+    }
 }
 
 #[derive(Deserialize)]
@@ -1422,8 +1596,93 @@ fn tool_list() -> Value {
                 "Return whether agent access is enabled, whether the launcher is visible, the current revision, and this grant's pending preview. No credential is returned.",
                 empty_schema(),
                 true
-            )
+            ),
+            tool(
+                "luma_plugins_list",
+                "List installed Luma plugins",
+                "Return installed declarative plugins, their enabled state, declared controls, settings schema, current setting values, unsupported runtime state, and the effective configuration. No machine paths or credentials are returned.",
+                empty_schema(),
+                true
+            ),
+            tool(
+                "luma_plugin_validate",
+                "Validate a Luma plugin submission",
+                "Validate a manifest plus optional text or base64 files with the same rules as native import. Returns a content hash or field-level validation errors. Writes nothing.",
+                plugin_submission_schema(),
+                true
+            ),
+            tool(
+                "luma_plugin_stage",
+                "Stage a Luma plugin as installed and disabled",
+                "Install a validated plugin package into Luma-owned storage with enabled set to false. This never enables, keeps, activates, or executes the plugin. The user must review it in Settings > Plugins.",
+                plugin_submission_schema(),
+                false
+            ),
+            tool(
+                "luma_plugin_settings_stage",
+                "Stage plugin settings for user review",
+                "Validate declared plugin setting values and stage them as the single pending Keep review. This cannot keep, enable, or apply the settings.",
+                plugin_settings_schema(),
+                false
+            ),
         ]
+    })
+}
+
+fn plugin_submission_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "manifest": {
+                "type": "object",
+                "description": "The luma-extension.json manifest object."
+            },
+            "files": {
+                "type": "array",
+                "maxItems": 128,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Package-relative path using forward slashes. Never absolute."
+                        },
+                        "text": {
+                            "type": "string",
+                            "description": "UTF-8 file content."
+                        },
+                        "base64": {
+                            "type": "string",
+                            "description": "Base64 content for binary assets. Use exactly one of text or base64."
+                        }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        "required": ["manifest"]
+    })
+}
+
+fn plugin_settings_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "pluginId": { "type": "string" },
+            "expectedRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9_007_199_254_740_991u64
+            },
+            "settings": {
+                "type": "object",
+                "description": "Setting keys declared by the plugin, or qualified pluginId.key names, mapped to boolean, enum string, number, or string values."
+            }
+        },
+        "required": ["pluginId", "expectedRevision", "settings"]
     })
 }
 
@@ -1605,8 +1864,35 @@ fn capabilities() -> Value {
                 "reason": "Custom screens are not implemented in this Luma version."
             },
             "extensions": {
-                "supported": false,
-                "reason": "Executable extensions, extension settings, and extension installation are not implemented in this Luma version."
+                "supported": true,
+                "declarative": true,
+                "executable": false,
+                "reason": "Declarative plugins that contribute appearance, Home layout, and settings are supported. Executable runtimes are not implemented; such packages install disabled and cannot be enabled."
+            },
+            "plugins": {
+                "supported": true,
+                "manifest": "luma-extension.json",
+                "fields": plugin::FIELDS,
+                "settingTypes": ["boolean", "enum", "number", "string"],
+                "runtimes": {
+                    "supported": ["declarative"],
+                    "installedDisabled": ["isolated-ui", "background", "main-page"]
+                },
+                "importFormats": ["luma-extension.zip", "manifest plus text/base64 files"],
+                "limits": {
+                    "archiveBytes": 8 * 1024 * 1024,
+                    "mcpSubmissionBytes": 2 * 1024 * 1024,
+                    "files": 256,
+                    "entries": 512,
+                    "fileBytes": 4 * 1024 * 1024,
+                    "totalBytes": 16 * 1024 * 1024,
+                    "compressionRatio": 200,
+                    "manifestBytes": 64 * 1024,
+                    "settings": 24,
+                    "settingOptions": 20,
+                    "pathBytes": 180
+                },
+                "review": "MCP installs plugins disabled. Only the user can preview and enable a plugin and press Keep. Settings staged by MCP also require user Keep."
             }
         },
         "appearance": {
@@ -2767,7 +3053,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            12
+            APP_IDS.len()
         );
     }
 }

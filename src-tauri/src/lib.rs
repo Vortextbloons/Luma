@@ -46,6 +46,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(tv::Tv::default())
         .manage(apps::Apps::default())
         .manage(services::Services::default())
@@ -120,6 +121,13 @@ pub fn run() {
             customization::customization_history,
             customization::customization_restore_version,
             customization::customization_reset_appearance,
+            customization::customization_plugins_read,
+            customization::customization_plugin_import,
+            customization::customization_plugin_export,
+            customization::customization_plugin_preview,
+            customization::customization_plugin_disable,
+            customization::customization_plugin_remove,
+            customization::customization_plugin_settings_save,
             customization::mcp::customization_mcp_status,
             customization::mcp::customization_mcp_enable,
             customization::mcp::customization_mcp_disable,

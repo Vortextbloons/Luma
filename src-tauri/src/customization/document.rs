@@ -22,11 +22,15 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
-const APP_IDS: [&str; 12] = [
+const APP_IDS: [&str; 16] = [
     "YouTube",
     "Spotify",
     "Stremio",
     "Steam",
+    "NBA",
+    "NFL",
+    "MLB",
+    "NHL",
     "Netflix",
     "Disney+",
     "Prime Video",
@@ -302,6 +306,26 @@ fn validate_order(order: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+pub fn migrate_app_order(order: &mut Vec<String>) {
+    let leagues = ["NBA", "NFL", "MLB", "NHL"];
+    let mut previous: Vec<String> = APP_IDS.iter().filter(|id| !leagues.contains(id) && **id != CUSTOM_APP).map(|id| (*id).into()).collect();
+    previous.extend(leagues.iter().map(|id| (*id).to_string()));
+    previous.push(CUSTOM_APP.into());
+    if *order == previous {
+        *order = APP_IDS.iter().map(|id| (*id).into()).collect();
+        return;
+    }
+    let old: Vec<&str> = APP_IDS.iter().copied().filter(|id| !leagues.contains(id)).collect();
+    if order.iter().map(String::as_str).eq(old.iter().copied()) {
+        *order = APP_IDS.iter().map(|id| (*id).into()).collect();
+        return;
+    }
+    if order.len() == old.len() && old.iter().all(|id| order.iter().filter(|app| app.as_str() == *id).count() == 1) && order.last().map(String::as_str) == Some(CUSTOM_APP) {
+        let index = order.len() - 1;
+        order.splice(index..index, leagues.into_iter().map(String::from));
+    }
+}
+
 pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
     let legacy: LegacyDocument = serde_json::from_str(raw)
         .map_err(|error| format!("Invalid legacy customization document: {error}"))?;
@@ -311,7 +335,7 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
             legacy.version
         ));
     }
-    let config = Config {
+    let mut config = Config {
         theme: legacy.config.theme,
         density: legacy.config.density,
         app_tile_shape: legacy.config.app_tile_shape,
@@ -334,6 +358,7 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
         widgets: legacy.config.widgets,
         order: legacy.config.order,
     };
+    migrate_app_order(&mut config.order);
     validate(&config)?;
     Ok(Document {
         version: 3,
@@ -351,7 +376,7 @@ pub fn migrate_v2(raw: &str) -> Result<Document, String> {
             v2.version
         ));
     }
-    let config = Config {
+    let mut config = Config {
         theme: v2.config.theme,
         density: v2.config.density,
         app_tile_shape: v2.config.app_tile_shape,
@@ -374,6 +399,7 @@ pub fn migrate_v2(raw: &str) -> Result<Document, String> {
         widgets: v2.config.widgets,
         order: v2.config.order,
     };
+    migrate_app_order(&mut config.order);
     validate(&config)?;
     Ok(Document {
         version: 3,
@@ -428,6 +454,21 @@ mod tests {
             row.as_object_mut().unwrap().remove("span");
         }
         json!({ "version": 2, "revision": revision, "config": config })
+    }
+
+    #[test]
+    fn default_leagues_follow_steam_and_previous_defaults_migrate() {
+        let expected = Config::default().order;
+        let steam = expected.iter().position(|id| id == "Steam").unwrap();
+        assert_eq!(&expected[steam + 1..steam + 5], &["NBA", "NFL", "MLB", "NHL"]);
+        let mut previous = expected.clone();
+        previous.retain(|id| !["NBA", "NFL", "MLB", "NHL"].contains(&id.as_str()));
+        migrate_app_order(&mut previous);
+        assert_eq!(previous, expected);
+        previous.retain(|id| !["NBA", "NFL", "MLB", "NHL", "Custom"].contains(&id.as_str()));
+        previous.extend(["NBA", "NFL", "MLB", "NHL", "Custom"].map(String::from));
+        migrate_app_order(&mut previous);
+        assert_eq!(previous, expected);
     }
 
     #[test]
@@ -650,7 +691,8 @@ mod tests {
     #[test]
     fn custom_app_must_be_last() {
         let mut config = Config::default();
-        reorder(&mut config.order, 11, 0);
+        let last = config.order.len() - 1;
+        reorder(&mut config.order, last, 0);
         assert_eq!(
             validate(&config),
             Err("Custom must be the last app.".into())

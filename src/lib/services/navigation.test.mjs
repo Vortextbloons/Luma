@@ -350,3 +350,22 @@ test('Home removal chooses a nearby usable row and falls back to core navigation
     assert.equal(f.doc.activeElement, f.home);
   } finally { f.cleanup(); }
 });
+
+test('horizontal app and game rails visit offscreen items and stop at row edges', () => {
+  const f = fixture();
+  const first = f.button(0, 0), next = f.button(900, 0), nearby = f.button(100, 80);
+  const row = { contains: element => element === first || element === next };
+  first.closest = next.closest = selector => selector === '.sports-grid, .app-track' ? row : null;
+  first.focus();
+  f.navigation.dispatch('right');
+  assert.equal(f.document.activeElement, next);
+  assert.equal(next.scrolled, true);
+  f.navigation.dispatch('right');
+  assert.equal(f.document.activeElement, next);
+  f.navigation.dispatch('left');
+  assert.equal(f.document.activeElement, first);
+  f.navigation.dispatch('left');
+  assert.equal(f.document.activeElement, first);
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, nearby);
+});
