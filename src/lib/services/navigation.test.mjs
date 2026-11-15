@@ -84,6 +84,28 @@ test('settings remote navigation enters the content, visits every control, and r
   assert.equal(f.document.activeElement, display);
 });
 
+test('settings section tabs move down into their content instead of the next tab', () => {
+  const f = fixture();
+  const display = f.button(0, 0);
+  const theme = f.button(400, 100), layout = f.button(520, 100);
+  const first = f.button(400, 300), second = f.button(700, 300);
+  const categories = { contains: el => el === display };
+  const content = { contains: el => [theme, layout, first, second].includes(el) };
+  const sections = { contains: el => [theme, layout].includes(el) };
+  const page = { querySelector: () => display };
+  for (const el of [display, theme, layout, first, second]) {
+    el.closest = selector => selector === '.settings-page' ? page
+      : selector === '.settings-categories' && categories.contains(el) ? categories
+      : selector === '.settings-content' && content.contains(el) ? content
+      : selector === '.settings-sections' && sections.contains(el) ? sections : null;
+  }
+  theme.focus();
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, first);
+  f.navigation.dispatch('down');
+  assert.equal(f.document.activeElement, second);
+});
+
 test('modal navigation stays in the overlay and Tab wraps in both directions', () => {
   const f = fixture();
   const background = f.button(0, 0), a = f.button(0, 100), b = f.button(100, 100);

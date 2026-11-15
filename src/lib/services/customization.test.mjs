@@ -5,8 +5,8 @@ import { stripTypeScriptTypes } from 'node:module';
 
 const source = stripTypeScriptTypes(readFileSync(new URL('./customization.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, ''));
 const { createCustomizationSync, customizationConfig } = await import(`data:text/javascript;base64,${Buffer.from(`const invoke = (...args) => globalThis.__customizationTest.invoke(...args); const listen = (...args) => globalThis.__customizationTest.listen(...args);\n${source}`).toString('base64')}`);
-const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', home: [{ id: 'hero', component: 'hero', visible: true }], widgets: { spotify: { enabled: true, placement: 'bar' } }, order: ['Custom'] });
-const document = (revision, value = config()) => ({ version: 2, revision, config: structuredClone(value) });
+const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', textSize: 'standard', reducedMotion: false, interfaceSounds: 'real', soundLevel: 'standard', home: [{ id: 'hero', component: 'hero', visible: true, span: 2 }], homeColumns: 1, widgets: { spotify: { enabled: true, placement: 'bar' } }, order: ['Custom'] });
+const document = (revision, value = config()) => ({ version: 3, revision, config: structuredClone(value) });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 test('migration hydrates native preferences and incoming changes do not echo back', async () => {
@@ -17,8 +17,8 @@ test('migration hydrates native preferences and incoming changes do not echo bac
   const saved = config();
   saved.theme = 'onyx';
   globalThis.__customizationTest = {
-    listen: async (_, callback) => { listener = callback; return () => { stopped = true; }; },
-    invoke: async command => { assert.equal(command, 'customization_initialize'); return document(4, saved); },
+    listen: async (event, callback) => { if (event === 'customization-changed') listener = callback; return () => { stopped = true; }; },
+    invoke: async command => { if (command === 'customization_preview_read') return null; assert.equal(command, 'customization_initialize'); return document(4, saved); },
   };
   const sync = createCustomizationSync(settings, error => errors.push(error));
   try {
@@ -45,6 +45,7 @@ test('rapid edits serialize with increasing revisions and preserve edits during 
   globalThis.__customizationTest = {
     listen: async () => () => {},
     invoke: async (command, args) => {
+      if (command === 'customization_preview_read') return null;
       if (command === 'customization_initialize') return document(1);
       assert.equal(command, 'customization_commit');
       writes.push(structuredClone(args.request));
@@ -80,6 +81,7 @@ test('conflict reloads the latest document and write failures retain user input 
   globalThis.__customizationTest = {
     listen: async () => () => {},
     invoke: async command => {
+      if (command === 'customization_preview_read') return null;
       if (command === 'customization_initialize') return document(1);
       if (command === 'customization_read') return document(3, { ...config(), theme: 'onyx' });
       writes++;
@@ -121,4 +123,108 @@ test('disposal during initialization removes the late subscription without mutat
     await starting;
     assert.equal(stopped, true);
   } finally { sync.dispose(); delete globalThis.__customizationTest; }
+});
+
+function previewFixture() {
+  const settings = config();
+  const listeners = new Map();
+  const changes = [];
+  const previews = [];
+  const writes = [];
+  let saved = document(4);
+  let pending = null;
+  let failKeep = false;
+  globalThis.__customizationTest = {
+    listen: async (event, callback) => { listeners.set(event, callback); return () => listeners.delete(event); },
+    invoke: async (command, args) => {
+      if (command === 'customization_initialize' || command === 'customization_read') return structuredClone(saved);
+      if (command === 'customization_preview_read') return structuredClone(pending);
+      if (command === 'customization_preview') {
+        if (args.request.expectedRevision !== saved.revision) throw { code: 'conflict', message: 'Reload the saved layout' };
+        pending = { id: `review-${writes.length}`, baseRevision: saved.revision, config: structuredClone(args.request.config) };
+        return structuredClone(pending);
+      }
+      if (command === 'customization_preview_keep') {
+        if (!pending || args.request.previewId !== pending.id) throw { code: 'preview_mismatch', message: 'Preview ended' };
+        if (failKeep) throw { code: 'storage', message: 'Disk full' };
+        writes.push(args.request);
+        saved = document(saved.revision + 1, pending.config);
+        pending = null;
+        return structuredClone(saved);
+      }
+      if (command === 'customization_preview_cancel') { pending = null; return; }
+      assert.fail(`Unexpected command: ${command}`);
+    },
+  };
+  const sync = createCustomizationSync(settings, error => assert.fail(error), { document: value => changes.push(value), preview: value => previews.push(value) });
+  return { settings, sync, previews, writes, listeners,
+    get saved() { return saved; },
+    failKeep(value) { failKeep = value; },
+    externalWrite(value) { saved = value; pending = null; },
+    cleanup() { sync.dispose(); delete globalThis.__customizationTest; },
+  };
+}
+
+test('preview and cancel never autosave temporary appearance or layout, while Keep commits it once', async () => {
+  const f = previewFixture();
+  try {
+    await f.sync.start();
+    const original = customizationConfig(f.settings);
+    const draft = { ...structuredClone(original), theme: 'onyx', homeColumns: 2 };
+    draft.home[0].span = 1;
+    await f.sync.preview(draft, 4);
+    assert.deepEqual(customizationConfig(f.settings), original);
+    f.sync.update(customizationConfig(f.settings));
+    assert.equal(f.writes.length, 0);
+    assert.equal(f.previews.at(-1).config.homeColumns, 2);
+    await f.sync.cancel();
+    assert.equal(f.previews.at(-1), null);
+    assert.deepEqual(customizationConfig(f.settings), original);
+    assert.equal(f.saved.revision, 4);
+    await f.sync.preview(draft, 4);
+    await f.sync.keep();
+    assert.equal(f.settings.homeColumns, 2);
+    assert.equal(f.settings.theme, 'onyx');
+    assert.equal(f.saved.revision, 5);
+    assert.equal(f.previews.at(-1), null);
+    f.sync.update(customizationConfig(f.settings));
+    assert.equal(f.writes.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test('failed Keep preserves the candidate and stale Keep reloads the committed layout', async () => {
+  const f = previewFixture();
+  try {
+    await f.sync.start();
+    await f.sync.preview({ ...config(), homeColumns: 2 }, 4);
+    const candidate = f.previews.at(-1);
+    f.failKeep(true);
+    await assert.rejects(f.sync.keep(), error => error.code === 'storage');
+    assert.equal(f.previews.at(-1).id, candidate.id);
+    assert.equal(f.settings.homeColumns, 1);
+    f.externalWrite(document(5, { ...config(), theme: 'mint' }));
+    f.failKeep(false);
+    await assert.rejects(f.sync.keep(), error => error.code === 'preview_mismatch');
+    assert.equal(f.previews.at(-1), null);
+    assert.equal(f.settings.theme, 'mint');
+    assert.equal(f.writes.length, 0);
+  } finally { f.cleanup(); }
+});
+
+test('disposed preview subscriptions cannot change the displayed layout', async () => {
+  const f = previewFixture();
+  try {
+    await f.sync.start();
+    assert.equal(f.listeners.size, 2);
+    let finishRead;
+    const previousInvoke = globalThis.__customizationTest.invoke;
+    globalThis.__customizationTest.invoke = (command, args) => command === 'customization_preview_read' ? new Promise(resolve => { finishRead = resolve; }) : previousInvoke(command, args);
+    f.listeners.get('customization-preview-changed')({ payload: null });
+    const count = f.previews.length;
+    f.sync.dispose();
+    assert.equal(f.listeners.size, 0);
+    finishRead({ id: 'late-preview', baseRevision: 4, config: { ...config(), homeColumns: 2 } });
+    await flush();
+    assert.equal(f.previews.length, count);
+  } finally { f.cleanup(); }
 });

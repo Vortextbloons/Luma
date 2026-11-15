@@ -6,8 +6,9 @@
 
   type PreviewThumb = { key: string; art: string | null; provider: string | null; app: boolean };
 
-  let { rows, popular, featured, activityItems, apps, widget, highlight }: {
+  let { rows, columns = 1, popular, featured, activityItems, apps, widget, highlight }: {
     rows: HomeRow[];
+    columns?: 1 | 2;
     popular: MediaItem[];
     featured: MediaItem[];
     activityItems: ActivityItem[];
@@ -31,7 +32,7 @@
     return apps.slice(0, 6).map(app => ({ key: app, art: null, provider: appProviders[app] ?? null, app: true }));
   }
 
-  const previewRows = $derived(rows.filter(row => row.visible).map(row => ({ id: row.id, component: row.component, label: homeRowMeta[row.component].label, thumbs: thumbsFor(row.component) })));
+  const previewRows = $derived(rows.filter(row => row.visible).map((row, index) => ({ id: row.id, component: row.component, label: homeRowMeta[row.component].label, thumbs: thumbsFor(row.component), span: row.span, leadingHero: index === 0 && row.component === 'hero' })));
   const hero = $derived(popular[0] ?? featured[0] ?? null);
   const heroArt = $derived(popular[0]?.backdrop || featured[0]?.backdrop || '');
 </script>
@@ -45,10 +46,10 @@
           <span class="nav-pills"><i class="is-active"></i><i></i><i></i><i></i></span>
           <span class="clock"></span>
         </div>
-        <div class="preview-rows">
+        <div class="preview-rows" class:is-columns={columns === 2}>
           {#each previewRows as row (row.id)}
             {#if row.component === 'hero'}
-              <div class="hero" class:is-highlighted={highlight === row.id}>
+              <div class="hero" class:is-highlighted={highlight === row.id} style:grid-column={row.leadingHero ? '1 / -1' : `span ${row.span}`}>
                 {#if heroArt}<img src={heroArt} alt="" loading="lazy" decoding="async" />{/if}
                 <span class="hero-shade"></span>
                 <div class="hero-copy">
@@ -59,7 +60,7 @@
                 </div>
               </div>
             {:else}
-              <div class="preview-row" class:is-highlighted={highlight === row.id}>
+              <div class="preview-row" class:is-highlighted={highlight === row.id} style:grid-column={`span ${row.span}`}>
                 <span class="preview-row-label">{row.label}</span>
                 <span class="preview-thumbs">
                   {#each row.thumbs.length ? row.thumbs : placeholders as thumb (thumb.key)}
@@ -247,6 +248,18 @@
     flex-direction: column;
     gap: .9cqw;
     min-height: 0;
+  }
+  .preview-rows.is-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .preview-rows.is-columns .preview-empty {
+    grid-column: 1 / -1;
+  }
+  .preview-rows.is-columns .hero,
+  .preview-rows.is-columns .preview-row {
+    min-width: 0;
   }
   .preview-row {
     flex: 1 1 0;

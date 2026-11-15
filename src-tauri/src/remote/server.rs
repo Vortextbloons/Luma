@@ -64,29 +64,101 @@ pub struct SettingOption {
 pub struct SettingChoice {
     key: String,
     group: String,
+    #[serde(default)]
+    section: String,
+    #[serde(default = "default_setting_kind")]
+    kind: String,
     label: String,
     description: String,
     options: Vec<SettingOption>,
     value: String,
 }
 
+fn default_setting_kind() -> String {
+    "choice".into()
+}
+
+fn setting_option(value: &str, label: &str) -> SettingOption {
+    SettingOption { value: value.into(), label: label.into() }
+}
+
+fn setting_choice(key: &str, group: &str, section: &str, label: &str, description: &str, value: &str, options: Vec<SettingOption>) -> SettingChoice {
+    SettingChoice {
+        key: key.into(),
+        group: group.into(),
+        section: section.into(),
+        kind: "choice".into(),
+        label: label.into(),
+        description: description.into(),
+        options,
+        value: value.into(),
+    }
+}
+
+fn setting_catalog() -> Vec<SettingChoice> {
+    vec![
+        setting_choice("theme", "Appearance", "theme", "App theme", "The look of Luma on the TV and connected displays.", "violet-night", vec![
+            setting_option("violet-night", "Violet Night"),
+            setting_option("sapphire", "Sapphire"),
+            setting_option("mint", "Mint"),
+            setting_option("ember", "Ember"),
+            setting_option("graphite", "Graphite"),
+            setting_option("onyx", "Onyx"),
+        ]),
+        setting_choice("appTileShape", "Layout", "layout", "App tile shape", "Wide cards suit artwork; squares fit more apps.", "wide", vec![
+            setting_option("wide", "Pills"),
+            setting_option("square", "Squares"),
+        ]),
+        setting_choice("density", "Layout", "layout", "Layout density", "Compact fits more rows on screen.", "comfortable", vec![
+            setting_option("comfortable", "Comfortable"),
+            setting_option("compact", "Compact"),
+        ]),
+        setting_choice("textSize", "Layout", "layout", "Text size", "Scales text and controls for easier reading from the sofa.", "standard", vec![
+            setting_option("standard", "Standard"),
+            setting_option("large", "Large"),
+            setting_option("larger", "Extra large"),
+        ]),
+        SettingChoice {
+            key: "reducedMotion".into(),
+            group: "Layout".into(),
+            section: "layout".into(),
+            kind: "toggle".into(),
+            label: "Reduce motion".into(),
+            description: "Turns off screen transitions and animated height changes.".into(),
+            options: vec![setting_option("true", "On"), setting_option("false", "Off")],
+            value: "false".into(),
+        },
+        setting_choice("interfaceSounds", "Sound", "sound", "Sound set", "Feedback for focus, select, back, and app launch.", "real", vec![
+            setting_option("real", "Real hardware"),
+            setting_option("google", "Google TV"),
+            setting_option("roku", "Roku"),
+            setting_option("off", "Off"),
+        ]),
+        setting_choice("soundLevel", "Sound", "sound", "Sound level", "Standard is tuned for a quiet room.", "standard", vec![
+            setting_option("soft", "Soft"),
+            setting_option("standard", "Standard"),
+            setting_option("loud", "Loud"),
+        ]),
+    ]
+}
+
+fn sound_preset(value: &str) -> SoundPreset {
+    match value {
+        "google" => SoundPreset::Google,
+        "roku" => SoundPreset::Roku,
+        "off" => SoundPreset::Off,
+        _ => SoundPreset::Real,
+    }
+}
+
 #[tauri::command]
 pub fn update_settings(remote: tauri::State<Remote>, settings: Vec<SettingChoice>) -> Result<(), String> {
+    if settings.is_empty() { return Ok(()); }
     remote.state.lock().map_err(|error| error.to_string())?.settings = settings;
     Ok(())
 }
 
 pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String) -> Result<(), String> {
-    if matches!(key.as_str(), "theme" | "density" | "appTileShape") {
-        let document = app.state::<crate::customization::Store>().edit(|config| match key.as_str() {
-            "theme" => config.theme = value.clone(),
-            "density" => config.density = value.clone(),
-            "appTileShape" => config.app_tile_shape = value.clone(),
-            _ => {},
-        }).map_err(|error| error.message)?;
-        crate::customization::publish(app, &document);
-        return Ok(());
-    }
     {
         let remote = app.state::<Remote>();
         let state = remote.state.lock().map_err(|error| error.to_string())?;
@@ -95,7 +167,21 @@ pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String)
             return Err("Invalid setting value".into());
         }
     }
-    app.emit_to("main", "app-setting", serde_json::json!({ "key": key, "value": value })).map_err(|error| error.to_string())
+    if !matches!(key.as_str(), "theme" | "density" | "appTileShape" | "textSize" | "reducedMotion" | "interfaceSounds" | "soundLevel") {
+        return app.emit_to("main", "app-setting", serde_json::json!({ "key": key, "value": value })).map_err(|error| error.to_string());
+    }
+    let document = app.state::<crate::customization::Store>().edit(|config| match key.as_str() {
+        "theme" => config.theme = value.clone(),
+        "density" => config.density = value.clone(),
+        "appTileShape" => config.app_tile_shape = value.clone(),
+        "textSize" => config.text_size = value.clone(),
+        "reducedMotion" => config.reduced_motion = value == "true",
+        "interfaceSounds" => config.interface_sounds = value.clone(),
+        "soundLevel" => config.sound_level = value.clone(),
+        _ => {},
+    }).map_err(|error| error.message)?;
+    crate::customization::publish(app, &document);
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -224,9 +310,14 @@ pub(crate) fn sync_customization(app: &tauri::AppHandle, document: &crate::custo
             "theme" => choice.value = config.theme.clone(),
             "density" => choice.value = config.density.clone(),
             "appTileShape" => choice.value = config.app_tile_shape.clone(),
+            "textSize" => choice.value = config.text_size.clone(),
+            "reducedMotion" => choice.value = config.reduced_motion.to_string(),
+            "interfaceSounds" => choice.value = config.interface_sounds.clone(),
+            "soundLevel" => choice.value = config.sound_level.clone(),
             _ => {},
         }
     }
+    state.sound = sound_preset(&config.interface_sounds);
     Ok(())
 }
 
@@ -394,7 +485,7 @@ impl Default for Remote {
                 window_fullscreen: None,
                 appearance: None,
                 app_order: Vec::new(),
-                settings: Vec::new(),
+                settings: setting_catalog(),
             }),
             appearance: tokio::sync::watch::channel(None).0,
             app_order: tokio::sync::watch::channel(Vec::new()).0,
@@ -564,6 +655,21 @@ mod tests {
         assert!(validate_appearance(&appearance).is_err());
         appearance.themes.truncate(8);
         assert!(validate_appearance(&appearance).is_ok());
+    }
+
+    #[test]
+    fn ordinary_settings_are_available_before_a_launcher_connects() {
+        let settings = super::setting_catalog();
+        let keys: Vec<&str> = settings.iter().map(|choice| choice.key.as_str()).collect();
+        assert!(keys.contains(&"theme"));
+        assert!(keys.contains(&"density"));
+        assert!(keys.contains(&"appTileShape"));
+        assert!(keys.contains(&"textSize"));
+        assert!(keys.contains(&"reducedMotion"));
+        assert!(keys.contains(&"interfaceSounds"));
+        assert!(keys.contains(&"soundLevel"));
+        assert_eq!(settings.iter().find(|choice| choice.key == "reducedMotion").map(|choice| choice.kind.as_str()), Some("toggle"));
+        assert!(settings.iter().all(|choice| !choice.section.is_empty() && !choice.options.is_empty()));
     }
 
     #[test]

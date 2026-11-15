@@ -4,8 +4,9 @@
   import { homeRowMeta } from '../services/home';
   import HomePreview from './HomePreview.svelte';
 
-  let { rows, popular, featured, activityItems, apps, widget, onmove, onmoveto, ontoggle, onreset }: {
+  let { rows, columns = 1, popular, featured, activityItems, apps, widget, onmove, onmoveto, ontoggle, onreset, oncolumns, onspan, onpreview, onreload, onrestore, busy = false }: {
     rows: HomeRow[];
+    columns?: 1 | 2;
     popular: MediaItem[];
     featured: MediaItem[];
     activityItems: ActivityItem[];
@@ -15,6 +16,12 @@
     onmoveto: (id: string, index: number) => void;
     ontoggle: (id: string) => void;
     onreset: () => void;
+    oncolumns?: (columns: 1 | 2) => void;
+    onspan?: (id: string, span: 1 | 2) => void;
+    onpreview?: () => Promise<void>;
+    onreload?: () => void;
+    onrestore?: () => Promise<void>;
+    busy?: boolean;
   } = $props();
 
   let lifted = $state<string | null>(null);
@@ -33,6 +40,7 @@
   }
 
   function startLift(id: string, index: number) {
+    if (busy) return;
     lifted = id;
     liftOrigin = index;
     status = `${labelOf(id)} is ready to move. Use the arrow keys or the buttons, then choose Done.`;
@@ -49,7 +57,7 @@
   }
 
   function move(id: string, direction: -1 | 1) {
-    if (lifted !== id) return;
+    if (busy || lifted !== id) return;
     const index = rows.findIndex(row => row.id === id);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= rows.length) {
@@ -63,15 +71,15 @@
   }
 
   function commit() {
-    if (!lifted) return;
+    if (busy || !lifted) return;
     const id = lifted;
     const index = rows.findIndex(row => row.id === id);
-    status = `${labelOf(id)} saved at position ${index + 1} of ${rows.length}.`;
+    status = `${labelOf(id)} placed at position ${index + 1} of ${rows.length} in this draft.`;
     lifted = null;
   }
 
   function cancel() {
-    if (!lifted) return;
+    if (busy || !lifted) return;
     const id = lifted;
     const focusTarget = focusedElement();
     onmoveto(id, liftOrigin);
@@ -81,18 +89,34 @@
   }
 
   function toggle(row: HomeRow) {
+    if (busy) return;
     const wasVisible = row.visible;
     ontoggle(row.id);
     status = `${homeRowMeta[row.component].label} ${wasVisible ? 'hidden from Home' : 'shown on Home'}.`;
   }
 
   function reset() {
+    if (busy) return;
     const focusTarget = focusedElement();
     const id = lifted;
     lifted = null;
     onreset();
-    status = 'Home layout reset to its default order.';
+    status = 'Home layout reset to its default order in this draft.';
     if (id) void refocus(focusTarget, id);
+  }
+
+  function changeColumns(event: Event) {
+    if (busy || !oncolumns) return;
+    const next: 1 | 2 = (event.currentTarget as HTMLSelectElement).value === '2' ? 2 : 1;
+    oncolumns(next);
+    status = next === 2 ? 'Two columns in this draft. Set a width for each row.' : 'One column in this draft. Every row fills the width.';
+  }
+
+  function changeSpan(id: string, event: Event) {
+    if (busy || !onspan) return;
+    const span: 1 | 2 = (event.currentTarget as HTMLSelectElement).value === '1' ? 1 : 2;
+    onspan(id, span);
+    status = `${labelOf(id)} set to ${span === 2 ? 'full width' : 'one column'} in this draft.`;
   }
 
   function rowKeydown(event: KeyboardEvent, id: string) {
@@ -124,17 +148,29 @@
   <header class="layout-head">
     <div class="layout-head-copy">
       <h3>Home layout</h3>
-      <p class="panel-description">Choose which rows appear on Home and the order they play in. Select Move, then use the arrow keys or the up and down buttons to place the row.</p>
+      <p class="panel-description">Choose how many columns Home uses, which rows appear, and the order they play in. Select Move, then use the arrow keys or the up and down buttons to place the row. Changes stay a draft until you preview Home and keep them.</p>
     </div>
-    <button class="panel-secondary layout-reset" onclick={reset}>Reset layout</button>
+    <button class="panel-secondary layout-reset" disabled={busy} onclick={reset}>Reset layout</button>
   </header>
   <div class="layout-grid">
     <div class="layout-preview">
       <div class="preview-label"><span>Live preview</span><small>{visibleCount} of {rows.length} rows</small></div>
-      <HomePreview {rows} {popular} {featured} {activityItems} {apps} {widget} {highlight} />
-      <p class="preview-note">Focus or hover a row to find it in the preview.</p>
+      <HomePreview {rows} {columns} {popular} {featured} {activityItems} {apps} {widget} {highlight} />
+      <p class="preview-note">Focus or hover a row to find it in the preview.{#if columns === 2} Full width rows take both columns. The first hero stays full width. Narrow windows stack rows.{/if}</p>
     </div>
     <div class="layout-editor">
+      <div class="layout-options">
+        <div class="layout-options-copy">
+          <strong>Home columns</strong>
+          <small>One column stacks every row. Two columns places rows side by side.</small>
+        </div>
+        <label class="layout-columns">Columns
+          <select value={columns} disabled={busy || !oncolumns} onchange={changeColumns}>
+            <option value={1}>One column</option>
+            <option value={2}>Two columns</option>
+          </select>
+        </label>
+      </div>
       <ol bind:this={listElement} class="layout-list" aria-label="Home rows">
         {#each rows as row, index (row.id)}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -154,19 +190,31 @@
               <small>{homeRowMeta[row.component].detail}</small>
             </div>
             <div class="layout-controls">
+              <label class="layout-width">Width
+                <select
+                  value={row.span}
+                  aria-label={`Width for ${homeRowMeta[row.component].label}`}
+                  disabled={columns === 1 || busy || !onspan}
+                  onchange={(event) => changeSpan(row.id, event)}
+                >
+                  <option value={1}>One column</option>
+                  <option value={2}>Full width</option>
+                </select>
+              </label>
               <label class="layout-visibility">
-                <input type="checkbox" checked={row.visible} aria-label={`Show ${homeRowMeta[row.component].label} on Home`} onchange={() => toggle(row)} />
+                <input type="checkbox" checked={row.visible} disabled={busy} aria-label={`Show ${homeRowMeta[row.component].label} on Home`} onchange={() => toggle(row)} />
                 <span>Visible</span>
               </label>
               {#if lifted === row.id}
                 <div class="layout-nudge">
-                  <button onclick={() => move(row.id, -1)} aria-label={`Move ${homeRowMeta[row.component].label} up`}>↑</button>
-                  <button onclick={() => move(row.id, 1)} aria-label={`Move ${homeRowMeta[row.component].label} down`}>↓</button>
+                  <button disabled={busy} onclick={() => move(row.id, -1)} aria-label={`Move ${homeRowMeta[row.component].label} up`}>↑</button>
+                  <button disabled={busy} onclick={() => move(row.id, 1)} aria-label={`Move ${homeRowMeta[row.component].label} down`}>↓</button>
                 </div>
               {/if}
               <button
                 class="layout-action"
                 class:is-done={lifted === row.id}
+                disabled={busy}
                 aria-label={lifted === row.id ? `Finish moving ${homeRowMeta[row.component].label}` : `Move ${homeRowMeta[row.component].label}`}
                 onclick={() => lifted === row.id ? commit() : startLift(row.id, index)}
               >{lifted === row.id ? 'Done' : 'Move'}</button>
@@ -177,6 +225,17 @@
       <p class="layout-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
     </div>
   </div>
+  <footer class="layout-footer">
+    <div class="layout-footer-copy">
+      <strong>Preview before you save</strong>
+      <small>Draft changes save only after you preview them on Home and choose Keep. Reload returns to the saved layout; Restore returns to the previous saved layout.</small>
+    </div>
+    <div class="settings-actions">
+      <button class="panel-secondary is-primary" disabled={busy || !onpreview} onclick={() => void onpreview?.()}>Preview on Home</button>
+      <button class="panel-secondary" disabled={busy || !onreload} onclick={() => onreload?.()}>Reload saved layout</button>
+      <button class="panel-secondary" disabled={busy || !onrestore} onclick={() => void onrestore?.()}>Restore previous saved layout</button>
+    </div>
+  </footer>
 </section>
 
 <style>
@@ -204,6 +263,94 @@
     grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
     align-items: start;
     gap: clamp(20px, 2.4vw, 38px);
+  }
+  .layout-options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px 20px;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #ffffff04;
+  }
+  .layout-options-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+  .layout-options-copy strong {
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .layout-options-copy small {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .layout-columns,
+  .layout-width {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .layout-columns select,
+  .layout-width select {
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: #ffffff08;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .layout-columns select:hover:not(:disabled),
+  .layout-width select:hover:not(:disabled) {
+    background: #ffffff12;
+    color: #fff;
+  }
+  .layout-columns select:disabled,
+  .layout-width select:disabled {
+    opacity: .4;
+    cursor: default;
+  }
+  .layout-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  .layout-footer-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    max-width: 62ch;
+  }
+  .layout-footer-copy strong {
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .layout-footer-copy small {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .layout-footer .settings-actions {
+    margin-top: 0;
   }
   .layout-preview {
     position: sticky;

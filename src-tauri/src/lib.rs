@@ -73,6 +73,9 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    if let Some(store) = window.app_handle().try_state::<customization::Store>() { store.clear_preview(); }
+                }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     background::request_exit(window.app_handle());
@@ -83,6 +86,11 @@ pub fn run() {
             customization::customization_read,
             customization::customization_initialize,
             customization::customization_commit,
+            customization::customization_preview_read,
+            customization::customization_preview,
+            customization::customization_preview_keep,
+            customization::customization_preview_cancel,
+            customization::customization_restore,
             updates_enabled,
             tv::tv_setup,
             tv::tv_setup_warning,
@@ -123,6 +131,7 @@ pub fn run() {
             spotify::spotify_start,
             frame::frame_status,
             frame::configure_frame,
+            frame::forget_device,
             frame::forget_remotes,
             frame::frame_pairing,
             frame::phone_pairing,

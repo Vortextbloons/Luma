@@ -1,12 +1,17 @@
 <script lang="ts">
-  import { themes } from '../services/theme';
+  import { defaultThemeId, themes } from '../services/theme';
   import type { Settings } from '../types';
   let { settings }: { settings: Settings } = $props();
+  let note = $state('');
+  function reset() {
+    settings.theme = defaultThemeId;
+    note = `Theme reset to ${themes.find(theme => theme.id === defaultThemeId)?.name ?? 'the default'}. Other appearance settings were not changed.`;
+  }
 </script>
 
 <section class="settings-group">
   <h3>Theme</h3>
-  <p class="panel-description">Sets the background, surfaces, and accent together. Every screen follows the theme, including the web remote.</p>
+  <p class="panel-description">Sets the background, surfaces, and accent together. Every screen follows the theme. A web remote can follow Luma or keep its own theme on that device.</p>
   <div class="theme-grid" role="group" aria-label="Theme">
     {#each themes as theme (theme.id)}
       <button
@@ -36,10 +41,14 @@
       </button>
     {/each}
   </div>
+  <div class="settings-actions">
+    <button class="panel-secondary" disabled={settings.theme === defaultThemeId} onclick={reset}>Reset theme</button>
+  </div>
+  {#if note}<p class="panel-description" role="status">{note}</p>{/if}
 </section>
 
 <style>
-  .theme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .theme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 14px; }
   .theme-card { display: grid; gap: 12px; min-width: 0; padding: 12px; text-align: left; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--surface) 55%, transparent); color: var(--text); transition: border-color .18s, background-color .18s, transform .18s; }
   .theme-card:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--surface) 75%, transparent); }
   .theme-card.is-active { border-color: var(--accent); background: var(--accent-soft); }
@@ -55,5 +64,5 @@
   .theme-copy { display: grid; gap: 3px; min-width: 0; }
   .theme-copy strong { font-size: 15px; letter-spacing: -.01em; }
   .theme-copy small { color: var(--muted); font-size: 12px; line-height: 1.35; }
-  @media (max-width: 640px) { .theme-grid { grid-template-columns: 1fr 1fr; } .theme-copy small { display: none; } }
+  @media (max-width: 640px) { .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .theme-copy small { display: none; } }
 </style>

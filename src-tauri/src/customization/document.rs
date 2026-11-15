@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 const THEMES: [&str; 6] = ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx"];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const TILE_SHAPES: [&str; 2] = ["wide", "square"];
+const TEXT_SIZES: [&str; 3] = ["standard", "large", "larger"];
+const SOUND_PRESETS: [&str; 4] = ["real", "google", "roku", "off"];
+const SOUND_LEVELS: [&str; 3] = ["soft", "standard", "loud"];
 const COMPONENTS: [&str; 7] = ["hero", "continue", "apps", "popular", "featured", "recent", "recentApps"];
 const APP_IDS: [&str; 12] = [
     "YouTube",
@@ -35,6 +38,15 @@ pub struct Config {
     pub theme: String,
     pub density: String,
     pub app_tile_shape: String,
+    #[serde(default = "default_text_size")]
+    pub text_size: String,
+    #[serde(default)]
+    pub reduced_motion: bool,
+    #[serde(default = "default_interface_sounds")]
+    pub interface_sounds: String,
+    #[serde(default = "default_sound_level")]
+    pub sound_level: String,
+    pub home_columns: u8,
     pub home: Vec<HomeRow>,
     pub widgets: Widgets,
     pub order: Vec<String>,
@@ -46,6 +58,27 @@ pub struct HomeRow {
     pub id: String,
     pub component: String,
     pub visible: bool,
+    pub span: u8,
+}
+
+fn default_home_columns() -> u8 {
+    1
+}
+
+fn default_span() -> u8 {
+    2
+}
+
+fn default_text_size() -> String {
+    "standard".into()
+}
+
+fn default_interface_sounds() -> String {
+    "real".into()
+}
+
+fn default_sound_level() -> String {
+    "standard".into()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -87,18 +120,51 @@ struct LegacyHomeRow {
     visible: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct V2Document {
+    version: u32,
+    revision: u64,
+    config: V2Config,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct V2Config {
+    theme: String,
+    density: String,
+    app_tile_shape: String,
+    home: Vec<V2HomeRow>,
+    widgets: Widgets,
+    order: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct V2HomeRow {
+    id: String,
+    component: String,
+    visible: bool,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             theme: "violet-night".into(),
             density: "comfortable".into(),
             app_tile_shape: "wide".into(),
+            text_size: default_text_size(),
+            reduced_motion: false,
+            interface_sounds: default_interface_sounds(),
+            sound_level: default_sound_level(),
+            home_columns: default_home_columns(),
             home: COMPONENTS
                 .iter()
                 .map(|component| HomeRow {
                     id: (*component).into(),
                     component: (*component).into(),
                     visible: true,
+                    span: default_span(),
                 })
                 .collect(),
             widgets: Widgets {
@@ -119,6 +185,24 @@ pub fn validate(config: &Config) -> Result<(), String> {
     if !TILE_SHAPES.contains(&config.app_tile_shape.as_str()) {
         return Err(format!("Unknown app tile shape: {}.", config.app_tile_shape));
     }
+    if !TEXT_SIZES.contains(&config.text_size.as_str()) {
+        return Err(format!("Unknown text size: {}.", config.text_size));
+    }
+    if !SOUND_PRESETS.contains(&config.interface_sounds.as_str()) {
+        return Err(format!(
+            "Unknown interface sound set: {}.",
+            config.interface_sounds
+        ));
+    }
+    if !SOUND_LEVELS.contains(&config.sound_level.as_str()) {
+        return Err(format!("Unknown sound level: {}.", config.sound_level));
+    }
+    if !matches!(config.home_columns, 1 | 2) {
+        return Err(format!(
+            "Home columns must be 1 or 2, got {}.",
+            config.home_columns
+        ));
+    }
     if !PLACEMENTS.contains(&config.widgets.spotify.placement.as_str()) {
         return Err(format!(
             "Unknown Spotify placement: {}.",
@@ -134,6 +218,12 @@ fn validate_home(home: &[HomeRow]) -> Result<(), String> {
     let mut components: Vec<&str> = Vec::with_capacity(home.len());
     for row in home {
         validate_home_id(&row.id)?;
+        if !matches!(row.span, 1 | 2) {
+            return Err(format!(
+                "Home row {} has an invalid span: {}.",
+                row.id, row.span
+            ));
+        }
         if !COMPONENTS.contains(&row.component.as_str()) {
             return Err(format!("Unknown home component: {}.", row.component));
         }
@@ -195,6 +285,11 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
         theme: legacy.config.theme,
         density: legacy.config.density,
         app_tile_shape: legacy.config.app_tile_shape,
+        text_size: default_text_size(),
+        reduced_motion: false,
+        interface_sounds: default_interface_sounds(),
+        sound_level: default_sound_level(),
+        home_columns: default_home_columns(),
         home: legacy
             .config
             .home
@@ -203,13 +298,47 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
                 id: row.id.clone(),
                 component: row.id,
                 visible: row.visible,
+                span: default_span(),
             })
             .collect(),
         widgets: legacy.config.widgets,
         order: legacy.config.order,
     };
     validate(&config)?;
-    Ok(Document { version: 2, revision: legacy.revision, config })
+    Ok(Document { version: 3, revision: legacy.revision, config })
+}
+
+pub fn migrate_v2(raw: &str) -> Result<Document, String> {
+    let v2: V2Document = serde_json::from_str(raw)
+        .map_err(|error| format!("Invalid customization document: {error}"))?;
+    if v2.version != 2 {
+        return Err(format!("Unsupported customization version: {}.", v2.version));
+    }
+    let config = Config {
+        theme: v2.config.theme,
+        density: v2.config.density,
+        app_tile_shape: v2.config.app_tile_shape,
+        text_size: default_text_size(),
+        reduced_motion: false,
+        interface_sounds: default_interface_sounds(),
+        sound_level: default_sound_level(),
+        home_columns: default_home_columns(),
+        home: v2
+            .config
+            .home
+            .into_iter()
+            .map(|row| HomeRow {
+                id: row.id,
+                component: row.component,
+                visible: row.visible,
+                span: default_span(),
+            })
+            .collect(),
+        widgets: v2.config.widgets,
+        order: v2.config.order,
+    };
+    validate(&config)?;
+    Ok(Document { version: 3, revision: v2.revision, config })
 }
 
 #[cfg(test)]
@@ -224,10 +353,28 @@ mod tests {
 
     fn legacy_document(config: &Config, revision: u64) -> Value {
         let mut config = serde_json::to_value(config).unwrap();
+        let config = config.as_object_mut().unwrap();
+        for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] {
+            config.remove(field);
+        }
         for row in config["home"].as_array_mut().unwrap() {
-            row.as_object_mut().unwrap().remove("component");
+            let row = row.as_object_mut().unwrap();
+            row.remove("component");
+            row.remove("span");
         }
         json!({ "version": 1, "revision": revision, "config": config })
+    }
+
+    fn v2_document(config: &Config, revision: u64) -> Value {
+        let mut config = serde_json::to_value(config).unwrap();
+        let config = config.as_object_mut().unwrap();
+        for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] {
+            config.remove(field);
+        }
+        for row in config["home"].as_array_mut().unwrap() {
+            row.as_object_mut().unwrap().remove("span");
+        }
+        json!({ "version": 2, "revision": revision, "config": config })
     }
 
     #[test]
@@ -236,11 +383,56 @@ mod tests {
     }
 
     #[test]
+    fn reading_and_sound_preferences_validate_and_default_for_older_documents() {
+        let mut config = Config::default();
+        config.text_size = "larger".into();
+        config.reduced_motion = true;
+        config.interface_sounds = "roku".into();
+        config.sound_level = "soft".into();
+        assert_eq!(validate(&config), Ok(()));
+
+        let mut value = serde_json::to_value(&config).unwrap();
+        value.as_object_mut().unwrap().remove("textSize");
+        value.as_object_mut().unwrap().remove("reducedMotion");
+        value.as_object_mut().unwrap().remove("interfaceSounds");
+        value.as_object_mut().unwrap().remove("soundLevel");
+        let document = json!({ "version": 3, "revision": 4, "config": value });
+        let decoded: Document = serde_json::from_value(document).unwrap();
+        assert_eq!(decoded.config.text_size, "standard");
+        assert!(!decoded.config.reduced_motion);
+        assert_eq!(decoded.config.interface_sounds, "real");
+        assert_eq!(decoded.config.sound_level, "standard");
+    }
+
+    #[test]
+    fn unknown_reading_and_sound_choices_are_rejected() {
+        let mut config = Config::default();
+        config.text_size = "huge".into();
+        assert_eq!(validate(&config), Err("Unknown text size: huge.".into()));
+
+        let mut config = Config::default();
+        config.interface_sounds = "cinema".into();
+        assert_eq!(
+            validate(&config),
+            Err("Unknown interface sound set: cinema.".into())
+        );
+
+        let mut config = Config::default();
+        config.sound_level = "maximum".into();
+        assert_eq!(validate(&config), Err("Unknown sound level: maximum.".into()));
+    }
+
+    #[test]
     fn default_document_round_trips_as_camel_case() {
-        let document = Document { version: 2, revision: 7, config: Config::default() };
+        let document = Document { version: 3, revision: 7, config: Config::default() };
         let json = serde_json::to_string(&document).unwrap();
         assert!(json.contains("\"appTileShape\":\"wide\""));
-        assert!(json.contains("\"home\":[{\"id\":\"hero\",\"component\":\"hero\",\"visible\":true}"));
+        assert!(json.contains("\"textSize\":\"standard\""));
+        assert!(json.contains("\"reducedMotion\":false"));
+        assert!(json.contains("\"interfaceSounds\":\"real\""));
+        assert!(json.contains("\"soundLevel\":\"standard\""));
+        assert!(json.contains("\"homeColumns\":1"));
+        assert!(json.contains("\"home\":[{\"id\":\"hero\",\"component\":\"hero\",\"visible\":true,\"span\":2}"));
         assert!(!json.contains("\"type\""));
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), document);
     }
@@ -250,6 +442,8 @@ mod tests {
         let mut config = Config::default();
         config.home.reverse();
         config.home[0].visible = false;
+        config.home_columns = 2;
+        config.home[1].span = 1;
         reorder(&mut config.order, 9, 1);
         config.order.swap(0, 1);
         config.theme = "sapphire".into();
@@ -266,7 +460,7 @@ mod tests {
         config.home[0].id = "hero-main_2".into();
         assert_eq!(validate(&config), Ok(()));
         let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("{\"id\":\"hero-main_2\",\"component\":\"hero\",\"visible\":true}"));
+        assert!(json.contains("{\"id\":\"hero-main_2\",\"component\":\"hero\",\"visible\":true,\"span\":2}"));
     }
 
     #[test]
@@ -276,6 +470,7 @@ mod tests {
             id: "hero-alt".into(),
             component: "hero".into(),
             visible: true,
+            span: 2,
         };
         assert_eq!(validate(&config), Err("Duplicate home component: hero.".into()));
     }
@@ -287,8 +482,41 @@ mod tests {
             id: "hero".into(),
             component: "recentApps".into(),
             visible: true,
+            span: 2,
         };
         assert_eq!(validate(&config), Err("Duplicate home row id: hero.".into()));
+    }
+
+    #[test]
+    fn invalid_home_columns_and_spans_are_rejected() {
+        let mut config = Config::default();
+        config.home_columns = 0;
+        assert_eq!(
+            validate(&config),
+            Err("Home columns must be 1 or 2, got 0.".into())
+        );
+
+        let mut config = Config::default();
+        config.home_columns = 3;
+        assert_eq!(
+            validate(&config),
+            Err("Home columns must be 1 or 2, got 3.".into())
+        );
+
+        let mut config = Config::default();
+        config.home[0].span = 0;
+        assert_eq!(
+            validate(&config),
+            Err("Home row hero has an invalid span: 0.".into())
+        );
+
+        let mut config = Config::default();
+        config.home[2].id = "apps-secondary".into();
+        config.home[2].span = 3;
+        assert_eq!(
+            validate(&config),
+            Err("Home row apps-secondary has an invalid span: 3.".into())
+        );
     }
 
     #[test]
@@ -386,7 +614,80 @@ mod tests {
         let raw = legacy_document(&config, 12).to_string();
         assert_eq!(
             migrate_legacy(&raw).unwrap(),
-            Document { version: 2, revision: 12, config }
+            Document { version: 3, revision: 12, config }
+        );
+    }
+
+    #[test]
+    fn v2_migration_preserves_configuration_and_revision_with_new_defaults() {
+        let mut config = Config::default();
+        config.home_columns = 2;
+        config.home[2].span = 1;
+        config.home.reverse();
+        config.home[0].visible = false;
+        reorder(&mut config.order, 9, 1);
+        config.order.swap(0, 1);
+        config.theme = "ember".into();
+        config.density = "compact".into();
+        config.app_tile_shape = "square".into();
+        config.widgets.spotify = Widget { enabled: false, placement: "bottom-right".into() };
+
+        let mut expected = config.clone();
+        expected.home_columns = 1;
+        for row in &mut expected.home {
+            row.span = 2;
+        }
+
+        let raw = v2_document(&config, 21).to_string();
+        assert_eq!(
+            migrate_v2(&raw).unwrap(),
+            Document { version: 3, revision: 21, config: expected }
+        );
+    }
+
+    #[test]
+    fn v2_migration_rejects_other_versions_and_unknown_fields() {
+        let mut document = v2_document(&Config::default(), 3);
+        document["version"] = json!(3);
+        assert_eq!(
+            migrate_v2(&document.to_string()).unwrap_err(),
+            "Unsupported customization version: 3."
+        );
+
+        let mut document = v2_document(&Config::default(), 3);
+        document["extra"] = json!(true);
+        assert!(migrate_v2(&document.to_string()).is_err());
+
+        let mut document = v2_document(&Config::default(), 3);
+        document["config"]["homeColumns"] = json!(2);
+        assert!(migrate_v2(&document.to_string()).is_err());
+
+        let mut document = v2_document(&Config::default(), 3);
+        document["config"]["accent"] = json!("violet");
+        assert!(migrate_v2(&document.to_string()).is_err());
+
+        let mut document = v2_document(&Config::default(), 3);
+        document["config"]["home"][0]["span"] = json!(1);
+        assert!(migrate_v2(&document.to_string()).is_err());
+
+        let document = legacy_document(&Config::default(), 3);
+        assert!(migrate_v2(&document.to_string()).is_err());
+    }
+
+    #[test]
+    fn v2_migration_rejects_invalid_configuration() {
+        let mut document = v2_document(&Config::default(), 3);
+        document["config"]["theme"] = json!("aurora");
+        assert_eq!(
+            migrate_v2(&document.to_string()).unwrap_err(),
+            "Unknown theme: aurora."
+        );
+
+        let mut document = v2_document(&Config::default(), 3);
+        document["config"]["home"].as_array_mut().unwrap().pop();
+        assert_eq!(
+            migrate_v2(&document.to_string()).unwrap_err(),
+            "Missing home component: recentApps."
         );
     }
 
@@ -398,6 +699,14 @@ mod tests {
 
         let mut document = legacy_document(&Config::default(), 3);
         document["config"]["home"][0]["component"] = json!("hero");
+        assert!(migrate_legacy(&document.to_string()).is_err());
+
+        let mut document = legacy_document(&Config::default(), 3);
+        document["config"]["homeColumns"] = json!(2);
+        assert!(migrate_legacy(&document.to_string()).is_err());
+
+        let mut document = legacy_document(&Config::default(), 3);
+        document["config"]["home"][0]["span"] = json!(1);
         assert!(migrate_legacy(&document.to_string()).is_err());
     }
 

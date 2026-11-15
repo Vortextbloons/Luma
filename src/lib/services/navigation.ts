@@ -112,6 +112,13 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       if (target) focus(target, true);
       return;
     }
+    const sections = current.closest?.('.settings-sections');
+    if (sections && command === 'down') {
+      const bottom = current.getBoundingClientRect().bottom;
+      const target = candidates.find(el => el.closest?.('.settings-content') && !el.closest('.settings-sections') && el.getBoundingClientRect().top >= bottom);
+      if (target) focus(target, true);
+      return;
+    }
     if ((categories || content) && (command === 'up' || command === 'down')) {
       const group = candidates.filter(el => (categories ?? content)!.contains(el));
       const index = group.indexOf(current) + (command === 'down' ? 1 : -1);

@@ -6,6 +6,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import TopNav from './lib/components/TopNav.svelte';
   import HomeRenderer from './lib/components/HomeRenderer.svelte';
+  import LayoutReview from './lib/components/LayoutReview.svelte';
   import UpdateNotice from './lib/components/UpdateNotice.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
   import type { HeroSlide } from './lib/components/MovieHero.svelte';
@@ -24,7 +25,7 @@
   import RecentApps from './lib/components/activity/RecentApps.svelte';
   import { remoteSettings, applyRemoteSetting } from './lib/services/settings';
   import { createSettings } from './lib/state/settings.svelte';
-  import { createCustomizationSync, customizationConfig } from './lib/services/customization';
+  import { createCustomizationSync, customizationConfig, type CustomizationPreview, type HomeDraft } from './lib/services/customization';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
   import { smoothHeight } from './lib/services/motion';
@@ -47,7 +48,25 @@
   let settingsCategory = $state('Display');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
-  const customization = createCustomizationSync(settings, value => message = value);
+  let layoutPreview = $state<CustomizationPreview | null>(null);
+  let homeDraft = $state<HomeDraft | null>(null);
+  let customizationRevision = $state(0);
+  let reviewBusy = $state(false);
+  let reviewError = $state('');
+  let previewFromEditor = $state(false);
+  const customization = createCustomizationSync(settings, value => message = value, {
+    document: document => {
+      customizationRevision = document.revision;
+      if (layoutPreview && document.revision > layoutPreview.baseRevision && !reviewBusy) message = 'The saved layout changed elsewhere. Preview your draft again before keeping it.';
+    },
+    preview: candidate => {
+      const changed = layoutPreview?.id !== candidate?.id;
+      layoutPreview = candidate;
+      if (!candidate) { previewFromEditor = false; return; }
+      if (changed) { reviewError = ''; panel = false; tab = 'Home'; details = null; playerOpen = false; previewApp = null; heroPick = null; }
+    },
+  });
+  const layoutConfig = $derived(layoutPreview?.config ?? customizationConfig(settings));
   let movieQuery = $state('');
   let movieResults = $state.raw<MediaItem[]>([]);
   let searching = $state(false);
@@ -84,7 +103,8 @@
   const navigation = createNavigation(back, home, () => settings.homeShortcut, playSound);
   const showHome = $derived(tab === 'Home');
   const theme = $derived(themeById(settings.theme));
-  const rowVisible = (id: HomeRowId) => settings.home.some(row => row.component === id && row.visible);
+  const activeTheme = $derived(themeById(layoutConfig.theme));
+  const rowVisible = (id: HomeRowId) => layoutConfig.home.some(row => row.component === id && row.visible);
   const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
   const previewProvider = $derived(previewApp ? appProviders[previewApp] : null);
   const stremioRecent = $derived(stremio?.items.filter(item => (item.lastWatched || item.timeOffset > 0) && item.kind !== 'other') ?? []);
@@ -268,10 +288,12 @@
   }
 
   $effect(() => {
-    applyTheme(theme.tokens);
-    document.documentElement.dataset.theme = settings.theme;
-    document.documentElement.dataset.density = settings.density;
-    document.documentElement.dataset.appTileShape = settings.appTileShape;
+    applyTheme(activeTheme.tokens);
+    document.documentElement.dataset.theme = layoutConfig.theme;
+    document.documentElement.dataset.density = layoutConfig.density;
+    document.documentElement.dataset.appTileShape = layoutConfig.appTileShape;
+    document.documentElement.dataset.textSize = settings.textSize;
+    document.documentElement.dataset.reducedMotion = String(settings.reducedMotion);
   });
   $effect(() => {
     setSoundSettings(settings.interfaceSounds, settings.soundLevel);
@@ -280,7 +302,7 @@
     if (native) customization.update(customizationConfig(settings));
   });
   $effect(() => {
-    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, fastAppSwitch: settings.fastAppSwitch, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, widgets: settings.widgets, order: settings.order })); }
+    try { localStorage.setItem('luma-v1', JSON.stringify({ homeShortcut: settings.homeShortcut, shortcutVersion: 1, theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, fullscreen: settings.fullscreen, fastAppSwitch: settings.fastAppSwitch, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, textSize: settings.textSize, reducedMotion: settings.reducedMotion, home: settings.home, homeColumns: settings.homeColumns, widgets: settings.widgets, order: settings.order })); }
     catch { message = 'Preferences could not be saved. Free some local storage and try again.'; }
   });
   $effect(() => {
@@ -387,6 +409,7 @@
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
+    if (layoutPreview && !exitRequested && !remotePairing && !stremioPairing && !details && !playerOpen) { void cancelReview(); return; }
     if (exitRequested) { void playSound('back'); cancelExit(); return; }
     if (remotePairing) { void playSound('back'); closeRemotePairing(); return; }
     if (stremioPairing) { void playSound('back'); closeStremioPairing(); return; }
@@ -458,7 +481,7 @@
     const direction = index < previousTab ? -1 : 1;
     previousTab = index;
     return (element: HTMLElement) => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      if (settings.reducedMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       const animation = element.animate(
         [{ opacity: .35, transform: `translate3d(${direction * 28}px, 6px, 0)` }, { opacity: 1, transform: 'none' }],
         { duration: 220, easing: 'cubic-bezier(.22,.8,.24,1)' },
@@ -466,8 +489,9 @@
       return () => animation.cancel();
     };
   }
-  function navigate(value: string) { if (value === 'Music') { void openMusic(); return; } if (value !== tab) void playSound('page'); if (value === 'Home') leaveApp(); previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function navigate(value: string) { if (layoutPreview) { void cancelReview(false).then(cancelled => { if (cancelled) navigate(value); }); return; } if (value === 'Music') { void openMusic(); return; } if (value !== tab) void playSound('page'); if (value === 'Home') leaveApp(); previewApp = null; heroPick = null; tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
   async function openMusic() {
+    if (layoutPreview && !await cancelReview(false)) return;
     if (tab !== 'Music') void playSound('page');
     while (musicHome?.closeDetail()) {}
     previewApp = null;
@@ -499,7 +523,7 @@
   }
   function mountStremioDialog(dialog: HTMLDialogElement) { dialog.showModal(); }
   function openIntegrations() { showSettings('Integrations'); }
-  function showSettings(category: string) { previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
+  function showSettings(category: string) { if (layoutPreview) { void cancelReview(false).then(cancelled => { if (cancelled) showSettings(category); }); return; } previewApp = null; rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
   async function launch(id: AppId) {
     if (id === 'Spotify') {
@@ -594,6 +618,37 @@
     try { await steamOpenGame(appid); message = 'Opening in Steam Big Picture. Press Home to return to Luma.'; void playSound('open'); }
     catch (error) { message = String(error); void playSound('error'); }
   }
+  async function previewLayout(draft: HomeDraft) {
+    previewFromEditor = true;
+    try {
+      await customization.preview({ ...customizationConfig(settings), home: JSON.parse(JSON.stringify(draft.home)), homeColumns: draft.homeColumns }, draft.baseRevision);
+      previewFromEditor = true;
+    } catch (error) { previewFromEditor = false; throw error; }
+  }
+  async function keepLayout() {
+    if (reviewBusy) return;
+    reviewError = '';
+    reviewBusy = true;
+    try {
+      await customization.keep();
+      homeDraft = null;
+      message = 'Layout saved.';
+      requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+    } catch (error) { reviewError = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error); message = reviewError; }
+    finally { reviewBusy = false; }
+  }
+  async function cancelReview(editing = previewFromEditor) {
+    if (reviewBusy) return false;
+    reviewError = '';
+    reviewBusy = true;
+    try {
+      await customization.cancel();
+      if (editing) { settingsCategory = 'Home layout'; panel = true; }
+      else requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+      return true;
+    } catch (error) { reviewError = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error); message = reviewError; return false; }
+    finally { reviewBusy = false; }
+  }
   async function openSteamStore(appid: number) {
     if (!native) { message = 'Opening the Steam store is available in the desktop app.'; return; }
     try { await steamOpenStore(appid); message = 'Opening the Steam store in Big Picture. Press Home to return to Luma.'; void playSound('open'); }
@@ -603,14 +658,14 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
+  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restore()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if showHome}
-    <HomeRenderer rows={settings.home}
-      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: settings.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured }}
+    <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured }}
       actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
@@ -654,10 +709,11 @@
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
     <UpdateNotice {native} />
   </div>
-  {#if !playerOpen}<WidgetHost widgets={settings.widgets} onopen={openPlayer} />{/if}
+  {#if !playerOpen}<WidgetHost widgets={layoutConfig.widgets} onopen={openPlayer} />{/if}
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>
+{#if layoutPreview}<LayoutReview busy={reviewBusy} error={reviewError} editing={previewFromEditor} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
 
 {#if stremioPairing}

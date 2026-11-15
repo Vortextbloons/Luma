@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#080a10">
+<meta name="application-name" content="Luma Remote">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Luma">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Luma Remote</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/luma-192.png">
+<script>
+  (() => {
+    const tokens = new Set(['--bg', '--bg-soft', '--ambient', '--surface', '--surface-2', '--surface-3', '--line', '--line-strong', '--text', '--text-dim', '--muted', '--dim', '--accent', '--accent-strong', '--accent-ink', '--accent-soft', '--good', '--warn', '--danger', '--rating']);
+    const hex = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
+    const paint = values => {
+      if (!values || typeof values !== 'object' || Array.isArray(values)) return;
+      const root = document.documentElement;
+      for (const [name, value] of Object.entries(values)) {
+        if (!tokens.has(name) || typeof value !== 'string' || !hex.test(value)) continue;
+        root.style.setProperty(name, value);
+      }
+      const meta = document.querySelector('meta[name="theme-color"]');
+      const bg = values['--bg'];
+      if (meta && typeof bg === 'string' && hex.test(bg)) meta.setAttribute('content', bg);
+    };
+    try {
+      const appearance = JSON.parse(localStorage.getItem('luma-remote-appearance') || 'null');
+      if (!appearance || typeof appearance !== 'object') return;
+      const choice = localStorage.getItem('luma-remote-theme') || 'follow';
+      const theme = choice === 'follow' || !Array.isArray(appearance.themes)
+        ? null
+        : appearance.themes.find(item => item && item.id === choice);
+      paint(theme ? theme.tokens : appearance.tokens);
+    } catch (_) {}
+  })();
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -30,11 +30,25 @@ pub struct Commit {
     pub config: Config,
 }
 
-pub struct Store(Result<Mutex<Connection>, String>);
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Preview {
+    pub id: String,
+    pub base_revision: u64,
+    pub config: Config,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewAction {
+    pub preview_id: String,
+}
+
+pub struct Store(Result<Mutex<Connection>, String>, Mutex<Option<Preview>>);
 
 impl Store {
     pub fn open(app: &tauri::AppHandle) -> Self {
-        Self::load(app).unwrap_or_else(|error| Self(Err(error)))
+        Self::load(app).unwrap_or_else(|error| Self(Err(error), Mutex::new(None)))
     }
 
     fn load(app: &tauri::AppHandle) -> Result<Self, String> {
@@ -47,7 +61,7 @@ impl Store {
     fn from_connection(mut connection: Connection) -> Result<Self, Error> {
         connection.execute_batch("CREATE TABLE IF NOT EXISTS customization (id INTEGER PRIMARY KEY CHECK(id = 1), document TEXT NOT NULL, previous TEXT);")?;
         Self::migrate(&mut connection)?;
-        Ok(Self(Ok(Mutex::new(connection))))
+        Ok(Self(Ok(Mutex::new(connection)), Mutex::new(None)))
     }
 
     fn migrate(connection: &mut Connection) -> Result<(), Error> {
@@ -75,7 +89,8 @@ impl Store {
         let raw: serde_json::Value = serde_json::from_str(value).map_err(|error| Error::new("invalid_document", error))?;
         let document: Document = match raw.get("version").and_then(serde_json::Value::as_u64) {
             Some(1) => document::migrate_legacy(value).map_err(|error| Error::new("invalid_document", error))?,
-            Some(2) => serde_json::from_value(raw).map_err(|error| Error::new("invalid_document", error))?,
+            Some(2) => document::migrate_v2(value).map_err(|error| Error::new("invalid_document", error))?,
+            Some(3) => serde_json::from_value(raw).map_err(|error| Error::new("invalid_document", error))?,
             Some(_) => return Err(Error::new("unsupported_version", "This customization document requires a different version of Luma.")),
             None => return Err(Error::new("invalid_document", "Missing customization document version.")),
         };
@@ -101,7 +116,7 @@ impl Store {
         let transaction = connection.transaction()?;
         if let Some(current) = Self::current(&transaction)? { return Ok(current); }
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
-        let document = Document { version: 2, revision: 1, config };
+        let document = Document { version: 3, revision: 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("INSERT INTO customization (id, document) VALUES (1, ?1)", [raw])?;
         transaction.commit()?;
@@ -109,11 +124,17 @@ impl Store {
     }
 
     pub fn commit(&self, request: Commit) -> Result<Document, Error> {
-        self.change(request.expected_revision, |_| Ok(request.config))
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let document = self.change(request.expected_revision, |_| Ok(request.config))?;
+        *preview = None;
+        Ok(document)
     }
 
     pub fn edit(&self, edit: impl FnOnce(&mut Config)) -> Result<Document, Error> {
-        self.change_current(None, |mut current| { edit(&mut current); Ok(current) })
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let document = self.change_current(None, |mut current| { edit(&mut current); Ok(current) })?;
+        *preview = None;
+        Ok(document)
     }
 
     fn change(&self, revision: u64, edit: impl FnOnce(Config) -> Result<Config, Error>) -> Result<Document, Error> {
@@ -131,7 +152,7 @@ impl Store {
         document::validate(&config).map_err(|error| Error::new("validation", error))?;
         if config == current.config { return Ok(current); }
         if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 2, revision: current.revision + 1, config };
+        let document = Document { version: 3, revision: current.revision + 1, config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", [raw])?;
         transaction.commit()?;
@@ -139,6 +160,7 @@ impl Store {
     }
 
     pub fn restore(&self, expected_revision: u64) -> Result<Document, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before restoring customization."))?;
@@ -146,17 +168,109 @@ impl Store {
         let raw: Option<String> = transaction.query_row("SELECT previous FROM customization WHERE id = 1", [], |row| row.get(0))?;
         let previous = Self::decode(&raw.ok_or_else(|| Error::new("no_previous", "No previous customization is available."))?)?;
         if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
-        let document = Document { version: 2, revision: current.revision + 1, config: previous.config };
+        let document = Document { version: 3, revision: current.revision + 1, config: previous.config };
         let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
         transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", params![raw])?;
         transaction.commit()?;
+        *preview = None;
         Ok(document)
+    }
+
+    pub fn preview(&self) -> Result<Option<Preview>, Error> {
+        Ok(self.1.lock().map_err(|error| Error::new("storage", error))?.clone())
+    }
+
+    pub fn stage(&self, request: Commit) -> Result<Preview, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        if preview.is_some() { return Err(Error::new("preview_busy", "Finish or cancel the current preview first.")); }
+        let current = self.read()?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before previewing a layout."))?;
+        if current.revision != request.expected_revision { return Err(Error::new("conflict", "The saved layout changed. Reload it before previewing your draft.")); }
+        document::validate(&request.config).map_err(|error| Error::new("validation", error))?;
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
+        let candidate = Preview { id: bytes.iter().map(|byte| format!("{byte:02x}")).collect(), base_revision: current.revision, config: request.config };
+        *preview = Some(candidate.clone());
+        Ok(candidate)
+    }
+
+    pub fn keep(&self, id: &str) -> Result<Document, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let candidate = preview.as_ref().filter(|preview| preview.id == id).ok_or_else(|| Error::new("preview_mismatch", "This preview is no longer active. Preview your draft again."))?.clone();
+        let document = self.change(candidate.base_revision, |_| Ok(candidate.config))?;
+        *preview = None;
+        Ok(document)
+    }
+
+    pub fn cancel(&self, id: &str) -> Result<(), Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        if preview.as_ref().is_some_and(|preview| preview.id != id) {
+            return Err(Error::new("preview_mismatch", "This preview is no longer active."));
+        }
+        *preview = None;
+        Ok(())
+    }
+
+    pub fn clear_preview(&self) {
+        if let Ok(mut preview) = self.1.lock() { *preview = None; }
     }
 }
 
 pub fn publish(app: &tauri::AppHandle, document: &Document) {
     let _ = crate::remote::server::sync_customization(app, document);
     let _ = app.emit_to("main", "customization-changed", document);
+    publish_preview(app);
+}
+
+fn publish_preview(app: &tauri::AppHandle) {
+    if let Ok(preview) = app.state::<Store>().preview() {
+        let _ = app.emit_to("main", "customization-preview-changed", preview);
+    }
+}
+
+#[tauri::command]
+pub async fn customization_preview_read(app: tauri::AppHandle) -> Result<Option<Preview>, Error> {
+    app.state::<Store>().preview()
+}
+
+#[tauri::command]
+pub async fn customization_preview(app: tauri::AppHandle, request: Commit) -> Result<Preview, Error> {
+    if !app.get_webview_window("main").is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)) {
+        return Err(Error::new("launcher_unavailable", "Open Luma before previewing a layout."));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview = app.state::<Store>().stage(request)?;
+        let visible = app.get_webview_window("main").is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true));
+        if !visible || app.emit_to("main", "customization-preview-changed", Some(&preview)).is_err() {
+            let _ = app.state::<Store>().cancel(&preview.id);
+            return Err(Error::new("launcher_unavailable", "Luma closed before the preview could open."));
+        }
+        Ok(preview)
+    }).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_preview_keep(app: tauri::AppHandle, request: PreviewAction) -> Result<Document, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = app.state::<Store>().keep(&request.preview_id)?;
+        publish(&app, &document);
+        Ok(document)
+    }).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_preview_cancel(app: tauri::AppHandle, request: PreviewAction) -> Result<(), Error> {
+    app.state::<Store>().cancel(&request.preview_id)?;
+    publish_preview(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn customization_restore(app: tauri::AppHandle, expected_revision: u64) -> Result<Document, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = app.state::<Store>().restore(expected_revision)?;
+        publish(&app, &document);
+        Ok(document)
+    }).await.map_err(|error| Error::new("storage", error))?
 }
 
 #[tauri::command]
@@ -262,15 +376,93 @@ mod tests {
 
     #[test]
     fn unavailable_storage_reports_errors_without_using_temporary_defaults() {
-        let store = Store(Err("Cannot open customization database".into()));
+        let store = Store(Err("Cannot open customization database".into()), Mutex::new(None));
         assert_eq!(store.read().unwrap_err().code, "storage");
         assert_eq!(store.initialize(Config::default()).unwrap_err().code, "storage");
         assert_eq!(store.commit(Commit { expected_revision: 1, config: Config::default() }).unwrap_err().code, "storage");
     }
 
+    #[test]
+    fn preview_is_temporary_and_keep_saves_the_exact_candidate_with_undo() {
+        let store = store();
+        let original = store.initialize(Config::default()).unwrap();
+        let mut candidate = original.config.clone();
+        candidate.home_columns = 2;
+        candidate.home[1].span = 1;
+        let preview = store.stage(Commit { expected_revision: 1, config: candidate.clone() }).unwrap();
+        assert_eq!(store.read().unwrap().unwrap(), original);
+        assert_eq!(store.preview().unwrap().unwrap().config, candidate);
+        let kept = store.keep(&preview.id).unwrap();
+        assert_eq!(kept.revision, 2);
+        assert_eq!(kept.config, candidate);
+        assert!(store.preview().unwrap().is_none());
+        assert_eq!(store.restore(2).unwrap().config, original.config);
+    }
+
+    #[test]
+    fn cancel_and_closing_the_launcher_preserve_committed_preferences() {
+        let store = store();
+        let original = store.initialize(Config::default()).unwrap();
+        let mut candidate = original.config.clone();
+        candidate.home.reverse();
+        let first = store.stage(Commit { expected_revision: 1, config: candidate.clone() }).unwrap();
+        assert_eq!(store.stage(Commit { expected_revision: 1, config: candidate.clone() }).unwrap_err().code, "preview_busy");
+        store.cancel(&first.id).unwrap();
+        let second = store.stage(Commit { expected_revision: 1, config: candidate }).unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(store.keep(&first.id).unwrap_err().code, "preview_mismatch");
+        assert_eq!(store.cancel(&first.id).unwrap_err().code, "preview_mismatch");
+        assert_eq!(store.preview().unwrap().unwrap().id, second.id);
+        store.clear_preview();
+        assert!(store.preview().unwrap().is_none());
+        assert_eq!(store.read().unwrap().unwrap(), original);
+    }
+
+    #[test]
+    fn another_writer_invalidates_preview_and_stale_keep_cannot_overwrite_it() {
+        let store = store();
+        store.initialize(Config::default()).unwrap();
+        let mut candidate = Config::default();
+        candidate.home_columns = 2;
+        let preview = store.stage(Commit { expected_revision: 1, config: candidate }).unwrap();
+        let changed = store.edit(|config| config.theme = "onyx".into()).unwrap();
+        assert!(store.preview().unwrap().is_none());
+        assert_eq!(store.keep(&preview.id).unwrap_err().code, "preview_mismatch");
+        assert_eq!(store.read().unwrap().unwrap(), changed);
+        assert_eq!(store.stage(Commit { expected_revision: 1, config: Config::default() }).unwrap_err().code, "conflict");
+    }
+
+    #[test]
+    fn a_failed_keep_retains_the_reviewed_candidate_for_retry() {
+        let store = store();
+        let original = store.initialize(Config::default()).unwrap();
+        let mut candidate = original.config.clone();
+        candidate.home_columns = 2;
+        let preview = store.stage(Commit { expected_revision: 1, config: candidate.clone() }).unwrap();
+        store.connection().unwrap().execute_batch("CREATE TRIGGER reject_keep BEFORE UPDATE ON customization BEGIN SELECT RAISE(ABORT, 'disk full'); END;").unwrap();
+        assert_eq!(store.keep(&preview.id).unwrap_err().code, "storage");
+        assert_eq!(store.read().unwrap().unwrap(), original);
+        assert_eq!(store.preview().unwrap().unwrap().id, preview.id);
+        store.connection().unwrap().execute_batch("DROP TRIGGER reject_keep;").unwrap();
+        assert_eq!(store.keep(&preview.id).unwrap().config, candidate);
+    }
+
+    #[test]
+    fn invalid_candidates_never_enter_preview() {
+        let store = store();
+        let original = store.initialize(Config::default()).unwrap();
+        let mut candidate = original.config.clone();
+        candidate.home[1].span = 3;
+        assert_eq!(store.stage(Commit { expected_revision: 1, config: candidate }).unwrap_err().code, "validation");
+        assert!(store.preview().unwrap().is_none());
+        assert_eq!(store.read().unwrap().unwrap(), original);
+    }
+
     fn legacy(revision: u64, config: Config) -> String {
         let mut raw = serde_json::to_value(Document { version: 1, revision, config }).unwrap();
-        for row in raw["config"]["home"].as_array_mut().unwrap() { row.as_object_mut().unwrap().remove("component"); }
+        let raw_config = raw["config"].as_object_mut().unwrap();
+        for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] { raw_config.remove(field); }
+        for row in raw_config["home"].as_array_mut().unwrap() { row.as_object_mut().unwrap().remove("component"); row.as_object_mut().unwrap().remove("span"); }
         serde_json::to_string(&raw).unwrap()
     }
 
@@ -287,16 +479,44 @@ mod tests {
             connection.execute("INSERT INTO customization (id, document, previous) VALUES (1, ?1, ?2)", params![raw, previous]).unwrap();
             Store::migrate(&mut connection).unwrap();
             let persisted: String = connection.query_row("SELECT document FROM customization", [], |row| row.get(0)).unwrap();
-            assert_eq!(serde_json::from_str::<Document>(&persisted).unwrap().version, 2);
+            assert_eq!(serde_json::from_str::<Document>(&persisted).unwrap().version, 3);
             Store::migrate(&mut connection).unwrap();
         }
         let migrated = store.read().unwrap().unwrap();
         assert_eq!(migrated.revision, 5);
         assert_eq!(migrated.config, config);
         let restored = store.restore(5).unwrap();
-        assert_eq!(restored.version, 2);
+        assert_eq!(restored.version, 3);
         assert_eq!(restored.revision, 6);
         assert_eq!(restored.config, Config::default());
+    }
+
+    #[test]
+    fn stored_v2_migration_preserves_instance_identity_and_previous_configuration() {
+        let store = store();
+        let mut config = Config::default();
+        config.home[2].id = "personal-dock".into();
+        config.home.reverse();
+        config.home[0].visible = false;
+        let encode = |revision, config| {
+            let mut value = serde_json::to_value(Document { version: 2, revision, config }).unwrap();
+            let value_config = value["config"].as_object_mut().unwrap();
+            for field in ["homeColumns", "textSize", "reducedMotion", "interfaceSounds", "soundLevel"] { value_config.remove(field); }
+            for row in value_config["home"].as_array_mut().unwrap() {
+                row.as_object_mut().unwrap().remove("span");
+            }
+            value.to_string()
+        };
+        {
+            let mut connection = store.connection().unwrap();
+            connection.execute("INSERT INTO customization (id, document, previous) VALUES (1, ?1, ?2)", params![encode(8, config.clone()), encode(7, Config::default())]).unwrap();
+            Store::migrate(&mut connection).unwrap();
+        }
+        let migrated = store.read().unwrap().unwrap();
+        assert_eq!(migrated.version, 3);
+        assert_eq!(migrated.revision, 8);
+        assert_eq!(migrated.config, config);
+        assert_eq!(store.restore(8).unwrap().config, Config::default());
     }
 
     #[test]

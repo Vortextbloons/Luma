@@ -4,9 +4,12 @@
   let { native, autoConnect = false, pairingOnly = false }: { native: boolean; autoConnect?: boolean; pairingOnly?: boolean } = $props();
   type Status = { enabled: boolean; paired: boolean; addresses: string[]; pcName: string; code: string | null; phonePaired: boolean; phoneUrl: string; phoneCode: string | null };
   type Device = 'phone' | 'frame';
+  type RemoteDevice = 'display' | 'phone';
   let status = $state<Status | null>(null);
   let busy = $state(false);
   let error = $state('');
+  let note = $state('');
+  let confirming = $state<RemoteDevice | 'all' | null>(null);
   let device = $state<Device>('phone');
   let connecting = $state(false);
   let qr = $state('');
@@ -31,6 +34,8 @@
     device = selected;
     busy = true;
     error = '';
+    note = '';
+    confirming = null;
     qr = '';
     try {
       if (!status?.enabled) status = await invoke<Status>('configure_frame', { enabled: true });
@@ -57,8 +62,36 @@
     catch (reason) { error = String(reason); }
     finally { busy = false; }
   }
+  async function forgetDevice(kind: RemoteDevice) {
+    if (confirming !== kind) {
+      confirming = kind;
+      note = `Choose Forget ${kind === 'display' ? 'Display Box' : 'web remote'} again to confirm. The other device stays paired.`;
+      return;
+    }
+    await run('forget_device', { kind });
+    if (!error) {
+      confirming = null;
+      note = kind === 'display'
+        ? 'Display Box forgotten. Pair it again with a new code.'
+        : 'Web remote forgotten. Every paired browser will need a new code.';
+    }
+  }
+  async function forgetAll() {
+    if (confirming !== 'all') {
+      confirming = 'all';
+      note = 'Choose Forget all remotes again to confirm. Your preferences and accounts are not changed.';
+      return;
+    }
+    await run('forget_remotes');
+    if (!error) {
+      confirming = null;
+      note = 'All paired remotes forgotten. Pair a phone or Display Box again when you need one.';
+    }
+  }
   async function toggleRemote(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
+    note = '';
+    confirming = null;
     await run('configure_frame', { enabled: input.checked });
     if (status?.enabled !== input.checked) input.checked = Boolean(status?.enabled);
   }
@@ -106,6 +139,21 @@
       <span class="setting-toggle-copy"><span>Allow remote control</span><small>Paired devices can control Luma while it is running.</small></span>
       <input type="checkbox" checked={status.enabled} disabled={busy} onchange={toggleRemote} />
     </label>
+    {#if status.enabled}
+      <div class="settings-device-list" aria-label="Connected devices">
+        <div class="settings-device">
+          <div class="settings-device-copy"><strong>Display Box</strong><span>{status.paired ? 'Paired frame on this PC.' : 'No Display Box is paired.'}</span></div>
+          <span class={status.paired ? 'settings-badge is-good' : 'settings-badge is-muted'}>{status.paired ? 'Paired' : 'Not paired'}</span>
+          {#if status.paired}<button class="text-link is-danger" disabled={busy} onclick={() => forgetDevice('display')}>{confirming === 'display' ? 'Confirm forget Display Box' : 'Forget Display Box'}</button>{/if}
+        </div>
+        <div class="settings-device">
+          <div class="settings-device-copy"><strong>Web remote</strong><span>{status.phonePaired ? 'Paired browsers can control Luma.' : 'No web remote is paired.'}</span></div>
+          <span class={status.phonePaired ? 'settings-badge is-good' : 'settings-badge is-muted'}>{status.phonePaired ? 'Paired' : 'Not paired'}</span>
+          {#if status.phonePaired}<button class="text-link is-danger" disabled={busy} onclick={() => forgetDevice('phone')}>{confirming === 'phone' ? 'Confirm forget web remote' : 'Forget web remote'}</button>{/if}
+        </div>
+      </div>
+      {#if note}<p class="panel-description" role="status">{note}</p>{/if}
+    {/if}
     {/if}
     {#if status.enabled && connecting}
       <div class="remote-choice" role="group" aria-label="Choose a device">
@@ -172,8 +220,8 @@
       <button class="panel-secondary" disabled={busy} onclick={() => connect()}>Connect a remote</button>
     {/if}
     {#if !pairingOnly && (status.paired || status.phonePaired)}
-      <button class="panel-secondary" disabled={busy} onclick={() => run('forget_remotes')}>Forget paired remotes</button>
-      <p class="remote-note">Paired browsers and Display Boxes will need a new code.</p>
+      <button class="panel-secondary" disabled={busy} onclick={forgetAll}>{confirming === 'all' ? 'Confirm forget all remotes' : 'Forget all remotes'}</button>
+      <p class="remote-note">Paired browsers and Display Boxes will need a new code. Your preferences and accounts are not changed.</p>
     {/if}
   {:else if busy}<p class="remote-note" role="status">Preparing your connection?</p>
   {:else if native}<button class="panel-secondary" disabled={busy} onclick={() => connect()}>Try again</button>
@@ -186,6 +234,11 @@
   .pairing-only .remote-qr { float: right; width: min(210px, 36%); margin: 0 0 18px 24px; }
   .pairing-only .frame-code { margin: 0 0 20px; padding: 0; border: 0; }
   .remote-qr { display: block; width: min(240px, 100%); aspect-ratio: 1; margin: 0 0 18px; border: 12px solid white; border-radius: 12px; background: white; }
+  .settings-device-list { display: grid; gap: 8px; margin: 16px 0; }
+  .settings-device { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: #ffffff05; }
+  .settings-device-copy { display: grid; gap: 3px; min-width: 0; }
+  .settings-device-copy strong { color: var(--text); font-size: clamp(13px, .9vw, 16px); }
+  .settings-device-copy span { color: var(--muted); font-size: clamp(12px, .8vw, 14px); line-height: 1.45; }
   .remote-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
   .remote-choice button { display: grid; gap: 5px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 13px; background: #ffffff04; color: var(--text-dim); text-align: left; }
   .remote-choice button:hover { background: #ffffff09; border-color: #ffffff22; }

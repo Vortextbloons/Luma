@@ -1,6 +1,6 @@
 # Local customization server foundation
 
-Implemented: versioned native ownership of Home/appearance preferences, a registry-driven equivalent Home renderer, and a local REST API. MCP, general layout containers, preview/Keep, plugin loading, and AI chat remain future work. See [the roadmap](CUSTOMIZATION-ROADMAP.md).
+Implemented: native Home/appearance ownership, registered Home sections, one/two-column layouts, recoverable preview/Keep, and a local REST API. MCP, nested containers, plugin loading, and AI chat remain future work. See [the roadmap](CUSTOMIZATION-ROADMAP.md).
 
 ## Enable locally
 
@@ -23,7 +23,7 @@ Open the updated launcher once before writing. It imports its normalized existin
 
 ## API
 
-Every route requires `Authorization: Bearer <token>` and the exact host `127.0.0.1:9878`; use that IP rather than `localhost`. Requests containing Origin are rejected. There is no CORS/browser UI. Request bodies are limited to 32 KiB. A token holder can commit supported changes directly; preview/Keep is not implemented in this slice.
+Every route requires `Authorization: Bearer <token>` and exact host `127.0.0.1:9878`. Requests containing Origin are rejected. There is no CORS/browser UI. Bodies are limited to 32 KiB. Token holders have full supported configuration write authority, including direct commit and Keep; the token is not a review-only grant.
 
 | Method | Route | Body | Result |
 | --- | --- | --- | --- |
@@ -31,12 +31,16 @@ Every route requires `Authorization: Bearer <token>` and the exact host `127.0.0
 | POST | `/v1/validate` | Configuration object | `{ "valid": true }` or validation error; no write |
 | PUT | `/v1/config` | `{ "expectedRevision": number, "config": configuration }` | Committed document |
 | POST | `/v1/restore` | `{ "expectedRevision": number }` | Previous configuration committed as a new revision |
+| GET | `/v1/preview` | None | Active candidate or `null` |
+| POST | `/v1/preview` | `{ "expectedRevision": number, "config": configuration }` | `{ "id": string, "baseRevision": number, "config": configuration }` |
+| POST | `/v1/preview/keep` | `{ "previewId": string }` | Committed document |
+| POST | `/v1/preview/cancel` | `{ "previewId": string }` | `{ "cancelled": true }` |
 
-A document now has `version: 2`, a positive `revision`, and `config`. Config contains `theme`, `density`, `appTileShape`, `home`, `widgets`, and `order`. Read the current document and modify its configuration: commits replace the complete supported configuration, not a partial patch. Unknown fields/values are rejected. Home must contain all seven built-in component kinds exactly once; app order must contain all twelve apps once with Custom last. Hidden rows retain their position.
+A document has `version: 3`, positive `revision`, and `config`. Config contains `theme`, `density`, `appTileShape`, `textSize`, `reducedMotion`, `interfaceSounds`, `soundLevel`, `home`, `homeColumns`, `widgets`, and `order`. Older v3 documents that predate the reading and sound fields load with `standard`, `false`, `real`, and `standard` respectively. Writes replace the complete configuration. Unknown fields/values are rejected. All seven Home kinds must occur exactly once; all twelve apps occur once with Custom last. Hidden rows retain their position. `homeColumns` and each row's required `span` accept only 1 or 2. In two columns, span 1 uses half the grid and span 2 uses both columns. The leading hero stays full width. Below 1000 px, sections stack in order.
 
-Each Home row is `{ "id": "personal-dock", "component": "apps", "visible": true }`: `id` identifies the instance and `component` selects the registered built-in rendering. Instance IDs must be unique and contain 1–64 ASCII letters, digits, underscores, or hyphens. Component kinds are `hero`, `continue`, `apps`, `popular`, `featured`, `recent`, and `recentApps`. Renaming an instance does not change its kind or label. Existing rows migrate with the old ID as both fields. This milestone supports ordering/hiding these singleton sections; it does not allow arbitrary additional components or nested containers.
+Each Home row is `{ "id": "personal-dock", "component": "apps", "visible": true, "span": 1 }`. IDs identify instances, must be unique, and contain 1?64 ASCII letters, digits, underscores, or hyphens. Components are `hero`, `continue`, `apps`, `popular`, `featured`, `recent`, and `recentApps`. Renaming an instance preserves its kind and label. Ordering, hiding, and sizing these singleton sections are supported; extra components and nesting are not.
 
-At startup, existing v1 current and previous documents are validated and upgraded together in one transaction. Revisions are preserved and restore continues to work. Incompatible/corrupt documents prevent a partial migration rather than being replaced with defaults. API writes require the v2 configuration shape after upgrade; read before editing instead of replaying an old v1 payload.
+At startup, v1/v2 current and previous documents are validated and upgraded together in one transaction. Older layouts gain one column and full-width spans. Revisions and restore are preserved. Incompatible/corrupt documents prevent partial migration and are not replaced with defaults. API writes require the v3 shape; read before editing instead of replaying old payloads.
 
 Revisions increase only for actual changes. A stale expected revision conflicts even when the proposed configuration is valid. Restore commits the previous configuration with a new revision and retains the replaced configuration, allowing one-step reversal. It is not a history browser.
 
@@ -63,9 +67,17 @@ Manual controls, remote edits to migrated fields, and server writes share this s
 
 LocalStorage remains a legacy mirror for rollback and unrelated settings. The native document is authoritative once created. Unsupported versions and invalid documents are rejected rather than overwritten with defaults. Database-open failures leave customization unavailable while Luma can still launch and report the storage error. Automatic repair and a corruption-recovery UI are not implemented. Back up the database before manual repair.
 
-Save errors use Luma's existing message feedback. Revision conflicts load the latest committed configuration instead of silently overwriting another writer. Other write failures retain edited controls and do not retry in a loop; another edit can trigger a new save. A full draft/review UI is deferred.
+Home layout controls in desktop Settings edit a draft. Choose columns and widths, move/hide sections, then Preview and Keep layout. Back to editor retains the draft. Reload saved layout discards draft changes; default layout prepares a draft for review. Restore previous saved customization immediately restores all supported configuration fields as a new revision, including appearance and app order. Other preference controls keep autosaving.
+
+Only one native preview can exist. Starting one requires a visible, non-minimized main launcher. Preview writes neither SQLite nor committed localStorage. Keep uses the exact candidate ID and base revision; failed persistence retains it for retry. Any committed write invalidates it. Explicit cancel, main-window destruction, or process exit discards it. HTTP disconnection alone leaves it active because this API has no client sessions; cancel explicitly when abandoning an edit. A stale ID cannot keep or cancel another candidate. Core navigation and Settings remain outside the configurable sections, including when every section is hidden.
+
+Save errors use existing feedback; preview errors also appear next to recovery actions. Revision conflicts load the latest committed configuration. Other failures retain input without retry loops. `preview_busy`, `preview_mismatch`, and `launcher_unavailable` use HTTP 409.
 
 ## Verification
+
+Phase 3 checkpoint (2026-11-15): 34 focused Home/renderer/navigation/customization Node tests and 40 native customization tests passed. Production build passed. Official Svelte component analysis reported no issues; suggestions concerning existing effect side effects, class syntax, and temporary Sets were reviewed without unrelated changes. `git diff --check` reported no whitespace errors.
+
+Full-check results are not clean in this shared checkout: the concurrent phone-remote rewrite has frontend type/markup diagnostics, Node phone tests expecting its previous inline implementation, and a native phone-page assertion expecting the previous markup. The full native run at the checkpoint had 105 passing tests and that one phone-page failure. These failures do not replace the pending live desktop/TV/phone acceptance gate below.
 
 Frontend type checking and production build passed. Focused Node tests cover hydration, duplicate/stale events, serialized edits, conflicts, failed writes, and teardown, alongside existing Home/navigation tests. Native tests cover validation, migration idempotence, failed writes, stale revisions, restore, unsupported-version preservation, and file-backed reopening. HTTP tests run the real access middleware on loopback and verify authentication, host/origin checks, and denial before handler execution.
 

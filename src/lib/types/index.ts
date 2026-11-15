@@ -4,10 +4,11 @@ export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 
 export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite' | 'onyx';
 export type SoundPreset = 'real' | 'google' | 'roku' | 'off';
 export type SoundLevel = 'soft' | 'standard' | 'loud';
+export type TextSize = 'standard' | 'large' | 'larger';
 export type HomeRowId = 'hero' | 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
 export type WidgetId = 'spotify';
 export type WidgetPlacement = 'bar' | 'top-right' | 'bottom-right' | 'bottom-left';
-export interface HomeRow { id: string; component: HomeRowId; visible: boolean; }
+export interface HomeRow { id: string; component: HomeRowId; visible: boolean; span: 1 | 2; }
 export interface WidgetConfig { enabled: boolean; placement: WidgetPlacement; }
 export interface Settings {
   theme: ThemeId;
@@ -18,7 +19,10 @@ export interface Settings {
   fastAppSwitch: boolean;
   interfaceSounds: SoundPreset;
   soundLevel: SoundLevel;
+  textSize: TextSize;
+  reducedMotion: boolean;
   home: HomeRow[];
+  homeColumns: 1 | 2;
   widgets: Record<WidgetId, WidgetConfig>;
   paths: Record<ExecutableAppId, string>;
   order: AppId[];

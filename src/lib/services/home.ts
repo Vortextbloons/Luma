@@ -17,12 +17,12 @@ const defaultVisible: Record<HomeRowId, boolean> = {
 };
 
 export function defaultHomeRows(): HomeRow[] {
-  return homeRowIds.map(id => ({ id, component: id, visible: defaultVisible[id] }));
+  return homeRowIds.map(id => ({ id, component: id, span: 2, visible: defaultVisible[id] }));
 }
 
 export function legacyHomeRows(sections: unknown): HomeRow[] {
   const values = sections && typeof sections === 'object' ? sections as Partial<Record<HomeRowId, unknown>> : {};
-  return homeRowIds.map(id => ({ id, component: id, visible: typeof values[id] === 'boolean' ? values[id] : defaultVisible[id] }));
+  return homeRowIds.map(id => ({ id, component: id, span: 2, visible: typeof values[id] === 'boolean' ? values[id] : defaultVisible[id] }));
 }
 
 export function sanitizeHomeRows(value: unknown): HomeRow[] | null {
@@ -37,18 +37,18 @@ export function sanitizeHomeRows(value: unknown): HomeRow[] | null {
     if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || typeof component !== 'string' || !homeRowIds.includes(component as HomeRowId) || seen.has(component as HomeRowId) || instances.has(id)) continue;
     seen.add(component as HomeRowId);
     instances.add(id);
-    rows.push({ id, component: component as HomeRowId, visible: (entry as { visible?: unknown }).visible !== false });
+    rows.push({ id, component: component as HomeRowId, span: (entry as { span?: unknown }).span === 1 ? 1 : 2, visible: (entry as { visible?: unknown }).visible !== false });
   }
   if (!rows.length) return null;
   if (!seen.has('hero')) {
     const id = unusedInstance('hero', instances);
-    rows.unshift({ id, component: 'hero', visible: true });
+    rows.unshift({ id, component: 'hero', span: 2, visible: true });
     instances.add(id);
     seen.add('hero');
   }
   for (const component of homeRowIds) if (component !== 'hero' && !seen.has(component)) {
     const id = unusedInstance(component, instances);
-    rows.push({ id, component, visible: defaultVisible[component] });
+    rows.push({ id, component, span: 2, visible: defaultVisible[component] });
     instances.add(id);
   }
   return rows;

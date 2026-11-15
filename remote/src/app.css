@@ -1,0 +1,166 @@
+@import "tailwindcss" source(none);
+@source "./**/*.svelte";
+@source "./**/*.ts";
+
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-canvas-soft: var(--bg-soft);
+  --color-ambient: var(--ambient);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--text);
+  --color-ink-dim: var(--text-dim);
+  --color-muted: var(--muted);
+  --color-faint: var(--dim);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-rating: var(--rating);
+  --font-sans: 'DM Sans', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --ease-remote: cubic-bezier(.22, .8, .24, 1);
+  --radius-remote: 18px;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #07090f;
+  --bg-soft: #0b0e16;
+  --ambient: #28223a;
+  --surface: #121621;
+  --surface-2: #0d111a;
+  --surface-3: #1a2030;
+  --line: #ffffff14;
+  --line-strong: #ffffff26;
+  --text: #f5f3fa;
+  --text-dim: #d6d8e3;
+  --muted: #a4a8b8;
+  --dim: #7f8496;
+  --accent: #a79bff;
+  --accent-strong: #c5bcff;
+  --accent-ink: #14111c;
+  --accent-soft: #a79bff2e;
+  --good: #8be0b0;
+  --warn: #f0c98c;
+  --danger: #ffb2a8;
+  --rating: #f4d58e;
+  --pad: clamp(190px, min(88vw, 46dvh), 380px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse at 85% 0%, color-mix(in srgb, var(--ambient) 34%, transparent), transparent 52%),
+    radial-gradient(ellipse at 8% 94%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 46%),
+    linear-gradient(158deg, var(--surface-2), var(--bg) 62%);
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: contain;
+}
+
+@layer base {
+  button,
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+dialog[data-modal] {
+  color: var(--text);
+}
+
+dialog[data-modal]::backdrop {
+  background: rgba(4, 5, 8, .68);
+  backdrop-filter: blur(3px);
+  animation: fade-in .2s ease;
+}
+
+.remote-sheet[open] {
+  animation: sheet-in .26s var(--ease-remote);
+}
+
+.screen-enter {
+  animation: screen-in .28s var(--ease-remote);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(14px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: .45; }
+  50% { opacity: .9; }
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

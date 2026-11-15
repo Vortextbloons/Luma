@@ -17,10 +17,13 @@ function defaultSettings(): Settings {
     appTileShape: 'wide',
     homeShortcut: 'Ctrl+W',
     fullscreen: false,
-    fastAppSwitch: false,
+    fastAppSwitch: true,
     interfaceSounds: 'real',
     soundLevel: 'standard',
+    textSize: 'standard',
+    reducedMotion: false,
     home: defaultHomeRows(),
+    homeColumns: 1,
     widgets: { spotify: { enabled: true, placement: 'bar' } },
     paths: { Steam: '', Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
     order: [...appOrder],
@@ -41,10 +44,13 @@ export function createSettings() {
         value.homeShortcut = data.homeShortcut === 'Ctrl+H' && data.shortcutVersion !== 1 ? 'Ctrl+W' : data.homeShortcut;
       }
       value.fullscreen = data.fullscreen === true;
-      value.fastAppSwitch = data.fastAppSwitch === true;
+      if (typeof data.fastAppSwitch === 'boolean') value.fastAppSwitch = data.fastAppSwitch;
       if (data.interfaceSounds === 'google' || data.interfaceSounds === 'roku' || data.interfaceSounds === 'off') value.interfaceSounds = data.interfaceSounds;
       if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
+      if (data.textSize === 'large' || data.textSize === 'larger') value.textSize = data.textSize;
+      value.reducedMotion = data.reducedMotion === true;
       value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);
+      if (data.homeColumns === 2) value.homeColumns = 2;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) value.order = normalizeAppOrder(data.order, true);
       const spotify = data.widgets?.spotify;

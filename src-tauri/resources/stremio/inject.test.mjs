@@ -17,13 +17,14 @@ async function boot({ linked = account, current = null, managed = false, outcome
   window.top = window;
   const document = {
     readyState: 'loading',
+    querySelectorAll: () => [],
     addEventListener() {},
     getElementById: id => nodes.get(id),
     documentElement: { append: node => nodes.set(node.id, node) },
     createElement: () => ({ setAttribute() {}, style: {}, remove() { nodes.delete(this.id); } }),
   };
   vm.runInNewContext(source.replace('__LUMA_STREMIO_SESSION__', JSON.stringify({ account: linked, target: location.hash })), {
-    window, location, document, queueMicrotask,
+    window, location, document, queueMicrotask, getComputedStyle: () => ({ visibility: 'visible' }),
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     setTimeout: (fn, delay) => { const id = timers.size + 1; timers.set(id, { fn, delay }); return id; },
     clearTimeout: id => timers.delete(id),
@@ -40,7 +41,7 @@ async function boot({ linked = account, current = null, managed = false, outcome
   };
   window.onCoreEvent = event => events.push(event);
   await new Promise(resolve => setImmediate(resolve));
-  return { nodes, storage, timers, calls, events, location, window };
+  return { nodes, storage, timers, calls, events, location, window, document };
 }
 
 test('linked account authenticates through Stremio and restores the requested title', async () => {
@@ -101,4 +102,70 @@ test('reopening after embedded sign-out signs in again and keeps the latest titl
   assert.deepEqual(state.calls.map(call => call.args.action), ['Logout', 'Authenticate']);
   for (const timer of state.timers.values()) timer.fn();
   assert.equal(state.location.hash, '#/detail/series/tt456');
+});
+
+function tile(document, x, y, href) {
+  const attributes = new Map([['href', href]]);
+  return {
+    tagName: 'A', disabled: false,
+    getAttribute: name => attributes.get(name) ?? null,
+    setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: name => attributes.delete(name),
+    closest: () => null,
+    getBoundingClientRect: () => ({ left: x, top: y, right: x + 100, bottom: y + 100, width: 100, height: 100 }),
+    focus() { document.activeElement = this; },
+    scrollIntoView(options) { this.scroll = options; },
+    click() { this.clicked = true; },
+  };
+}
+
+test('remote selects posters geometrically without forwarding arrow keys or scrolling the page', async () => {
+  const { window, document } = await boot({ current: account.userId });
+  const first = tile(document, 0, 0, '#/first');
+  const right = tile(document, 120, 0, '#/right');
+  const below = tile(document, 0, 120, '#/below');
+  document.querySelectorAll = selector => selector.startsWith('a[href]') ? [first, right, below] : [];
+  window.__lumaNavigate('right');
+  assert.equal(document.activeElement, first);
+  window.__lumaNavigate('right');
+  assert.equal(document.activeElement, right);
+  assert.equal(first.getAttribute('data-luma-selected'), null);
+  assert.equal(right.getAttribute('data-luma-selected'), '');
+  assert.equal(right.scroll.block, 'nearest');
+  window.__lumaNavigate('right');
+  assert.equal(document.activeElement, right);
+  window.__lumaNavigate('activate');
+  assert.equal(right.clicked, true);
+  window.__lumaNavigate('down');
+  assert.equal(document.activeElement, below);
+});
+
+test('playback arrows seek with bounds and OK toggles playback', async () => {
+  const { window, document } = await boot({ current: account.userId });
+  const video = { duration: 100, currentTime: 95, paused: false, getBoundingClientRect: () => ({ width: 1920 }), pause() { this.paused = true; } };
+  document.querySelectorAll = selector => selector === 'video' ? [video] : [];
+  window.__lumaNavigate('right');
+  assert.equal(video.currentTime, 100);
+  video.currentTime = 5;
+  window.__lumaNavigate('left');
+  assert.equal(video.currentTime, 0);
+  window.__lumaNavigate('activate');
+  assert.equal(video.paused, true);
+});
+
+test('an open dialog confines selection and activation to its controls', async () => {
+  const { window, document } = await boot({ current: account.userId });
+  const background = tile(document, 0, 0, '#/background');
+  const control = tile(document, 120, 120, null);
+  const modal = {
+    getBoundingClientRect: () => ({ width: 500 }),
+    querySelectorAll: () => [control],
+  };
+  document.activeElement = background;
+  document.querySelectorAll = selector => selector.startsWith('[role="dialog"]') ? [modal] : selector.startsWith('a[href]') ? [background, control] : [];
+  window.__lumaNavigate('right');
+  assert.equal(document.activeElement, control);
+  window.__lumaNavigate('activate');
+  assert.equal(control.clicked, true);
+  assert.equal(background.clicked, undefined);
 });

@@ -28,6 +28,7 @@ registerHooks({
 const { default: HomeRenderer } = await import('../components/HomeRenderer.svelte');
 const { default: HomePreview } = await import('../components/HomePreview.svelte');
 const { default: HomeLayoutSettings } = await import('../components/HomeLayoutSettings.svelte');
+const { default: LayoutReview } = await import('../components/LayoutReview.svelte');
 
 function fixture() {
   const data = {
@@ -70,6 +71,9 @@ test('app previews preserve their content and suppress general catalog sections'
   const html = render(HomeRenderer, { props }).body;
   assert.match(html, /Recommended video/);
   assert.doesNotMatch(html, /Popular movies|Top-rated movies/);
+  assert.doesNotMatch(html, /data-home-instance="popular"|data-home-instance="featured"/);
+  props.rows = moveHomeRowTo(props.rows, 'popular', 0);
+  assert.match(render(HomeRenderer, { props }).body, /is-inset/);
   props.data.previewApp = 'Stremio';
   props.data.youTubeFeed = [];
   assert.match(render(HomeRenderer, { props }).body, /Connect Stremio to continue watching/);
@@ -92,4 +96,28 @@ test('the editor and preview resolve renamed instances through component metadat
   assert.match(editor, /data-row="custom-apps"/);
   assert.match(editor, /aria-label="Move Your apps"/);
   assert.match(editor, /Show Featured hero on Home/);
+});
+
+test('two-column rendering and miniature preview preserve section widths and the leading hero', () => {
+  const props = fixture();
+  props.columns = 2;
+  props.rows.find(row => row.component === 'apps').span = 1;
+  const html = render(HomeRenderer, { props }).body;
+  assert.match(html, /class="resizing-content[^"]* columns"/);
+  assert.match(html, /data-home-instance="apps" data-span="1"/);
+  assert.match(html, /data-home-instance="popular" data-span="2"/);
+  assert.ok(html.indexOf('data-home-instance="hero"') < html.indexOf('resizing-content'));
+  const preview = render(HomePreview, { props: { rows: props.rows, columns: 2, popular: [], featured: [], activityItems: [], apps: [], widget: { enabled: false, placement: 'bar' } } }).body;
+  assert.match(preview, /grid-column: span 1;/);
+  assert.match(preview, /columns/);
+});
+
+test('preview recovery stays available while saving or when Keep fails', () => {
+  const html = render(LayoutReview, { props: { busy: false, editing: true, keep() {}, cancel() {}, error: 'Disk is full' } }).body;
+  assert.match(html, /Keep layout/);
+  assert.match(html, /Back to editor/);
+  assert.match(html, /role="alert"[^>]*>Disk is full/);
+  const busy = render(LayoutReview, { props: { busy: true, editing: false, keep() {}, cancel() {} } }).body;
+  assert.equal([...busy.matchAll(/<button[^>]*disabled/g)].length, 2);
+  assert.match(busy, /Cancel preview/);
 });

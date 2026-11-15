@@ -4,7 +4,7 @@
   import ProviderIcon from './ProviderIcon.svelte';
   import { openSetupLink } from '../../services/tauri';
 
-  let { activity, native }: { activity: ActivityState; native: boolean } = $props();
+  let { activity, native, view = 'all' }: { activity: ActivityState; native: boolean; view?: 'all' | 'accounts' | 'history' | 'clear' } = $props();
 
   type Form = { serverUrl: string; userId: string; clientId: string; token: string };
   const blank = (): Form => ({ serverUrl: '', userId: '', clientId: '', token: '' });
@@ -82,11 +82,12 @@
     await run('all', async () => {
       await activity.clear();
       confirming = false;
-      note = 'Watch history was cleared from this PC. Your connected services were not changed.';
+      note = 'Watch history was cleared from this PC. Your connected services and accounts were not changed.';
     });
   }
 </script>
 
+{#if view === 'all' || view === 'history'}
 <section class="settings-group">
   <div class="settings-group-head">
     <h3>Watch history</h3>
@@ -100,19 +101,65 @@
       <span class="setting-toggle-copy"><span>Remember what I watch and play</span><small>Adds titles you open and playback progress to history on this PC.</small></span>
       <input type="checkbox" checked={activity.trackingEnabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run('tracking', () => activity.setTracking(enabled)); }} />
     </label>
+  {/if}
+</section>
+{/if}
+
+{#if view === 'history'}
+<section class="settings-group">
+  <h3>Providers on Home</h3>
+  <p class="panel-description">Choose which connected services can add rows and cards to Home. Hidden services still keep their history and can be shown again at any time.</p>
+  {#if !native}
+    <p class="panel-description">Provider visibility is available in the desktop application.</p>
+  {:else}
+    <div class="provider-list">
+      {#each activity.providers as provider (provider.id)}
+        <article class="provider-row provider-row-compact">
+          <div class="provider-head">
+            <ProviderIcon provider={provider.id} />
+            <div class="provider-title"><strong>{provider.name}</strong><span>{provider.detail}</span></div>
+            <span class={`provider-state state-${provider.state}`}>{stateLabel[provider.state]}</span>
+          </div>
+          <label class="setting-toggle compact"><span>Show on Home</span><input type="checkbox" checked={!provider.hidden} disabled={busy !== ''} onchange={event => { const shown = event.currentTarget.checked; run(provider.id, () => activity.setHidden(provider.id, !shown)); }} /></label>
+        </article>
+      {/each}
+    </div>
+  {/if}
+</section>
+{/if}
+
+{#if view === 'all' || view === 'clear'}
+<section class="settings-group">
+  <h3>Clear history</h3>
+  <p class="panel-description">Removing history deletes it from Luma on this PC. It does not sign you out, disconnect a service, or change anything in your accounts.</p>
+  {#if !native}
+    <p class="panel-description">Clearing history is available in the desktop application.</p>
+  {:else}
     <div class="activity-danger">
       <button class="text-link is-danger" disabled={busy !== ''} onclick={clearAll}>{confirming ? 'Clear watch history now' : 'Clear watch history'}</button>
       {#if confirming}<button class="text-link" onclick={() => { confirming = false; note = ''; }}>Cancel</button>{/if}
     </div>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if note}<p class="panel-description" role="status">{note}</p>{/if}
+    {#if view === 'clear'}
+      <div class="provider-list clear-list">
+        {#each activity.providers as provider (provider.id)}
+          <article class="provider-row provider-row-compact">
+            <div class="provider-head">
+              <ProviderIcon provider={provider.id} />
+              <div class="provider-title"><strong>{provider.name}</strong><span>{provider.detail}</span></div>
+              <button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear {provider.name} history</button>
+            </div>
+          </article>
+        {/each}
+      </div>
+    {/if}
   {/if}
 </section>
+{/if}
 
-{#if native}
+{#if view === 'all' || view === 'accounts'}
 <section class="settings-group">
   <h3>Connected services</h3>
-  <p class="panel-description">Connect the services you use to see what you're watching in Luma. Each service is optional, and one that is offline will not stop the rest of Luma.</p>
+  <p class="panel-description">Connect the services you use to see what you're watching in Luma. Each service is optional, and one that is offline will not stop the rest of Luma. Visibility is under History &amp; Privacy.</p>
   <div class="provider-list">
     {#each activity.providers as provider (provider.id)}
       <article class="provider-row">
@@ -124,7 +171,9 @@
         <div class="provider-flags">
           <div class="provider-toggles">
             <label class="setting-toggle compact"><span>Use this service</span><input type="checkbox" checked={provider.enabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run(provider.id, () => activity.setEnabled(provider.id, enabled)); }} /></label>
-            <label class="setting-toggle compact"><span>Show on Home</span><input type="checkbox" checked={!provider.hidden} disabled={busy !== ''} onchange={event => { const shown = event.currentTarget.checked; run(provider.id, () => activity.setHidden(provider.id, !shown)); }} /></label>
+            {#if view === 'all'}
+              <label class="setting-toggle compact"><span>Show on Home</span><input type="checkbox" checked={!provider.hidden} disabled={busy !== ''} onchange={event => { const shown = event.currentTarget.checked; run(provider.id, () => activity.setHidden(provider.id, !shown)); }} /></label>
+            {/if}
           </div>
         </div>
         <details class="provider-advanced" open={provider.requiresConfig && !provider.configured}>
@@ -159,11 +208,11 @@
                 <div class="provider-actions">
                   <button class="panel-secondary" disabled={busy !== ''} onclick={() => save(provider)}>Save and connect</button>
                   {#if provider.configured}<button class="text-link" disabled={busy !== ''} onclick={() => refresh(provider)}>Check connection</button><button class="text-link" disabled={busy !== ''} onclick={() => run(provider.id, () => activity.disconnect(provider.id))}>Disconnect</button>{/if}
-                  <button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button>
+                  {#if view === 'all'}<button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button>{/if}
                 </div>
               </div>
             {:else}
-              <div class="provider-actions"><button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button></div>
+              {#if view === 'all'}<div class="provider-actions"><button class="text-link is-danger" disabled={busy !== ''} onclick={() => clearProvider(provider)}>Clear history</button></div>{/if}
             {/if}
             {#if provider.lastError}<p class="provider-advanced-note">{provider.lastError}</p>{/if}
           </div>
@@ -174,12 +223,16 @@
 </section>
 {/if}
 
+{#if error}<p class="error" role="alert">{error}</p>{/if}
+{#if note}<p class="panel-description" role="status">{note}</p>{/if}
+
 <style>
   .provider-steps { margin: 0; padding-left: 24px; color: var(--text-dim); font-size: clamp(14px, 1vw, 18px); line-height: 1.65; }
   .provider-steps li + li { margin-top: 8px; }
   .activity-danger { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; padding-top: 18px; border-top: 1px solid #ffffff0d; }
   .provider-list { display: grid; gap: 14px; }
   .provider-row { border: 1px solid #ffffff11; background: var(--surface-2); border-radius: 16px; padding: clamp(16px, 1.5vw, 24px); display: grid; gap: 14px; }
+  .provider-row-compact { gap: 10px; padding: 14px 16px; }
   .provider-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
   .provider-title { display: grid; gap: 4px; min-width: 0; }
   .provider-title strong { font-size: clamp(15px, 1vw, 18px); overflow-wrap: anywhere; }
@@ -204,4 +257,6 @@
   .provider-config .field { margin-top: 14px; }
   .provider-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
   .provider-actions .panel-secondary, .provider-actions .text-link { margin-top: 0; }
+  .clear-list { margin-top: 18px; }
+  .clear-list .provider-head { grid-template-columns: auto minmax(0, 1fr) auto; }
 </style>

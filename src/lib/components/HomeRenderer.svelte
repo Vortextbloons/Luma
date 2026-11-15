@@ -61,11 +61,16 @@
   import { appProviders } from '../services/activity';
   import { smoothHeight } from '../services/motion';
   import { preserveHomeFocus } from '../services/navigation';
-  let { rows, data, actions }: { rows: HomeRow[]; data: HomeData; actions: HomeActions } = $props();
+  let { rows, data, actions, columns = 1 }: { rows: HomeRow[]; data: HomeData; actions: HomeActions; columns?: 1 | 2 } = $props();
   const registry: Record<HomeRowId, Snippet<[boolean]>> = { hero, continue: continuing, apps, popular, featured, recent, recentApps };
   const visible = $derived(rows.filter(row => row.visible));
   const leading = $derived(visible[0]?.component === 'hero' ? visible[0] : null);
-  const content = $derived(leading ? visible.slice(1) : visible);
+  const content = $derived((leading ? visible.slice(1) : visible).filter(row => {
+    if (row.component === 'hero') return data.heroSlides.length > 0;
+    if (row.component === 'continue') return data.previewApp !== 'Steam' || data.steamGames.length > 0;
+    if (row.component === 'popular' || row.component === 'featured') return !data.previewApp;
+    return true;
+  }));
 </script>
 
 {#snippet hero(inset: boolean)}
@@ -122,14 +127,14 @@
 {/snippet}
 
 <div class="home-layout" {@attach preserveHomeFocus}>
-  {#if leading}
+  {#if leading && data.heroSlides.length}
     <div class="home-instance" data-home-instance={leading.id}>
       {@render registry[leading.component](false)}
     </div>
   {/if}
-  <div {@attach smoothHeight}><div class="resizing-content">
+  <div {@attach smoothHeight}><div class="resizing-content" class:columns={columns === 2}>
     {#each content as row (row.id)}
-      <div class="home-instance" data-home-instance={row.id}>
+      <div class="home-instance" data-home-instance={row.id} data-span={row.span}>
         {@render registry[row.component](true)}
       </div>
     {/each}
@@ -139,5 +144,15 @@
 <style>
   .home-layout, .home-instance { display: contents; }
   .resizing-content { display: flow-root; }
-  .home-instance:has(:global(.activity-row), :global(.steam-row)) + .home-instance :global(.apps-row) { margin-top: calc(6px - var(--row-gap)); }
+  .home-instance:has(> :global(.activity-row), > :global(.steam-row)) + .home-instance > :global(.apps-row) { margin-top: calc(6px - var(--row-gap)); }
+  @media (min-width: 1000px) {
+    .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--row-gap) var(--gap); padding-inline: var(--side); }
+    .columns > .home-instance { display: block; min-width: 0; }
+    .columns > .home-instance[data-span="2"] { grid-column: span 2; }
+    .columns .home-instance :global(.content-row) { padding-inline: 0; }
+    .columns > .home-instance > :global(.content-row) { margin-bottom: 0; }
+    .columns > .home-instance > :global(.apps-row) { margin-top: 0; }
+    .columns > .home-instance:has(> :global(.activity-row), > :global(.steam-row)) + .home-instance > :global(.apps-row) { margin-top: 0; }
+    .columns .home-instance :global(.hero.is-inset) { margin-inline: 0; }
+  }
 </style>

@@ -219,6 +219,14 @@ fn rotate_phone(saved: &Saved) -> Result<Saved, String> {
         },
     })
 }
+fn clear_device(saved: &mut Saved, kind: &str) -> Result<(), String> {
+    match kind {
+        "display" => saved.token.clear(),
+        "phone" => saved.phone_token.clear(),
+        _ => return Err("Unknown device.".into()),
+    }
+    Ok(())
+}
 fn new_pairing() -> Result<Pairing, String> {
     let mut bytes = [0u8; 4];
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
@@ -895,6 +903,24 @@ pub async fn configure_frame(app: tauri::AppHandle, enabled: bool) -> Result<Sta
     frame_status(app)
 }
 #[tauri::command]
+pub fn forget_device(app: tauri::AppHandle, kind: String) -> Result<Status, String> {
+    let frame = app.state::<Frame>();
+    {
+        let mut saved = frame.saved.lock().map_err(|e| e.to_string())?;
+        clear_device(&mut saved, &kind)?;
+        save(&app, &saved)?;
+    }
+    crate::remote::pointer::stop_all(&app);
+    crate::remote::pointer::show_cursor(&app);
+    if kind == "display" {
+        *frame.pairing.lock().map_err(|e| e.to_string())? = None;
+    } else {
+        *frame.phone_pairing.lock().map_err(|e| e.to_string())? = None;
+    }
+    frame_status(app)
+}
+
+#[tauri::command]
 pub fn forget_remotes(app: tauri::AppHandle) -> Result<Status, String> {
     let frame = app.state::<Frame>();
     {
@@ -1012,6 +1038,20 @@ mod tests {
         assert_eq!(names.last().copied(), Some("Custom"));
     }
 
+    #[test]
+    fn forgetting_one_device_preserves_the_other_credential() {
+        let mut saved = Saved {
+            enabled: true,
+            token: "display".into(),
+            phone_token: "phone".into(),
+        };
+        clear_device(&mut saved, "display").unwrap();
+        assert!(saved.token.is_empty());
+        assert_eq!(saved.phone_token, "phone");
+        clear_device(&mut saved, "phone").unwrap();
+        assert!(saved.phone_token.is_empty());
+        assert!(clear_device(&mut saved, "other").is_err());
+    }
     #[test]
     fn pairing_one_device_does_not_replace_the_other_credential() {
         let saved = Saved {

@@ -177,20 +177,139 @@
     document.dispatchEvent(event);
   }
 
-  window.__lumaNavigate = command => {
-    window.__lumaRevealReturn?.();
+  const candidates = 'a[href],button,input:not([type="hidden"]),select,textarea,[tabindex],[role="button"],[role="tab"],[role="option"],[role="menuitem"]';
+  const remembered = new Map();
+  let selected = null;
+  let route = location.hash;
+
+  function editable(element) {
+    return element?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element?.tagName);
+  }
+
+  function dialog() {
+    return [...document.querySelectorAll('[role="dialog"],[aria-modal="true"],[class*="modal-container"]')]
+      .reverse().find(element => element.getBoundingClientRect().width && getComputedStyle(element).visibility !== 'hidden');
+  }
+
+  function items(scope = document) {
+    return [...scope.querySelectorAll(candidates)].filter(element => {
+      if (element.disabled || element.getAttribute('aria-disabled') === 'true' || element.closest('[inert],[aria-hidden="true"]')) return false;
+      if (element.checkVisibility && !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 4 && rect.height > 4;
+    });
+  }
+
+  function focus(element) {
+    selected?.removeAttribute('data-luma-selected');
+    selected = element;
+    element.setAttribute('data-luma-selected', '');
+    element.focus({ preventScroll: true });
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    if (!dialog()) {
+      remembered.delete(location.hash);
+      remembered.set(location.hash, { href: element.getAttribute('href'), index: items().indexOf(element) });
+      if (remembered.size > 40) remembered.delete(remembered.keys().next().value);
+    }
+  }
+
+  function move(command) {
+    const scope = dialog() || document;
+    const list = items(scope);
+    if (!list.length) return;
+    const active = list.includes(document.activeElement) ? document.activeElement : null;
+    if (!active) {
+      const saved = scope === document && remembered.get(location.hash);
+      focus((saved?.href && list.find(element => element.getAttribute('href') === saved.href)) || list[saved?.index] || list[0]);
+      return;
+    }
+    const origin = active.getBoundingClientRect();
+    const vertical = command === 'up' || command === 'down';
+    const sign = command === 'down' || command === 'right' ? 1 : -1;
+    let best;
+    let score = Infinity;
+    for (const element of list) {
+      if (element === active) continue;
+      const rect = element.getBoundingClientRect();
+      const dx = rect.left + rect.width / 2 - origin.left - origin.width / 2;
+      const dy = rect.top + rect.height / 2 - origin.top - origin.height / 2;
+      const primary = (vertical ? dy : dx) * sign;
+      if (primary <= 4) continue;
+      const cross = Math.abs(vertical ? dx : dy);
+      const overlap = vertical
+        ? rect.right > origin.left && rect.left < origin.right
+        : rect.bottom > origin.top && rect.top < origin.bottom;
+      const distance = primary + cross * 3 + (overlap ? 0 : 10000);
+      if (distance < score) { best = element; score = distance; }
+    }
+    if (best) focus(best);
+  }
+
+  function navigate(command) {
+    const modal = dialog();
+    const video = [...document.querySelectorAll('video')].find(element => element.getBoundingClientRect().width > 0);
     if (command === 'back') {
+      if (modal) { press('Escape', 27); return; }
+      if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
       back();
       return;
     }
+    if (video && !modal && !editable(document.activeElement)) {
+      if (command === 'left' || command === 'right') {
+        if (Number.isFinite(video.duration)) video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + (command === 'right' ? 10 : -10)));
+        return;
+      }
+      if (command === 'activate' && !items().includes(document.activeElement)) {
+        if (video.paused) video.play().catch(() => {});
+        else video.pause();
+        return;
+      }
+    }
+    if (editable(document.activeElement) && command !== 'activate') {
+      if (command === 'left' || command === 'right') { const key = keys[command]; press(key[0], key[1]); return; }
+      document.activeElement.blur();
+    }
     if (command === 'activate') {
-      const active = document.activeElement;
-      if (active instanceof HTMLElement) active.click();
+      const list = items(modal || document);
+      if (!list.includes(document.activeElement)) { if (list.length) focus(list[0]); }
+      else document.activeElement.click();
       return;
     }
-    const key = keys[command];
-    if (key) press(key[0], key[1]);
-  };
+    if (keys[command]) move(command);
+  }
+
+  window.__lumaNavigate = navigate;
+
+  window.addEventListener('hashchange', () => {
+    route = location.hash;
+    selected?.removeAttribute('data-luma-selected');
+    selected = null;
+    const saved = remembered.get(route);
+    if (!saved) return;
+    requestAnimationFrame(() => {
+      if (route !== location.hash || dialog()) return;
+      const list = items();
+      const target = (saved.href && list.find(element => element.getAttribute('href') === saved.href)) || list[saved.index];
+      if (target) focus(target);
+    });
+  });
+
+  function installFocusStyle() {
+    const style = document.createElement('style');
+    style.textContent = '[data-luma-selected]{outline:3px solid #a59bff !important;outline-offset:3px !important}';
+    document.documentElement.append(style);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installFocusStyle, { once: true });
+  else installFocusStyle();
+
+  window.addEventListener('keydown', event => {
+    if (!event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || editable(event.target)) return;
+    const command = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'activate', Escape: 'back', Backspace: 'back' }[event.key];
+    if (!command) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    navigate(command);
+  }, true);
 
   window.addEventListener('keydown', event => {
     if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'w') {

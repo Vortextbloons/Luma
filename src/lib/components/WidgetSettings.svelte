@@ -2,6 +2,11 @@
   import { widgetDefinitions } from '../services/widgets';
   import type { Settings, WidgetPlacement } from '../types';
   let { settings }: { settings: Settings } = $props();
+  let note = $state('');
+  function reset() {
+    settings.widgets.spotify = { enabled: true, placement: 'bar' };
+    note = 'Widget settings reset. Home rows and theme were not changed.';
+  }
   const placementLabel: Record<WidgetPlacement, string> = {
     bar: 'Bottom bar',
     'top-right': 'Top right',
@@ -34,6 +39,8 @@
       </article>
     {/each}
   </div>
+  <div class="settings-actions"><button class="panel-secondary" onclick={reset}>Reset widgets</button></div>
+  {#if note}<p class="panel-description" role="status">{note}</p>{/if}
 </section>
 
 <style>
