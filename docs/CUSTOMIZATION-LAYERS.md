@@ -514,8 +514,8 @@ Repair flow (proposal):
 
 **Proposal.** Add `customization_reset_appearance(expected_revision)` with a narrowly defined scope:
 
-- Reset: theme to the built-in default, density, app tile shape, text size, reduced motion, per-surface appearance overrides, and any appearance background/media reference if that feature is introduced.
-- Preserve: composition/Home layout, widgets and placement, app order, app paths, activity/history, Spotify/Stremio/provider accounts, pairing credentials, extension installs/grants/settings, and all extension data.
+- Implementation scope: reset theme, density, app tile shape, text size, reduced motion, Home rows/order/visibility/columns/spans, and widget visibility/placement to built-in defaults. The confirmation names layout and widgets explicitly. Future appearance namespaces require a separate migration.
+- Preserve: app order, app paths, activity/history, accounts, pairing credentials, extension installs/grants/settings, extension data, and sound settings. History can restore the pre-reset look.
 - Sound set/level are preserved unless D2 says otherwise.
 - Only host-owned appearance resets. The web remote's local follow/override is stored in that browser's localStorage; it is cleared by choosing **Follow TV** on that device, not by a desktop reset. The Display Box's own light/dark palette and standalone settings are outside this reset.
 - The reset is a normal commit with a new revision, a `reset` origin checkpoint, and a confirmation that names what will change. A second click is not required if the first dialog clearly says "Appearance only; accounts and apps stay."
@@ -875,7 +875,7 @@ These are behaviors to verify, not claims that they pass. Automated tests cannot
 
 - Apply a built-in and a contributed theme; all 20 tokens change on desktop, the remote receives a valid palette, and no unvalidated token/CSS reaches the page.
 - Exceed the current 8-theme/24-token remote limit; the chosen policy is visible and does not silently truncate the desktop theme list.
-- Reset appearance while a custom theme, two-column Home, custom apps, accounts, and a background service exist; only appearance changes.
+- Reset appearance while a custom theme, two-column Home, custom apps, accounts, and a background service exist; the documented visual/layout/widget fields reset; accounts, apps, sounds, and background services remain unchanged.
 - Activate a theme whose package was disabled; fallback is legible and Settings names the missing theme.
 
 ### 11.3 Composition and navigation
@@ -907,7 +907,7 @@ These are behaviors to verify, not claims that they pass. Automated tests cannot
 | ID | Decision | Recommendation | Impact if unresolved |
 | --- | --- | --- | --- |
 | D1 | History: every commit vs autosave coalescing; burst window; do remote/desktop share a burst key. | 10 total versions including the current one; every explicit Keep/restore/reset is distinct; coalesce ordinary autosaves by origin/client for 60 seconds. | History fills with slider changes or loses meaningful checkpoints. |
-| D2 | Does "appearance" include sound set/level? | No. Reset appearance changes palette/typography/density/tile/motion only; reset sound stays separate. | Reset semantics surprise users and may mute/alter audio unexpectedly. |
+| D2 | Does "appearance" include sound set/level? | No. Reset appearance changes palette/typography/density/tile/motion plus Home layout and widget visibility/placement; reset sound stays separate. | Reset semantics surprise users and may mute/alter audio unexpectedly. |
 | D3 | New top-level Customization/Extensions category vs sections under existing categories; may packages add settings sections elsewhere? | One new **Customization** category shared with the MCP plan; package settings default to the extension detail; optional core-approved section later. | Broad extension management becomes buried or the top nav grows without control. |
 | D4 | Extension screens: hub-only vs pinnable top navigation; cap. | Hub by default; allow pinning at most 2, with explicit user action and width checks. | Nav readability and Back behavior on TV. |
 | D5 | Unify Home into generic composition now vs add a parallel custom-screen engine. | One registry/renderer and a Home profile; migrate in one versioned step. | Two renderers drift; preview and live disagree; duplicate focus bugs. |

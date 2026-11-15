@@ -1,5 +1,6 @@
 pub mod document;
 pub mod history;
+pub mod mcp;
 pub mod server;
 
 use document::{Config, Document};
@@ -262,7 +263,7 @@ impl Store {
         }
         let document = Document {
             version: 3,
-            revision: current.revision + 1,
+            revision: history::next_revision(transaction, current.revision)?,
             config,
         };
         let raw =
@@ -328,9 +329,6 @@ impl Store {
         let mut config = current.config.clone();
         config.home = previous.config.home;
         config.home_columns = previous.config.home_columns;
-        if config == current.config {
-            return Ok(current);
-        }
         let document = Self::write(&transaction, &current, config)?;
         transaction.commit()?;
         *preview = None;
@@ -997,8 +995,84 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(saved, future);
+            let mut config = current.config.clone();
+            config.theme = "onyx".into();
+            let changed = store
+                .commit(Commit {
+                    expected_revision: current.revision,
+                    config,
+                })
+                .unwrap();
+            assert_eq!(changed.revision, 3);
+            let restored = store.restore(changed.revision).unwrap();
+            assert_eq!(restored.config, current.config);
+            assert_eq!(restored.revision, 4);
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn layout_restore_no_op_cancels_the_pending_preview() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        let mut config = first.config.clone();
+        config.theme = "onyx".into();
+        let current = store
+            .commit(Commit {
+                expected_revision: first.revision,
+                config,
+            })
+            .unwrap();
+        let preview = store
+            .stage(Commit {
+                expected_revision: current.revision,
+                config: first.config,
+            })
+            .unwrap();
+        assert_eq!(store.restore_layout(current.revision).unwrap(), current);
+        assert!(store.preview().unwrap().is_none());
+        assert_eq!(
+            store.keep(&preview.id).unwrap_err().code,
+            "preview_mismatch"
+        );
+    }
+
+    #[test]
+    fn invalid_history_does_not_consume_the_usable_history_budget() {
+        let store = store();
+        store.initialize(Config::default()).unwrap();
+        for revision in 50..60 {
+            let raw = serde_json::to_string(&Document {
+                version: 99,
+                revision,
+                config: Config::default(),
+            })
+            .unwrap();
+            store
+                .connection()
+                .unwrap()
+                .execute(
+                    "INSERT INTO versions (revision, document) VALUES (?1, ?2)",
+                    params![revision as i64, raw],
+                )
+                .unwrap();
+        }
+        for _ in 0..12 {
+            store.edit(|config| config.home.reverse()).unwrap();
+        }
+        let entries = store.history().unwrap();
+        assert_eq!(entries.len(), 10);
+        assert_eq!(entries[0].revision, store.read().unwrap().unwrap().revision);
+        let count: i64 = store
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM versions WHERE revision BETWEEN 50 AND 59",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 10);
     }
 
     #[test]

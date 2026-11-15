@@ -18,6 +18,7 @@
   const movable: AppId[] = $derived(settings.order.filter(app => app !== 'Custom'));
 
   function builtInNote(id: AppId) {
+    if (['NBA', 'NFL', 'MLB', 'NHL'].includes(id)) return 'Opens live and upcoming games inside Luma.';
     if (id === 'YouTube') return 'YouTube TV opens in its own Luma window.';
     if (id === 'Steam') return 'Steam opens directly in Big Picture.';
     if (id === 'Stremio') return 'Stremio opens inside Luma.';
@@ -205,7 +206,7 @@
               <span class="settings-badge is-muted">Own window</span>
             {:else if app === 'Steam'}
               <span class="settings-badge is-muted">Big Picture</span>
-            {:else if app === 'Stremio'}
+            {:else if app === 'Stremio' || ['NBA', 'NFL', 'MLB', 'NHL'].includes(app)}
               <span class="settings-badge is-muted">Inside Luma</span>
             {:else if settings.paths[app as ExecutableAppId]}
               <span class="settings-badge is-good">Ready</span>
@@ -216,7 +217,7 @@
             {/if}
             {#if app === 'Custom'}<span class="app-order-fixed">Fixed last</span>{/if}
           </div>
-          {#if app === 'YouTube' || app === 'Steam' || app === 'Stremio'}
+          {#if app === 'YouTube' || app === 'Steam' || app === 'Stremio' || ['NBA', 'NFL', 'MLB', 'NHL'].includes(app)}
             <p class="app-order-note">{builtInNote(app)}</p>
           {:else if app !== 'Custom' && !settings.paths[app as ExecutableAppId]}
             <p class="app-order-note">{app === 'Apple TV+' || app === 'Hulu' || app === 'Max' || app === 'Peacock' ? 'No program is needed. It opens in its own window.' : 'Choose this app under App locations if you use it.'}</p>

@@ -318,9 +318,6 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
     if command == "fullscreen" {
         return Some(server::fullscreen(app));
     }
-    if let Some(league) = crate::commands::sports::shortcut_league(command) {
-        return Some(server::open_sports(app, league).await);
-    }
     if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
         server::navigate(app, nav);
         return Some(Ok(()));
@@ -489,13 +486,11 @@ async fn apps_list(
         .unwrap_or_default();
     let apps: Vec<serde_json::Value> = apps_in_order(&order)
         .into_iter()
-        .chain(crate::commands::sports::shortcuts())
         .map(|entry| {
             serde_json::json!({
                 "command": entry.command,
                 "name": entry.name,
                 "icon": format!("/apps/{}/icon", entry.command),
-                "shortcut": crate::commands::sports::shortcut_league(&entry.command).is_some(),
             })
         })
         .collect();
@@ -513,7 +508,7 @@ fn apps_in_order(order: &[String]) -> Vec<apps::CatalogEntry> {
         .map(|(index, name)| (name.as_str(), index))
         .collect();
     let mut catalog = apps::catalog();
-    catalog.sort_by_key(|entry| rank.get(entry.name).copied().unwrap_or(usize::MAX));
+    catalog.sort_by_key(|entry| (entry.name == "Custom", rank.get(entry.name).copied().unwrap_or(usize::MAX)));
     catalog
 }
 #[derive(Deserialize)]
@@ -564,7 +559,6 @@ async fn app_icon(
     remote_authorized(&app, &headers)?;
     let entry = apps::catalog()
         .into_iter()
-        .chain(crate::commands::sports::shortcuts())
         .find(|entry| entry.command == command)
         .ok_or(StatusCode::NOT_FOUND)?;
     Response::builder()

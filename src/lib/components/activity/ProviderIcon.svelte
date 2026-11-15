@@ -11,8 +11,13 @@
   import youtube from '../../../assets/youtube.svg';
   import steam from '../../../assets/steam.png';
 
+  import nba from '../../../../src-tauri/resources/icons/sports-nba.png';
+  import nfl from '../../../../src-tauri/resources/icons/sports-nfl.png';
+  import mlb from '../../../../src-tauri/resources/icons/sports-mlb.png';
+  import nhl from '../../../../src-tauri/resources/icons/sports-nhl.png';
+
   let { provider }: { provider: string } = $props();
-  const source = $derived(provider === 'spotify' ? spotify : provider === 'stremio' ? stremio : provider === 'youtube' ? youtube : ({ netflix, disneyplus, primevideo, appletv, hulu, max, peacock, steam } as Record<string, string>)[provider] ?? '');
+  const source = $derived(provider === 'spotify' ? spotify : provider === 'stremio' ? stremio : provider === 'youtube' ? youtube : ({ netflix, disneyplus, primevideo, appletv, hulu, max, peacock, steam, nba, nfl, mlb, nhl } as Record<string, string>)[provider] ?? '');
   const monogram = $derived(({
     plex: 'P', jellyfin: 'J', trakt: 'T', local: 'L',
   } as Record<string, string>)[provider] ?? provider.slice(0, 1).toUpperCase());

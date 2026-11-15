@@ -37,15 +37,6 @@
       ],
     },
     {
-      name: 'Customization',
-      description: 'AI access, saved versions, and reset defaults.',
-      sections: [
-        { id: 'ai', name: 'AI access', description: 'Connect an MCP client with review-first access.' },
-        { id: 'versions', name: 'Saved versions', description: 'Restore an earlier appearance, Home layout, or app arrangement.' },
-        { id: 'reset', name: 'Reset', description: 'Return appearance, Home, and widgets to defaults.' },
-      ],
-    },
-    {
       name: 'Display & Sound',
       description: 'Fullscreen, TV screen, audio output, and interface sounds.',
       sections: [
@@ -84,6 +75,15 @@
       sections: [
         { id: 'startup', name: 'Startup & memory', description: 'Startup, tray, and fast app switching.' },
         { id: 'updates', name: 'Updates', description: 'Version, downloads, and restart.' },
+      ],
+    },
+    {
+      name: 'MCP customization',
+      description: 'AI access, saved versions, and reset defaults.',
+      sections: [
+        { id: 'ai', name: 'AI access', description: 'Connect an MCP client with review-first access.' },
+        { id: 'versions', name: 'Saved versions', description: 'Restore an earlier appearance, Home layout, or app arrangement.' },
+        { id: 'reset', name: 'Reset', description: 'Return appearance, Home, and widgets to defaults.' },
       ],
     },
   ];
@@ -288,8 +288,8 @@
         {:else if activeSection.id === 'widgets'}
           <WidgetSettings {settings} />
         {/if}
-      {:else if activeCategory.name === 'Customization'}
-        <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => homeDraft = null} />
+      {:else if activeCategory.name === 'MCP customization'}
+        <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => { homeDraft = null; layoutError = ''; }} />
       {:else if activeCategory.name === 'Display & Sound'}
         {#if activeSection.id === 'display'}
           <section class="settings-group">

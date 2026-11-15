@@ -71,7 +71,7 @@ export function typeLabel(item: ActivityItem): string {
 export const providerNames: Record<string, string> = {
   local: 'This PC', youtube: 'YouTube', spotify: 'Spotify', steam: 'Steam', plex: 'Plex', jellyfin: 'Jellyfin',
   trakt: 'Trakt', stremio: 'Stremio', netflix: 'Netflix', disneyplus: 'Disney+', primevideo: 'Prime Video',
-  appletv: 'Apple TV+', hulu: 'Hulu', max: 'Max', peacock: 'Peacock',
+  appletv: 'Apple TV+', hulu: 'Hulu', max: 'Max', peacock: 'Peacock', nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL',
 };
 
 export function providerName(provider: string): string {
@@ -81,5 +81,5 @@ export function providerName(provider: string): string {
 export const appProviders: Record<string, string> = {
   YouTube: 'youtube', Spotify: 'spotify', Steam: 'steam', Stremio: 'stremio', Netflix: 'netflix',
   'Disney+': 'disneyplus', 'Prime Video': 'primevideo', 'Apple TV+': 'appletv',
-  Hulu: 'hulu', Max: 'max', Peacock: 'peacock', Custom: 'local',
+  Hulu: 'hulu', Max: 'max', Peacock: 'peacock', NBA: 'nba', NFL: 'nfl', MLB: 'mlb', NHL: 'nhl', Custom: 'local',
 };

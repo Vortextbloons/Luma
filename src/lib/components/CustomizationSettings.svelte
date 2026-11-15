@@ -17,7 +17,7 @@ stage changes for the user to review, and read the current configuration.
 
 Rules:
 1. If the luma_* tools are not available, stop and tell the user to open
-   Luma > Settings > Customization > AI access and add the server shown there.
+   Luma > Settings > MCP customization > AI access and add the server shown there.
    Do not guess connection details.
 2. Start with luma_capabilities_get and luma_config_get. Do not invent
    components, properties, themes, screens, or extension permissions.
@@ -71,6 +71,11 @@ Rules:
     if (!savedAt) return 'Saved version';
     const date = new Date(savedAt);
     return Number.isNaN(date.getTime()) ? 'Saved version' : savedDateFormat.format(date);
+  }
+
+  function versionLabel(savedAt: string | null) {
+    const label = savedLabel(savedAt);
+    return label === 'Saved version' ? 'this saved version' : `the version from ${label}`;
   }
 
   function describe(config: CustomizationConfig) {
@@ -239,7 +244,7 @@ Rules:
       if (disposed) return;
       restoreTarget = null;
       onchanged?.();
-      historyNote = `Restored the saved version from ${savedLabel(entry.savedAt)}.`;
+      historyNote = `Restored ${versionLabel(entry.savedAt)}.`;
       focusActiveSectionTab();
       if (document.revision !== loadedRevision) await loadHistory(document.revision);
     } catch (error) {
@@ -304,6 +309,7 @@ Rules:
   onDestroy(() => {
     disposed = true;
     historySeq++;
+    token = '';
   });
 </script>
 
@@ -357,17 +363,17 @@ Rules:
         {#if token}
           <div class="mcp-credential">
             <h4>Connection details ready</h4>
-            <p>Copy these now. The token is not saved; it is only available until you leave Customization settings or Luma quits.</p>
+            <p>Copy these now. The token is not saved; it is only available until you leave MCP customization settings or Luma quits.</p>
             <button class="panel-secondary is-primary" data-mcp-copy disabled={mcpBusy || !mcp.endpoint} onclick={copyConnection}>Copy connection details</button>
             <p class="mcp-warning">This text is a credential. Paste it only into your MCP client configuration, never into a chat, issue, or repository.</p>
           </div>
         {:else}
-          <p class="panel-description">The token is not shown again after you leave Customization settings. Rotate it to create new connection details. Luma also needs access turned on again after it restarts.</p>
+          <p class="panel-description">The token is not shown again after you leave MCP customization settings. Rotate it to create new connection details. Luma also needs access turned on again after it restarts.</p>
         {/if}
         <p class="mcp-subhead">Set up your MCP client</p>
         <p class="panel-description">Your MCP client must already support connecting to a local server on this PC. Luma cannot configure the client for you, and not every client can reach a local address.</p>
         <div class="settings-actions">
-          <button class="panel-secondary" onclick={copySetupPrompt}>Copy setup prompt</button>
+          <button class="panel-secondary" disabled={mcpBusy} onclick={copySetupPrompt}>Copy setup prompt</button>
         </div>
         <p class="panel-description">The setup prompt contains no endpoint or token and is safe to share.</p>
         <details class="prompt-preview">
@@ -407,12 +413,12 @@ Rules:
             {#if entry.revision === revision}
               <span class="settings-badge is-good">Current</span>
             {:else}
-              <button class="panel-secondary" data-restore={entry.revision} disabled={documentBusy} aria-label={`Restore version from ${savedLabel(entry.savedAt)}`} onclick={() => askRestore(entry.revision)}>Restore</button>
+              <button class="panel-secondary" data-restore={entry.revision} disabled={documentBusy} aria-label={`Restore ${versionLabel(entry.savedAt)}`} onclick={() => askRestore(entry.revision)}>Restore</button>
             {/if}
           </div>
           {#if restoreTarget === entry.revision}
             <div class="history-confirm" role="group" aria-label="Confirm restoring a saved version">
-              <p>Restore the version from {savedLabel(entry.savedAt)}? This replaces the current theme, layout, widgets, app order, and sound. Accounts and app locations stay. A new revision is created, so this version stays in history.</p>
+              <p>Restore {versionLabel(entry.savedAt)}? This replaces the current theme, layout, widgets, app order, and sound. Accounts and app locations stay. A new revision is created, so this version stays in history.</p>
               {#if restoreError}<p class="error" role="alert">{restoreError}</p>{/if}
               <div class="settings-actions">
                 <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelRestore}>Cancel</button>

@@ -5,7 +5,6 @@ use tauri::{
 
 pub(crate) fn shortcut_league(command: &str) -> Option<&'static str> {
     match command {
-        "sports" => Some("All"),
         "sportsnba" => Some("NBA"),
         "sportsnfl" => Some("NFL"),
         "sportsmlb" => Some("MLB"),
@@ -16,11 +15,6 @@ pub(crate) fn shortcut_league(command: &str) -> Option<&'static str> {
 
 pub(crate) fn shortcuts() -> Vec<super::apps::CatalogEntry> {
     [
-        (
-            "sports",
-            "Sports",
-            include_bytes!("../../icons/32x32.png").as_slice(),
-        ),
         (
             "sportsnba",
             "NBA",
@@ -170,7 +164,12 @@ mod tests {
 
     #[test]
     fn remote_shortcuts_have_icons_and_route_to_supported_sports_views() {
+        let catalog = crate::commands::apps::catalog();
         for entry in super::shortcuts() {
+            assert_eq!(catalog.iter().filter(|app| app.command == entry.command).count(), 1);
+            assert_eq!(crate::commands::apps::app_command(&entry.command), Some(entry.name));
+            let order = crate::remote::server::normalize_app_order(vec![entry.name.into(), "Netflix".into()]);
+            assert_eq!(order.first().map(String::as_str), Some(entry.name));
             let league =
                 super::shortcut_league(&entry.command).expect("shortcut command must be handled");
             assert!(league == "All" || super::league_path(league).is_ok());

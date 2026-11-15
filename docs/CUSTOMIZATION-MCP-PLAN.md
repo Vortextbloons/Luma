@@ -304,7 +304,7 @@ This is the central security requirement, and it must survive a compromised agen
 | Density, tile shape, text size, reduced motion | Returned to defaults |
 | Per-screen appearance overrides | Removed |
 | Background image or appearance-related media reference | Cleared from appearance; the file is not deleted |
-| Home composition, columns, spans, widget placement | Unchanged |
+| Home rows/order/visibility, columns, spans, widget visibility/placement | Returned to defaults; confirmation names layout and widgets |
 | Screens, app entries, app order | Unchanged |
 | Extension installs, enabled state, extension settings | Unchanged; any extension that contributed the active appearance becomes dormant for appearance, not uninstalled |
 | Accounts, credentials, pairing | Unchanged |

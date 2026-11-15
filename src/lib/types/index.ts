@@ -1,5 +1,5 @@
-export type AppId = 'YouTube' | 'Steam' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'Custom';
-export type ExecutableAppId = Exclude<AppId, 'YouTube'>;
+export type AppId = 'YouTube' | 'Steam' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'NBA' | 'NFL' | 'MLB' | 'NHL' | 'Custom';
+export type ExecutableAppId = Exclude<AppId, 'YouTube' | 'NBA' | 'NFL' | 'MLB' | 'NHL'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
 export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite' | 'onyx';
 export type SoundPreset = 'real' | 'google' | 'roku' | 'off';

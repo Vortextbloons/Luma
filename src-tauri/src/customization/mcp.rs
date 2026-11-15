@@ -159,6 +159,16 @@ impl Default for McpAccess {
     }
 }
 
+impl McpAccess {
+    async fn status(&self) -> Status {
+        let state = self.state.lock().await;
+        Status {
+            enabled: state.enabled && state.token.is_some() && state.available,
+            endpoint: ENDPOINT,
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -191,11 +201,7 @@ impl McpServer {
     }
 
     async fn status(&self) -> Status {
-        let state = self.access.state.lock().await;
-        Status {
-            enabled: state.enabled && state.token.is_some() && state.available,
-            endpoint: ENDPOINT,
-        }
+        self.access.status().await
     }
 
     async fn enable(&self) -> Result<Credentials, Error> {
@@ -593,7 +599,7 @@ fn guard_transport(server: &McpServer, headers: &HeaderMap) -> Result<(), Respon
         .get(header::ACCEPT)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    let json_accept = accept == ""
+    let json_accept = accept.is_empty()
         || accept.split(',').any(|value| {
             let value = value.trim().to_ascii_lowercase();
             value == "*/*" || value.starts_with("application/json")
@@ -719,7 +725,7 @@ fn parse_request(body: &[u8]) -> Result<RpcRequest, RpcFailure> {
 
 fn legacy_request(headers: &HeaderMap, request: &RpcRequest) -> Result<Protocol, ProtocolError> {
     if request.method != "initialize" {
-        if let Some(version) = header(&headers, PROTOCOL_HEADER) {
+        if let Some(version) = header(headers, PROTOCOL_HEADER) {
             if version != LEGACY_PROTOCOL {
                 return Err(ProtocolError {
                     status: StatusCode::BAD_REQUEST,
@@ -882,7 +888,7 @@ async fn dispatch(
             )
         }
         "notifications/initialized" | "notifications/cancelled" => accepted(),
-        "ping" if !modern => success(id, json!({}), false),
+        "ping" => success(id, json!({}), modern),
         "server/discover" if modern => success(
             id,
             json!({
@@ -1737,13 +1743,7 @@ Read the current document. Reorder `config.order` so every app appears exactly o
 pub async fn customization_mcp_status(
     access: tauri::State<'_, McpAccess>,
 ) -> Result<Status, Error> {
-    Ok(McpServer {
-        access: access.inner().clone(),
-        backend: Arc::new(MissingBackend),
-        host: ADDRESS.into(),
-    }
-    .status()
-    .await)
+    Ok(access.inner().status().await)
 }
 
 #[tauri::command]
@@ -1768,30 +1768,6 @@ pub async fn customization_mcp_rotate(
     access: tauri::State<'_, McpAccess>,
 ) -> Result<Credentials, Error> {
     McpServer::app(&app, access.inner().clone()).rotate().await
-}
-
-struct MissingBackend;
-
-impl Backend for MissingBackend {
-    fn read<'a>(&'a self) -> BackendFuture<'a, Option<Document>> {
-        Box::pin(async { Err(failure("storage", "MCP backend is not available.")) })
-    }
-
-    fn preview<'a>(&'a self, _request: Commit) -> BackendFuture<'a, Preview> {
-        Box::pin(async { Err(failure("storage", "MCP backend is not available.")) })
-    }
-
-    fn cancel_preview<'a>(&'a self, _id: &'a str) -> BackendFuture<'a, ()> {
-        Box::pin(async { Err(failure("storage", "MCP backend is not available.")) })
-    }
-
-    fn current_preview<'a>(&'a self) -> BackendFuture<'a, Option<Preview>> {
-        Box::pin(async { Err(failure("storage", "MCP backend is not available.")) })
-    }
-
-    fn launcher_visible<'a>(&'a self) -> BackendFuture<'a, bool> {
-        Box::pin(async { Ok(false) })
-    }
 }
 
 #[cfg(test)]
@@ -2341,8 +2317,54 @@ mod tests {
         assert_eq!(rpc(&response)["error"]["code"], -32020);
         let ping_headers = with(headers(MODERN_PROTOCOL), "mcp-method", "ping");
         let (status, response) = post(port, &ping_headers, &ping);
+        assert_eq!(status, 200);
+        assert_eq!(rpc(&response)["result"]["resultType"], "complete");
+
+        let unknown = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "prompts/list",
+            "params": {
+                "_meta": {
+                    META_VERSION: MODERN_PROTOCOL,
+                    META_CLIENT_CAPABILITIES: {}
+                }
+            }
+        })
+        .to_string();
+        let unknown_headers = with(headers(MODERN_PROTOCOL), "mcp-method", "prompts/list");
+        let (status, response) = post(port, &unknown_headers, &unknown);
         assert_eq!(status, 404);
         assert_eq!(rpc(&response)["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn jsonrpc_parse_and_request_shape_errors_are_reported() {
+        let backend = TestBackend::new();
+        let (port, _) = serve(access(true), backend);
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), "{");
+        assert_eq!(status, 400);
+        assert_eq!(rpc(&response)["error"]["code"], -32700);
+
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), "[]");
+        assert_eq!(status, 400);
+        assert_eq!(rpc(&response)["error"]["code"], -32600);
+
+        let null_id = json!({ "jsonrpc": "2.0", "id": null, "method": "ping" }).to_string();
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), &null_id);
+        assert_eq!(status, 400);
+        assert_eq!(rpc(&response)["error"]["code"], -32600);
+
+        let missing_id = json!({ "jsonrpc": "2.0", "method": "tools/list" }).to_string();
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), &missing_id);
+        assert_eq!(status, 400);
+        assert_eq!(rpc(&response)["error"]["code"], -32600);
+
+        let notification =
+            json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }).to_string();
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), &notification);
+        assert_eq!(status, 202);
+        assert!(!response.contains("\"error\""));
     }
 
     #[test]
@@ -2596,6 +2618,52 @@ mod tests {
             assert!(response["result"].is_null());
         }
         assert!(backend.preview().is_none());
+    }
+
+    #[test]
+    fn enable_requires_a_bound_listener_and_returns_a_strong_token() {
+        let access = access(false);
+        let server = McpServer {
+            access: access.clone(),
+            backend: TestBackend::new() as Arc<dyn Backend>,
+            host: ADDRESS.into(),
+        };
+        assert_eq!(
+            tauri::async_runtime::block_on(server.status()).enabled,
+            false
+        );
+        let credentials = tauri::async_runtime::block_on(server.enable()).unwrap();
+        assert_eq!(credentials.enabled, true);
+        assert_eq!(credentials.endpoint, ENDPOINT);
+        assert_eq!(credentials.token.len(), 64);
+        assert_eq!(
+            tauri::async_runtime::block_on(server.status()).enabled,
+            true
+        );
+        assert_eq!(
+            tauri::async_runtime::block_on(server.disable())
+                .unwrap()
+                .enabled,
+            false
+        );
+        assert_eq!(
+            tauri::async_runtime::block_on(server.status()).enabled,
+            false
+        );
+
+        let unavailable = McpServer {
+            access: McpAccess::new(),
+            backend: TestBackend::new() as Arc<dyn Backend>,
+            host: ADDRESS.into(),
+        };
+        match tauri::async_runtime::block_on(unavailable.enable()) {
+            Ok(_) => panic!("enable must fail when no listener is bound"),
+            Err(error) => assert_eq!(error.code, "mcp_unavailable"),
+        }
+        assert_eq!(
+            tauri::async_runtime::block_on(unavailable.status()).enabled,
+            false
+        );
     }
 
     #[test]

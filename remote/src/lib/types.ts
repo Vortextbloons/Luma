@@ -103,7 +103,6 @@ export interface SocketReply {
 }
 
 export interface AppEntry {
-  shortcut?: boolean;
   command: string;
   name: string;
   icon: string;

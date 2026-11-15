@@ -136,6 +136,7 @@ pub(crate) fn catalog() -> Vec<CatalogEntry> {
                 icon,
             })
         })
+        .chain(super::sports::shortcuts())
         .collect()
 }
 
@@ -473,6 +474,12 @@ pub async fn launch_app(
     apps: State<'_, Apps>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if let Some(entry) = super::sports::shortcuts().into_iter().find(|entry| entry.name == name) {
+        let league = super::sports::shortcut_league(&entry.command).ok_or("Unknown sports app")?;
+        crate::remote::server::open_sports(&app, league).await?;
+        crate::activity::record_launch(&app, &name);
+        return Ok(());
+    }
     let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
     if name == "Spotify" {
         crate::remote::server::open_music(&app)?;

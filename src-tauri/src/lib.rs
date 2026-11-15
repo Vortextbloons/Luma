@@ -57,12 +57,19 @@ pub fn run() {
         .manage(stremio::Stremio::default())
         .manage(spotify::player::Player::default())
         .manage(spotify::windows_media::Media::default())
+        .manage(customization::mcp::McpAccess::default())
         .setup(|app| {
             app.manage(customization::Store::open(app.handle()));
             if let Ok(Some(document)) = app.state::<customization::Store>().read() {
                 customization::publish(app.handle(), &document);
             }
             let customization_handle = app.handle().clone();
+            let mcp_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = customization::mcp::start(mcp_handle).await {
+                    eprintln!("Customization MCP server: {error}");
+                }
+            });
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = customization::server::start(customization_handle).await {
                     eprintln!("Customization server: {error}");
@@ -113,6 +120,10 @@ pub fn run() {
             customization::customization_history,
             customization::customization_restore_version,
             customization::customization_reset_appearance,
+            customization::mcp::customization_mcp_status,
+            customization::mcp::customization_mcp_enable,
+            customization::mcp::customization_mcp_disable,
+            customization::mcp::customization_mcp_rotate,
             updates_enabled,
             tv::tv_setup,
             tv::tv_setup_warning,

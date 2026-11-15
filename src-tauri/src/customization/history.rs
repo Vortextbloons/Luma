@@ -76,8 +76,29 @@ pub(super) fn record(transaction: &Connection, document: &Document) -> Result<()
 }
 
 fn prune(transaction: &Connection) -> Result<(), Error> {
-    transaction.execute("DELETE FROM versions WHERE revision NOT IN (SELECT revision FROM versions ORDER BY revision DESC LIMIT ?1)", [LIMIT])?;
+    for entry in list(transaction)?.into_iter().skip(LIMIT as usize) {
+        transaction.execute(
+            "DELETE FROM versions WHERE revision = ?1",
+            [entry.revision as i64],
+        )?;
+    }
     Ok(())
+}
+
+pub(super) fn next_revision(connection: &Connection, current: u64) -> Result<u64, Error> {
+    let highest: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(revision), 0) FROM versions",
+        [],
+        |row| row.get(0),
+    )?;
+    let highest = current.max(highest.max(0) as u64);
+    if highest >= 9_007_199_254_740_991 {
+        return Err(Error::new(
+            "revision_limit",
+            "Customization revision limit reached.",
+        ));
+    }
+    Ok(highest + 1)
 }
 
 pub(super) fn list(connection: &Connection) -> Result<Vec<HistoryEntry>, Error> {
@@ -120,14 +141,14 @@ pub(super) fn find(connection: &Connection, revision: u64) -> Result<Option<Docu
 }
 
 pub(super) fn previous(connection: &Connection, revision: u64) -> Result<Option<Document>, Error> {
-    let raw: Option<String> = connection
-        .query_row(
-            "SELECT document FROM versions WHERE revision < ?1 ORDER BY revision DESC LIMIT 1",
-            [revision as i64],
-            |row| row.get(0),
-        )
-        .optional()?;
-    raw.as_deref().map(super::Store::decode).transpose()
+    Ok(list(connection)?
+        .into_iter()
+        .find(|entry| entry.revision < revision)
+        .map(|entry| Document {
+            version: 3,
+            revision: entry.revision,
+            config: entry.config,
+        }))
 }
 
 #[cfg(test)]

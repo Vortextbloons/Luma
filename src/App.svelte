@@ -483,10 +483,10 @@
     }
     navigation.keydown(event);
   }
-  const tabOrder = ['Home', 'Watch', 'Sports', 'Library', 'Music', 'Apps'];
+  const tabOrder = ['Home', 'Watch', 'Library', 'Music', 'Apps'];
   let previousTab = 0;
   function animateView(view: string) {
-    const index = Math.max(0, tabOrder.indexOf(view));
+    const index = Math.max(0, tabOrder.indexOf(view === 'Sports' ? 'Apps' : view));
     const direction = index < previousTab ? -1 : 1;
     previousTab = index;
     return (element: HTMLElement) => {
@@ -669,7 +669,7 @@
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
   {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
-  <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
+  <TopNav active={tab === 'Sports' ? 'Apps' : tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if showHome}

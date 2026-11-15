@@ -308,6 +308,30 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         kind: ProviderKind::Launcher,
         capabilities: &["appLaunches"],
     },
+    ProviderInfo {
+        id: "nba",
+        name: "NBA",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "nfl",
+        name: "NFL",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "mlb",
+        name: "MLB",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
+    ProviderInfo {
+        id: "nhl",
+        name: "NHL",
+        kind: ProviderKind::Launcher,
+        capabilities: &["appLaunches"],
+    },
 ];
 
 pub fn provider_info(id: &str) -> Option<&'static ProviderInfo> {
@@ -327,6 +351,10 @@ pub fn app_provider(app: &str) -> &'static str {
         "Hulu" => "hulu",
         "Max" => "max",
         "Peacock" => "peacock",
+        "NBA" => "nba",
+        "NFL" => "nfl",
+        "MLB" => "mlb",
+        "NHL" => "nhl",
         _ => "local",
     }
 }

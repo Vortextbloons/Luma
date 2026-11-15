@@ -1,10 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, StremioStatus, YouTubeFeedItem } from '../types';
+import type { ActivitySnapshot, AppId, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
-export const launchApp = (name: ExecutableAppId) => invoke<void>('launch_app', { name });
+export const launchApp = (name: Exclude<AppId, 'YouTube'>) => invoke<void>('launch_app', { name });
 export const closeLaunchedApp = () => invoke<void>('close_launched_app');
 export const quitLuma = () => invoke<void>('quit_app');
 export const hideToTray = () => invoke<void>('hide_to_tray');
