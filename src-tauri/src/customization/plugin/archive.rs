@@ -57,11 +57,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<PreparedPackage, Error> {
         if normalized.is_empty() {
             return Err(Error::new("validation", "Plugin archive contains an empty path."));
         }
-        if !is_dir {
-            validate_relative_path(&normalized)?;
-        } else {
-            validate_relative_path(&normalized)?;
-        }
+        validate_relative_path(&normalized)?;
         let size = entry.size();
         let compressed = entry.compressed_size();
         if !is_dir {

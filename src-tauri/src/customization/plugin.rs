@@ -1195,7 +1195,7 @@ pub(super) fn save_settings(
 
 pub(super) fn disable(connection: &Connection, plugin_id: &str) -> Result<(), Error> {
     let changed = connection.execute(
-        "UPDATE plugins SET enabled = 0, detached = '[]' WHERE id = ?1",
+        "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = NULL WHERE id = ?1",
         [plugin_id],
     )?;
     if changed == 0 {
@@ -1226,13 +1226,28 @@ pub(super) fn restore_snapshot(
                     "{} was not enabled in that saved version, so it is now disabled.",
                     plugin.manifest.name
                 ));
+                connection.execute(
+                    "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = ?1 WHERE id = ?2",
+                    params![
+                        "This saved version did not have this plugin enabled.",
+                        id
+                    ],
+                )?;
+            } else {
+                connection.execute(
+                    "UPDATE plugins SET enabled = 0, detached = '[]' WHERE id = ?1",
+                    [id],
+                )?;
             }
-            connection.execute(
-                "UPDATE plugins SET enabled = 0, detached = '[]' WHERE id = ?1",
-                [id],
-            )?;
             continue;
         };
+        if let Some(reason) = plugin.execution_reason() {
+            connection.execute(
+                "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = ?1 WHERE id = ?2",
+                params![reason, id],
+            )?;
+            continue;
+        }
         if saved.version != plugin.manifest.version {
             notices.push(format!(
                 "{} changed version since that saved version, so it was left disabled.",
@@ -1275,15 +1290,20 @@ pub(super) fn restore_snapshot(
                 ],
             )?;
         }
-        let detached: Vec<String> = saved
-            .detached
-            .iter()
-            .filter(|field| plugin.manifest.contributes.fields().contains(field.as_str()))
-            .cloned()
-            .collect();
+        let detached: Vec<String> = if saved.enabled {
+            saved
+                .detached
+                .iter()
+                .filter(|field| plugin.manifest.contributes.fields().contains(field.as_str()))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         connection.execute(
-            "UPDATE plugins SET enabled = 1, detached = ?1, disabled_reason = NULL WHERE id = ?2",
+            "UPDATE plugins SET enabled = ?1, detached = ?2, disabled_reason = NULL WHERE id = ?3",
             params![
+                i64::from(saved.enabled),
                 serde_json::to_string(&detached)
                     .map_err(|error| Error::new("plugin_storage", error))?,
                 id
@@ -1374,6 +1394,25 @@ fn finalize(manifest: Manifest, files: BTreeMap<String, Vec<u8>>) -> Result<Prep
             "validation",
             format!("A plugin can contain at most {MAX_FILES} files."),
         ));
+    }
+    let mut seen = HashSet::new();
+    for path in files.keys() {
+        if !seen.insert(path.to_ascii_lowercase()) {
+            return Err(Error::new(
+                "validation",
+                format!("Package contains a duplicate or case-colliding path: {path}."),
+            ));
+        }
+        let mut parent = path.as_str();
+        while let Some(index) = parent.rfind('/') {
+            parent = &parent[..index];
+            if files.contains_key(parent) {
+                return Err(Error::new(
+                    "validation",
+                    format!("Package uses {parent} as both a file and a directory."),
+                ));
+            }
+        }
     }
     for declared in manifest
         .assets
@@ -1841,6 +1880,12 @@ fn validate_id(id: &str) -> Result<(), Error> {
         ));
     }
     let lowercase = id.to_ascii_lowercase();
+    if id != lowercase {
+        return Err(Error::new(
+            "validation",
+            "Plugin id must be lowercase.",
+        ));
+    }
     let id = lowercase.as_str();
     if id.starts_with("core.") || id == "core" {
         return Err(Error::new(
@@ -2002,15 +2047,15 @@ fn install(
 ) -> Result<ImportOutcome, Error> {
     let root = install_root(store)?;
     let mut connection = store.connection()?;
-    let existing: Option<(String, String)> = connection
+    let existing: Option<(String, String, i64)> = connection
         .query_row(
-            "SELECT manifest, content_hash FROM plugins WHERE id = ?1",
+            "SELECT manifest, content_hash, enabled FROM plugins WHERE id = ?1",
             [&package.manifest.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
     let mut existing_version = None;
-    if let Some((raw, stored_hash)) = existing {
+    if let Some((raw, stored_hash, enabled)) = existing {
         let manifest: Manifest = serde_json::from_str(&raw)
             .map_err(|error| Error::new("plugin_storage", error))?;
         existing_version = Some(manifest.version.clone());
@@ -2027,6 +2072,15 @@ fn install(
                 format!(
                     "{} {} is already installed with different content. Increment the version before importing.",
                     package.manifest.name, package.manifest.version
+                ),
+            ));
+        }
+        if source == "mcp" && enabled != 0 {
+            return Err(Error::new(
+                "plugin_enabled",
+                format!(
+                    "{} is enabled. Disable it in Luma > Settings > Plugins before staging an update.",
+                    package.manifest.name
                 ),
             ));
         }
@@ -2208,6 +2262,18 @@ pub(super) fn export_archive(store: &Store, plugin_id: &str) -> Result<(String, 
     }
     let mut files = BTreeMap::new();
     collect_files(&directory, &directory, &mut files)?;
+    if files.len() > MAX_FILES {
+        return Err(Error::new(
+            "storage",
+            format!("A plugin can contain at most {MAX_FILES} files."),
+        ));
+    }
+    if files.values().map(|bytes| bytes.len() as u64).sum::<u64>() > MAX_TOTAL_BYTES {
+        return Err(Error::new(
+            "storage",
+            format!("A plugin can export at most {MAX_TOTAL_BYTES} bytes."),
+        ));
+    }
     let bytes = archive::write(&manifest, &files)?;
     Ok((
         format!("{}-{}.luma-extension.zip", manifest.id, manifest.version),
@@ -2325,21 +2391,25 @@ pub fn schema_document() -> Value {
             "supported": ["declarative"],
             "unsupportedBehavior": "Other runtimes install disabled and cannot be enabled. Their files are packaged but never executed."
         },
-        "limits": {
-            "archiveBytes": MAX_ARCHIVE_BYTES,
-            "mcpSubmissionBytes": MAX_MCP_BYTES,
-            "files": MAX_FILES,
-            "entries": MAX_ENTRIES,
-            "fileBytes": MAX_FILE_BYTES,
-            "totalBytes": MAX_TOTAL_BYTES,
-            "compressionRatio": MAX_COMPRESSION_RATIO,
-            "manifestBytes": MAX_MANIFEST_BYTES,
-            "settings": MAX_SETTINGS,
-            "settingOptions": MAX_SETTING_OPTIONS,
-            "sourceFiles": MAX_SOURCE_FILES,
-            "pathBytes": MAX_PATH_BYTES
-        },
+        "limits": limits(),
         "example": example
+    })
+}
+
+pub(crate) fn limits() -> Value {
+    serde_json::json!({
+        "archiveBytes": MAX_ARCHIVE_BYTES,
+        "mcpSubmissionBytes": MAX_MCP_BYTES,
+        "files": MAX_FILES,
+        "entries": MAX_ENTRIES,
+        "fileBytes": MAX_FILE_BYTES,
+        "totalBytes": MAX_TOTAL_BYTES,
+        "compressionRatio": MAX_COMPRESSION_RATIO,
+        "manifestBytes": MAX_MANIFEST_BYTES,
+        "settings": MAX_SETTINGS,
+        "settingOptions": MAX_SETTING_OPTIONS,
+        "sourceFiles": MAX_SOURCE_FILES,
+        "pathBytes": MAX_PATH_BYTES
     })
 }
 
@@ -2687,6 +2757,11 @@ mod tests {
         let state = state_for_store(&store);
         assert!(!state.plugins[0].enabled);
         assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+        enable(&store, "com.example.lounge");
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "onyx");
+        assert_eq!(effective.config.home_columns, 1);
+        assert!(!effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
     }
 
     fn state_for_store(store: &Store) -> PluginsState {
@@ -2700,6 +2775,19 @@ mod tests {
         let (store, _root) = store();
         stage(&store, "com.example.lounge", "1.0.0");
         enable(&store, "com.example.lounge");
+        let mut unrelated = store.read_effective().unwrap().unwrap().config;
+        unrelated.interface_sounds = "roku".into();
+        let revision = store.read().unwrap().unwrap().revision;
+        store
+            .commit(Commit {
+                expected_revision: revision,
+                config: unrelated,
+            })
+            .unwrap();
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].controls.contains(&"theme".into()));
+        assert!(state.plugins[0].detached_fields.is_empty());
+        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "ember");
         let mut requested = store.read_effective().unwrap().unwrap().config;
         requested.theme = "sapphire".into();
         let revision = store.read().unwrap().unwrap().revision;
@@ -2773,19 +2861,24 @@ mod tests {
         stage(&store, "com.example.lounge", "1.0.0");
         enable(&store, "com.example.lounge");
         let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.lounge",
+            revision,
+            map(serde_json::json!({ "theme": "onyx" })),
+        )
+        .unwrap();
+        let revision = store.read().unwrap().unwrap().revision;
         let values = BTreeMap::from([("showFeatured".to_string(), serde_json::json!(false))]);
         let preview = store
             .preview_plugin_settings("com.example.lounge", revision, &values)
             .unwrap();
         assert_eq!(preview.plugin.as_ref().unwrap().action, "settings");
         assert!(!preview.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
-        assert_eq!(
-            store.read_effective().unwrap().unwrap().config,
-            preview.config.clone()
-        );
         let kept = store.keep(&preview.id).unwrap();
         assert_eq!(kept.revision, revision + 1);
         let state = state_for_store(&store);
+        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
         assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
     }
 
@@ -2842,7 +2935,7 @@ mod tests {
             .restore_version(current.revision, first.revision)
             .unwrap();
         assert_eq!(restored.config, first.config);
-        assert!(notices.is_empty());
+        assert!(!notices.is_empty());
         let state = state_for_store(&store);
         assert!(state.plugins.is_empty() || !state.plugins[0].enabled);
         let (restored, _) = store
@@ -2852,6 +2945,41 @@ mod tests {
         let state = state_for_store(&store);
         assert!(state.plugins[0].enabled);
         assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(true));
+    }
+
+    #[test]
+    fn history_restore_keeps_field_detachment_explicit() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        let enabled = enable(&store, "com.example.lounge");
+        let mut requested = store.read_effective().unwrap().unwrap().config;
+        requested.theme = "sapphire".into();
+        let revision = store.read().unwrap().unwrap().revision;
+        store
+            .commit(Commit {
+                expected_revision: revision,
+                config: requested,
+            })
+            .unwrap();
+        let detached = store.read().unwrap().unwrap();
+        assert!(state_for_store(&store).plugins[0]
+            .detached_fields
+            .contains(&"theme".into()));
+        let (restored, _) = store
+            .restore_version(detached.revision, enabled.revision)
+            .unwrap();
+        assert_eq!(restored.config, enabled.config);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert!(state.plugins[0].detached_fields.is_empty());
+        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "ember");
+        let (restored, _) = store
+            .restore_version(restored.revision, detached.revision)
+            .unwrap();
+        assert_eq!(restored.config.theme, "sapphire");
+        assert!(state_for_store(&store).plugins[0]
+            .detached_fields
+            .contains(&"theme".into()));
     }
 
     #[test]
@@ -2887,8 +3015,9 @@ mod tests {
         command_remove(&store, "com.example.lounge", revision).unwrap();
         assert_eq!(store.read_effective().unwrap().unwrap().config, Config::default());
         assert!(!root.join("com.example.lounge").join("1.0.0").exists());
+        let current = store.read().unwrap().unwrap();
         let (restored, notices) = store
-            .restore_version(revision, enabled.revision)
+            .restore_version(current.revision, enabled.revision)
             .unwrap();
         assert_eq!(restored.config, enabled.config);
         assert!(!notices.is_empty());
@@ -2896,10 +3025,100 @@ mod tests {
     }
 
     #[test]
+    fn nonconflicting_plugins_coexist_and_disable_only_their_own_fields() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        let mut second = manifest("com.example.widgets", "1.0.0");
+        second["name"] = serde_json::json!("Widget Pack");
+        second["settings"] = serde_json::json!([]);
+        second["contributes"] = serde_json::json!({
+            "density": "compact",
+            "widgets": { "spotifyEnabled": false, "spotifyPlacement": "bottom-left" }
+        });
+        stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": second, "files": [] }),
+            "mcp",
+        )
+        .unwrap();
+        enable(&store, "com.example.lounge");
+        enable(&store, "com.example.widgets");
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "ember");
+        assert_eq!(effective.config.home_columns, 2);
+        assert_eq!(effective.config.density, "compact");
+        assert!(!effective.config.widgets.spotify.enabled);
+        assert_eq!(effective.config.widgets.spotify.placement, "bottom-left");
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.widgets", revision).unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        assert_eq!(effective.config.theme, "ember");
+        assert_eq!(effective.config.home_columns, 2);
+        assert_eq!(effective.config.density, "comfortable");
+        assert!(effective.config.widgets.spotify.enabled);
+    }
+
+    #[test]
+    fn mcp_cannot_replace_an_enabled_plugin_without_the_user_disabling_it() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let before = store.read_effective().unwrap().unwrap();
+        let error = stage_submission(
+            &store,
+            &submission("com.example.lounge", "1.1.0"),
+            "mcp",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "plugin_enabled");
+        let after = store.read_effective().unwrap().unwrap();
+        assert_eq!(after, before);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].version, "1.0.0");
+    }
+
+    #[test]
+    fn failed_plugin_settings_write_preserves_values_and_effective_configuration() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        enable(&store, "com.example.lounge");
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.lounge",
+            revision,
+            map(serde_json::json!({ "theme": "onyx" })),
+        )
+        .unwrap();
+        let before = store.read_effective().unwrap().unwrap();
+        let revision = store.read().unwrap().unwrap().revision;
+        store
+            .connection()
+            .unwrap()
+            .execute_batch("CREATE TRIGGER reject_plugin_history BEFORE INSERT ON versions BEGIN SELECT RAISE(ABORT, 'disk full'); END;")
+            .unwrap();
+        assert_eq!(
+            command_save_settings(
+                &store,
+                "com.example.lounge",
+                revision,
+                map(serde_json::json!({ "theme": "ember" })),
+            )
+            .unwrap_err()
+            .code,
+            "storage"
+        );
+        let after = store.read_effective().unwrap().unwrap();
+        assert_eq!(after, before);
+        let state = state_for_store(&store);
+        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+    }
+
+    #[test]
     fn archive_roundtrip_export_is_private_and_immutable() {
         let (store, _root) = store();
         let manifest_json = manifest("com.example.archive", "1.0.0");
-        let manifest: Manifest = serde_json::from_value(manifest_json.clone()).unwrap();
         let files = BTreeMap::from([
             ("source/README.md".to_string(), b"Read me".to_vec()),
             ("assets/theme.txt".to_string(), b"ember".to_vec()),
@@ -2913,6 +3132,7 @@ mod tests {
         assert!(!first.plugin.enabled);
         let second = import_archive(&store, &bytes, "import").unwrap();
         assert!(second.already_installed);
+        drop(bytes);
         let (name, exported) = export_archive(&store, "com.example.archive").unwrap();
         assert_eq!(name, "com.example.archive-1.0.0.luma-extension.zip");
         let package = archive::read(&exported).unwrap();
@@ -2937,6 +3157,20 @@ mod tests {
             writer.write_all(bytes).unwrap();
         }
         writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn archive_accepts_one_top_level_folder_with_a_readable_manifest() {
+        let mut manifest = manifest("com.example.folder", "1.0.0");
+        manifest["source"] = serde_json::json!(["source/README.md"]);
+        let manifest = serde_json::to_vec(&manifest).unwrap();
+        let bytes = zip_bytes(&[
+            ("pack/luma-extension.json", manifest.as_slice()),
+            ("pack/source/README.md", b"Read me"),
+        ]);
+        let package = archive::read(&bytes).unwrap();
+        assert_eq!(package.manifest.id, "com.example.folder");
+        assert!(package.files.contains_key("source/README.md"));
     }
 
     #[test]

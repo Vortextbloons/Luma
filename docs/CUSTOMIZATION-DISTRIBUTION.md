@@ -1,6 +1,6 @@
 # Extension sharing, bundled examples, and themes
 
-Status: product planning, 2026-11-15. No package loader, marketplace, or example extension is implemented by this document. This supplements [the layer architecture](CUSTOMIZATION-LAYERS.md), [MCP and recovery](CUSTOMIZATION-MCP-PLAN.md), and [remote surfaces](CUSTOMIZATION-DISPLAY-BOX.md).
+Status: declarative package sharing shipped 2026-11-15; executable runtime and catalog remain future work. [PLUGINS.md](PLUGINS.md) owns the exact manifest, ZIP, import/export, settings, navigation, limits, and MCP contract. This supplements [the layer architecture](CUSTOMIZATION-LAYERS.md), [MCP and recovery](CUSTOMIZATION-MCP-PLAN.md), and [remote surfaces](CUSTOMIZATION-DISPLAY-BOX.md).
 
 ## Intended experience
 

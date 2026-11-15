@@ -1,6 +1,6 @@
 # Customization and MCP plan
 
-Status: planning only. This document changes no application code. Implementation and spikes remain future work.
+Status: MCP read/validate/preview, ten-version history, and declarative plugin staging shipped 2026-11-15. Executable runtimes and the transport/SDK experiments remain future work. [PLUGINS.md](PLUGINS.md) owns the exact shipped plugin tools, resources, schema, settings staging, and limits.
 Assessed: 2026-11-15 against the working checkout at `ddf0122`, with unrelated phone-remote and Home work in progress. This plan does not depend on that work finishing.
 Companion: [the customization layer model](CUSTOMIZATION-LAYERS.md) describes how appearance, composition, and executable extensions relate. This document covers the MCP boundary, review, versioning, and the concrete work needed to make those layers usable.
 

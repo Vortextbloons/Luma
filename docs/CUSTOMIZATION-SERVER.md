@@ -1,6 +1,6 @@
 # Local customization server foundation
 
-Implemented: native Home/appearance ownership, registered Home sections, one/two-column layouts, recoverable preview/Keep, and a local REST API. MCP, nested containers, plugin loading, and AI chat remain future work. See [the roadmap](CUSTOMIZATION-ROADMAP.md).
+Implemented: native Home/appearance ownership, registered Home sections, one/two-column layouts, recoverable preview/Keep, ten saved versions, the opt-in MCP endpoint, and declarative appearance/Home plugins with settings and portable ZIP import/export. Executable plugin runtimes, nested containers, and AI chat remain future work. See [plugins](PLUGINS.md) and [the roadmap](CUSTOMIZATION-ROADMAP.md).
 
 ## Enable locally
 
@@ -36,7 +36,7 @@ Every route requires `Authorization: Bearer <token>` and exact host `127.0.0.1:9
 | POST | `/v1/preview/keep` | `{ "previewId": string }` | Committed document |
 | POST | `/v1/preview/cancel` | `{ "previewId": string }` | `{ "cancelled": true }` |
 
-A document has `version: 3`, positive `revision`, and `config`. Config contains `theme`, `density`, `appTileShape`, `textSize`, `reducedMotion`, `interfaceSounds`, `soundLevel`, `home`, `homeColumns`, `widgets`, and `order`. Older v3 documents that predate the reading and sound fields load with `standard`, `false`, `real`, and `standard` respectively. Writes replace the complete configuration. Unknown fields/values are rejected. All seven Home kinds must occur exactly once; all twelve apps occur once with Custom last. Hidden rows retain their position. `homeColumns` and each row's required `span` accept only 1 or 2. In two columns, span 1 uses half the grid and span 2 uses both columns. The leading hero stays full width. Below 1000 px, sections stack in order.
+A document has `version: 3`, positive `revision`, and `config`. The REST document is the effective rendered configuration, including enabled declarative plugin contributions; plugin installation and export are user actions in Settings, not REST operations. Config contains `theme`, `density`, `appTileShape`, `textSize`, `reducedMotion`, `interfaceSounds`, `soundLevel`, `home`, `homeColumns`, `widgets`, and `order`. Older v3 documents that predate the reading and sound fields load with `standard`, `false`, `real`, and `standard` respectively. Writes replace the complete configuration. Unknown fields/values are rejected. All seven Home kinds must occur exactly once; all twelve apps occur once with Custom last. Hidden rows retain their position. `homeColumns` and each row's required `span` accept only 1 or 2. In two columns, span 1 uses half the grid and span 2 uses both columns. The leading hero stays full width. Below 1000 px, sections stack in order. If a write changes a field controlled by an enabled plugin, that plugin's control of the field is detached and the user's value is stored.
 
 Each Home row is `{ "id": "personal-dock", "component": "apps", "visible": true, "span": 1 }`. IDs identify instances, must be unique, and contain 1?64 ASCII letters, digits, underscores, or hyphens. Components are `hero`, `continue`, `apps`, `popular`, `featured`, `recent`, and `recentApps`. Renaming an instance preserves its kind and label. Ordering, hiding, and sizing these singleton sections are supported; extra components and nesting are not.
 

@@ -19,7 +19,7 @@ const settleMs = Number(argument('settle', '8000'));
 const idleMs = Number(argument('idle', '30000'));
 const jsonPath = argument('json', '');
 const skipViews = flag('no-views');
-const devServerUrl = argument('dev-url', 'http://127.0.0.1:1420/');
+const devServerUrl = argument('dev-url', 'http://localhost:1420/');
 
 if (!existsSync(exe)) {
   console.error(`Missing executable: ${exe}\nBuild it with: cargo build --manifest-path src-tauri/Cargo.toml`);
@@ -87,6 +87,19 @@ const samplerScript = join(tmpdir(), `luma-perf-sampler-${process.pid}.ps1`);
 writeFileSync(samplerScript, String.raw`
 param([int]$HostPid, [int]$IntervalMs)
 $ErrorActionPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LumaIo {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct Counters {
+    public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+    public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+  }
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool GetProcessIoCounters(IntPtr handle, out Counters counters);
+}
+'@
 $timer = [Diagnostics.Stopwatch]::StartNew()
 while ($timer.ElapsedMilliseconds -lt 600000) {
   $hostProcess = Get-Process -Id $HostPid
@@ -111,10 +124,11 @@ while ($timer.ElapsedMilliseconds -lt 600000) {
     $write = 0
     $role = 'browser'
     if ($process.ProcessName -eq 'luma') { $role = 'host' }
-    if ($cim) {
-      $read = [double]$cim.ReadTransferCount
-      $write = [double]$cim.WriteTransferCount
-      if ($cim.CommandLine -match '--type=([a-z-]+)') { $role = $Matches[1] }
+    if ($cim -and $cim.CommandLine -match '--type=([a-z-]+)') { $role = $Matches[1] }
+    $counters = New-Object 'LumaIo+Counters'
+    if ([LumaIo]::GetProcessIoCounters($process.Handle, [ref]$counters)) {
+      $read = [double]$counters.ReadTransferCount
+      $write = [double]$counters.WriteTransferCount
     }
     [pscustomobject]@{
       id = $id
@@ -325,7 +339,7 @@ const processes = (idleEndSample?.procs ?? []).map(process => {
     threads: process.threads,
     handles: process.handles,
     cpu: Math.round(process.cpu - (before?.cpu ?? process.cpu)),
-    disk: Math.round(((process.read - (before?.read ?? process.read)) + (process.write - (before?.write ?? process.write))) / 1024)
+    io: Math.round(((process.read - (before?.read ?? process.read)) + (process.write - (before?.write ?? process.write))) / 1024)
   };
 });
 const exeBytes = spawnSync('powershell', ['-NoProfile', '-Command', `(Get-Item -LiteralPath '${exe}').Length`], { encoding: 'utf8' }).stdout?.trim();
@@ -345,9 +359,9 @@ const report = {
   startup: { devtoolsMs: connectedAt, interactiveMs: readyAt },
   idle: {
     sampledMs: idleElapsed,
-    cpuOfOneCore: Number(cpuDelta.toFixed(2)),
-    cpuOfMachine: Number((cpuDelta / cores).toFixed(2)),
-    diskBytes: Math.round(ioDelta)
+    cpuOfOneCore: Number((cpuDelta * 100).toFixed(2)),
+    cpuOfMachine: Number(((cpuDelta / cores) * 100).toFixed(2)),
+    ioBytes: Math.round(ioDelta)
   },
   memory: {
     wsMedian: Math.round(median(plateau.map(sample => total(sample, 'ws')))),
@@ -383,7 +397,7 @@ console.log(`- frontend: ${url} ${devFrontend ? '(dev server: unminified modules
 if (staleExe) console.log(`- warning: sources are newer than the executable; rebuild before trusting these numbers`);
 if (report.devServerStarted) console.log(`- started a temporary Vite dev server for this run`);
 console.log(`- startup: DevTools reachable ${connectedAt} ms, app interactive ${readyAt} ms`);
-console.log(`- idle (${(idleElapsed / 1000).toFixed(0)}s): ${report.idle.cpuOfOneCore.toFixed(2)}% of one core (${report.idle.cpuOfMachine.toFixed(2)}% of ${cores} cores), disk ${(report.idle.diskBytes / 1024).toFixed(0)} KB`);
+console.log(`- idle (${(idleElapsed / 1000).toFixed(0)}s): ${report.idle.cpuOfOneCore.toFixed(2)}% of one core (${report.idle.cpuOfMachine.toFixed(2)}% of ${cores} cores), I/O ${(report.idle.ioBytes / 1024).toFixed(0)} KB`);
 console.log(`- memory: ${mb(report.memory.wsMedian)} working set (peak ${mb(report.memory.wsPeak)}), ${mb(report.memory.privateMedian)} private commit`);
 console.log(`- ${report.memory.processes} processes, ${report.memory.threads} threads, ${report.memory.handles} handles`);
 console.log(`- webview roles: ${Object.entries(report.webviewRoles).map(([role, count]) => `${role}×${count}`).join(', ') || 'n/a'}`);
@@ -394,8 +408,8 @@ if (views.length) {
   console.log('| --- | --- | --- | --- | --- |');
   for (const entry of views) console.log(`| ${entry.view} | ${mb(entry.ws)} | ${mb(entry.private)} | ${(entry.heap / 1048576).toFixed(1)} MB | ${entry.nodes} |`);
 }
-console.log('\n| Process | PID | Working set | Private | Threads | Handles | CPU while idle | Disk while idle |');
+console.log('\n| Process | PID | Working set | Private | Threads | Handles | CPU while idle | I/O while idle |');
 console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
 for (const process of processes.sort((a, b) => b.private - a.private)) {
-  console.log(`| ${process.role} | ${process.pid} | ${mb(process.ws)} | ${mb(process.private)} | ${process.threads} | ${process.handles} | ${process.cpu} ms (${((process.cpu / idleElapsed) * 100).toFixed(2)}% of 1 core) | ${(process.disk / 1024).toFixed(1)} MB |`);
+  console.log(`| ${process.role} | ${process.pid} | ${mb(process.ws)} | ${mb(process.private)} | ${process.threads} | ${process.handles} | ${process.cpu} ms (${((process.cpu / idleElapsed) * 100).toFixed(2)}% of 1 core) | ${(process.io / 1024).toFixed(1)} MB |`);
 }

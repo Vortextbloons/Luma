@@ -132,7 +132,7 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 async fn config(State(app): State<tauri::AppHandle>) -> Response {
-    match blocking(&app, |store| store.read()).await {
+    match blocking(&app, |store| store.read_effective()).await {
         Ok(document) => Json(document).into_response(),
         Err(error) => failure(error),
     }
@@ -233,7 +233,9 @@ async fn write(
 ) -> Result<Document, Error> {
     let document = blocking(app, task).await?;
     publish(app, &document);
-    Ok(document)
+    Ok(blocking(app, |store| store.read_effective())
+        .await?
+        .unwrap_or(document))
 }
 
 fn reply(result: Result<Document, Error>) -> Response {

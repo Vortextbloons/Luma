@@ -50,6 +50,10 @@
     requestAnimationFrame(() => root?.querySelector<HTMLElement>('[data-plugin-remove-cancel]')?.focus());
   }
 
+  function attachCancel(node: HTMLElement) {
+    requestAnimationFrame(() => { if (node.isConnected) node.focus(); });
+  }
+
   async function run(message: string, task: () => Promise<void>) {
     actionError = '';
     note = '';
@@ -193,10 +197,11 @@
     </div>
     {#if note}<p class="panel-description" role="status">{note}</p>{/if}
     {#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
-    {#if error && !plugins}
+    {#if error}
       <p class="error" role="alert">{error}</p>
       <div class="settings-actions"><button class="panel-secondary" onclick={() => void reload()}>Try again</button></div>
-    {:else if loading && !plugins}
+    {/if}
+    {#if loading && !plugins}
       <p class="panel-description" role="status">Checking installed plugins…</p>
     {:else if !list.length}
       <p class="panel-description">No plugins yet. Import a .luma-extension.zip, or ask an AI to stage one through Luma MCP. Plugins never run scripts or HTML.</p>
@@ -237,7 +242,7 @@
                 <p>Remove {record.name}? This deletes its files and saved settings. Appearance and Home return to your saved settings. You can import it again later.</p>
                 {#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
                 <div class="settings-actions">
-                  <button class="panel-secondary" data-plugin-remove-cancel disabled={!!busy} onclick={cancelRemove}>Cancel</button>
+                  <button class="panel-secondary" data-plugin-remove-cancel disabled={!!busy} {@attach attachCancel} onclick={cancelRemove}>Cancel</button>
                   <button class="panel-secondary is-primary" disabled={!!busy} onclick={() => removePlugin(record)}>{busy === record.id ? 'Removing…' : 'Remove plugin'}</button>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 <script module lang="ts">
   import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from '../types';
   import type { MusicCardItem } from '../types/spotify';
+  import type { GameScore } from '../services/sportsScores';
   import type { HeroSlide } from './MovieHero.svelte';
   export interface HomeData {
     heroSlides: HeroSlide[];
@@ -22,6 +23,9 @@
     musicLoading: boolean;
     popular: MediaItem[];
     featured: MediaItem[];
+    previewLeague: AppId | null;
+    leagueGames: GameScore[];
+    leagueGamesLoading: boolean;
   }
   export interface HomeActions {
     openStremio: (id: string) => void;
@@ -56,6 +60,7 @@
   import StremioRow from './StremioRow.svelte';
   import SteamRow from './SteamRow.svelte';
   import ContinueWatching from './activity/ContinueWatching.svelte';
+  import LeagueGamesRow from './LeagueGamesRow.svelte';
   import RecentlyPlayed from './activity/RecentlyPlayed.svelte';
   import RecentApps from './activity/RecentApps.svelte';
   import { appProviders } from '../services/activity';
@@ -78,7 +83,9 @@
 {/snippet}
 
 {#snippet continuing()}
-  {#if data.previewApp === 'Stremio'}
+  {#if data.previewLeague}
+    <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} open={() => data.previewLeague && actions.launch(data.previewLeague)} />
+  {:else if data.previewApp === 'Stremio'}
     <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={data.stremioRecent.slice(0, 4)} open={actions.openStremio} connected={data.stremio?.connected ?? false} connect={actions.openStremioPairing} onpreview={actions.previewStremio} cinematic /></div>
   {:else if data.previewApp === 'Steam' && data.steamGames.length}
     <div class="view-swap"><SteamRow items={data.steamGames} open={actions.openSteamGame} onpreview={actions.previewSteamGame} /></div>
@@ -89,7 +96,7 @@
 
 {#snippet apps()}
   <AppDock order={data.order} launch={actions.launch} launching={data.launching} preview={actions.preview} active={data.previewApp} />
-  {#if data.previewApp && data.catalogVisible}
+  {#if data.previewApp && data.catalogVisible && !data.previewLeague}
     {#key data.previewApp}
       <div class="view-swap">
         {#if data.previewApp === 'YouTube' && data.youTubeFeed.length}

@@ -1238,9 +1238,13 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                     "plugin": result.plugin,
                     "alreadyInstalled": result.already_installed,
                     "replacedVersion": result.replaced_version,
-                    "enabled": false,
-                    "status": "installed_disabled",
-                    "next": "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview it, and press Keep to enable it. No MCP tool can enable or keep it."
+                    "enabled": result.plugin.enabled,
+                    "status": if result.already_installed { "already_installed" } else { "installed_disabled" },
+                    "next": if result.already_installed && result.plugin.enabled {
+                        "The same package is already installed and enabled. No change was made."
+                    } else {
+                        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview it, and press Keep to enable it. No MCP tool can enable or keep it."
+                    }
                 })),
                 Err(error) => tool_failure(error),
             },
@@ -1274,6 +1278,16 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
             for (key, value) in arguments.settings {
                 let key = key.rsplit_once('.').map(|(_, key)| key.to_string()).unwrap_or(key);
                 values.insert(key, value);
+            }
+            let visible = match server.backend.launcher_visible().await {
+                Ok(visible) => visible,
+                Err(error) => return tool_failure(error),
+            };
+            if !visible {
+                return tool_failure(failure(
+                    "launcher_unavailable",
+                    "Open Luma on the desktop and keep the launcher visible so the user can review these plugin settings.",
+                ));
             }
             match server
                 .backend
@@ -1443,6 +1457,21 @@ fn action(code: &str) -> &'static str {
         }
         "not_owner" => {
             "This tool can cancel only the preview created by the current agent grant. Ask the user to reject any other review in Luma."
+        }
+        "plugin_missing" => {
+            "Stage the plugin package first, or ask the user to import it in Settings > Plugins."
+        }
+        "plugin_enabled" => {
+            "Ask the user to disable the plugin in Luma > Settings > Plugins before staging an update. Do not try to bypass this."
+        }
+        "plugin_conflict" => {
+            "Another enabled plugin already controls one of these fields. Ask the user to disable or remove it, or choose different contributions."
+        }
+        "plugin_unsupported" => {
+            "This Luma version runs declarative plugins only. Report the runtime limitation and do not claim the plugin can be enabled."
+        }
+        "plugin_settings" | "immutable_version" => {
+            "Correct the declared setting or package version, then validate again."
         }
         "storage" => {
             "Luma could not reach customization storage. Ask the user to check Luma before retrying."
@@ -1884,19 +1913,7 @@ fn capabilities() -> Value {
                     "installedDisabled": ["isolated-ui", "background", "main-page"]
                 },
                 "importFormats": ["luma-extension.zip", "manifest plus text/base64 files"],
-                "limits": {
-                    "archiveBytes": 8 * 1024 * 1024,
-                    "mcpSubmissionBytes": 2 * 1024 * 1024,
-                    "files": 256,
-                    "entries": 512,
-                    "fileBytes": 4 * 1024 * 1024,
-                    "totalBytes": 16 * 1024 * 1024,
-                    "compressionRatio": 200,
-                    "manifestBytes": 64 * 1024,
-                    "settings": 24,
-                    "settingOptions": 20,
-                    "pathBytes": 180
-                },
+                "limits": plugin::limits(),
                 "review": "MCP installs plugins disabled. Only the user can preview and enable a plugin and press Keep. Settings staged by MCP also require user Keep."
             }
         },
@@ -2493,8 +2510,12 @@ mod tests {
         assert!(names.contains(&"luma_capabilities_get"));
         assert!(names.contains(&"luma_candidate_preview"));
         assert!(names.contains(&"luma_candidate_cancel"));
+        assert!(names.contains(&"luma_plugin_validate"));
+        assert!(names.contains(&"luma_plugin_stage"));
+        assert!(names.contains(&"luma_plugin_settings_stage"));
+        assert!(names.contains(&"luma_plugins_list"));
         assert!(!names.iter().any(|name| {
-            ["keep", "commit", "restore", "reset", "launch", "install"]
+            ["keep", "commit", "restore", "reset", "launch", "install", "enable", "remove", "export"]
                 .iter()
                 .any(|word| name.contains(word))
         }));
@@ -2513,6 +2534,8 @@ mod tests {
             .collect();
         assert!(uris.contains(&"luma://customization/capabilities"));
         assert!(uris.contains(&"luma://customization/guidance"));
+        assert!(uris.contains(&plugin::SCHEMA_RESOURCE));
+        assert!(uris.contains(&plugin::EXAMPLE_RESOURCE));
 
         let read = json!({
             "jsonrpc": "2.0",
@@ -2540,6 +2563,23 @@ mod tests {
                 .len(),
             7
         );
+        assert_eq!(capabilities["layers"]["plugins"]["supported"], true);
+        assert_eq!(capabilities["layers"]["plugins"]["runtimes"]["supported"][0], "declarative");
+
+        let read = json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "resources/read",
+            "params": { "uri": plugin::SCHEMA_RESOURCE }
+        })
+        .to_string();
+        let (status, response) = post(port, &headers(LEGACY_PROTOCOL), &read);
+        assert_eq!(status, 200);
+        let value = rpc(&response);
+        let schema: Value =
+            serde_json::from_str(value["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(schema["apiVersion"], 1);
+        assert_eq!(schema["runtime"]["supported"][0], "declarative");
     }
 
     #[test]

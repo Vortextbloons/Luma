@@ -35,7 +35,7 @@ function fixture() {
     heroSlides: [{ key: 'movie:one', eyebrow: 'FEATURED', title: 'A movie', chips: [], description: '', art: '', primaryLabel: 'Play', primary: () => {} }],
     heroSource: 'catalog', previewApp: null, stremioRecent: [], stremio: null, steamGames: [], activityItems: [], trackingEnabled: true,
     order: ['YouTube', 'Spotify', 'Custom'], launching: null, catalogVisible: true, youTubeFeed: [], previewMusic: [], steamRecommendations: [], steamRecommendationSource: null,
-    previewActivity: [], musicLoading: false, popular: [], featured: [],
+    previewActivity: [], musicLoading: false, popular: [], featured: [], previewLeague: null, leagueGames: [], leagueGamesLoading: false,
   };
   const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
   return { rows: defaultHomeRows(), data, actions };
@@ -77,6 +77,27 @@ test('app previews preserve their content and suppress general catalog sections'
   props.data.previewApp = 'Stremio';
   props.data.youTubeFeed = [];
   assert.match(render(HomeRenderer, { props }).body, /Connect Stremio to continue watching/);
+});
+
+test('sports app previews show the league games instead of unrelated Continue Watching', () => {
+  const props = fixture();
+  props.data.previewApp = 'NBA';
+  props.data.previewLeague = 'NBA';
+  props.data.leagueGames = [{
+    id: '401', league: 'NBA', leagueLogo: '', date: '2026-11-15T00:00Z', state: 'in', status: '4th · 2:31', venue: 'Garden',
+    teams: [
+      { name: 'Boston Celtics', abbreviation: 'BOS', logo: '', score: '102', record: '9-2', color: '#007a33' },
+      { name: 'Los Angeles Lakers', abbreviation: 'LAL', logo: '', score: '98', record: '7-4', color: '#552583' },
+    ],
+  }];
+  const html = render(HomeRenderer, { props }).body;
+  assert.match(html, /Live on NBA/);
+  assert.match(html, /Boston Celtics/);
+  assert.match(html, /● LIVE/);
+  assert.doesNotMatch(html, /Nothing in progress|No recommendations available yet/);
+  props.data.leagueGames = [];
+  props.data.leagueGamesLoading = true;
+  assert.match(render(HomeRenderer, { props }).body, /Looking up NBA games/);
 });
 
 test('hidden sections and unavailable hero content do not leave interactive copies', () => {

@@ -228,3 +228,38 @@ test('disposed preview subscriptions cannot change the displayed layout', async 
     assert.equal(f.previews.length, count);
   } finally { f.cleanup(); }
 });
+
+test('plugin state, change events, and notices stay attached to the same customization owner', async () => {
+  const settings = config();
+  const listeners = new Map();
+  const notices = [];
+  const states = [];
+  const state = (theme = 'ember') => ({
+    plugins: [{ id: 'com.example.lounge', name: 'Lounge', version: '1.0.0', enabled: true, controls: ['theme'], settings: [], canEnable: false }],
+    effective: { ...config(), theme },
+  });
+  globalThis.__customizationTest = {
+    listen: async (event, callback) => { listeners.set(event, callback); return () => listeners.delete(event); },
+    invoke: async command => {
+      if (command === 'customization_initialize') return document(1);
+      if (command === 'customization_preview_read') return null;
+      if (command === 'customization_plugins_read') return structuredClone(state());
+      assert.fail(`Unexpected command: ${command}`);
+    },
+  };
+  const sync = createCustomizationSync(settings, value => notices.push(value), { plugins: value => states.push(value) });
+  try {
+    await sync.start();
+    assert.equal(states.length, 1);
+    assert.equal(states[0].plugins[0].name, 'Lounge');
+    listeners.get('customization-plugins-changed')({ payload: state('onyx') });
+    assert.equal(states.at(-1).effective.theme, 'onyx');
+    listeners.get('customization-notice')({ payload: 'A plugin control was detached.' });
+    assert.deepEqual(notices, ['A plugin control was detached.']);
+    assert.equal(listeners.size, 4);
+  } finally {
+    sync.dispose();
+    delete globalThis.__customizationTest;
+  }
+  assert.equal(listeners.size, 0);
+});

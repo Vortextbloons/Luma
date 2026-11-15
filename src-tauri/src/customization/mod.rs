@@ -946,9 +946,30 @@ pub async fn customization_plugin_preview(
     plugin_id: String,
     expected_revision: u64,
 ) -> Result<Preview, Error> {
+    if !app.get_webview_window("main").is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
+    }) {
+        return Err(Error::new(
+            "launcher_unavailable",
+            "Open Luma before previewing a plugin.",
+        ));
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let preview = plugin::command_preview(&app.state::<Store>(), &plugin_id, expected_revision)?;
-        publish_preview(&app);
+        let visible = app.get_webview_window("main").is_some_and(|window| {
+            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
+        });
+        if !visible
+            || app
+                .emit_to("main", "customization-preview-changed", Some(&preview))
+                .is_err()
+        {
+            let _ = app.state::<Store>().cancel(&preview.id);
+            return Err(Error::new(
+                "launcher_unavailable",
+                "Luma closed before the plugin preview could open.",
+            ));
+        }
         Ok::<_, Error>(preview)
     })
     .await

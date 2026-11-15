@@ -4,7 +4,7 @@
   import { defaultThemeId, themeById } from '../services/theme';
   import type { CustomizationConfig, CustomizationDocument } from '../services/customization';
 
-  type HistoryEntry = { revision: number; savedAt: string | null; config: CustomizationConfig };
+  type HistoryEntry = { revision: number; savedAt: string | null; config: CustomizationConfig; effective?: CustomizationConfig; plugins?: { plugins: { id: string; enabled: boolean }[] } };
   type McpStatus = { enabled: boolean; endpoint: string };
   type McpGrant = McpStatus & { token: string };
 
@@ -26,6 +26,9 @@ Rules:
    extension without saying so first.
 4. Validate a complete candidate, then stage it. Tell the user that the change
    is waiting for review and that they must press Keep in Luma.
+   For a plugin, read luma://plugins/schema, validate and stage the package,
+   then tell the user to open Settings > Plugins and press Preview and enable,
+   then Keep. Never claim it is enabled until the user does that.
 5. Never claim a change is applied, saved, or live until the user confirms they
    kept it, or until a subsequent read shows a new revision.
 6. If validation fails, report the exact error. Do not retry an unchanged
@@ -78,10 +81,12 @@ Rules:
     return label === 'Saved version' ? 'this saved version' : `the version from ${label}`;
   }
 
-  function describe(config: CustomizationConfig) {
+  function describe(entry: HistoryEntry) {
+    const config = entry.effective ?? entry.config;
     const theme = themeById(config.theme);
     const rows = config.home.filter(row => row.visible).length;
-    return `${theme.name} · ${config.homeColumns === 2 ? 'two columns' : 'one column'} · ${rows} ${rows === 1 ? 'row' : 'rows'} · ${config.widgets.spotify.enabled ? 'Spotify widget on' : 'Spotify widget off'}`;
+    const plugins = entry.plugins?.plugins.filter(plugin => plugin.enabled).length ?? 0;
+    return `${theme.name} · ${config.homeColumns === 2 ? 'two columns' : 'one column'} · ${rows} ${rows === 1 ? 'row' : 'rows'} · ${config.widgets.spotify.enabled ? 'Spotify widget on' : 'Spotify widget off'}${plugins ? ` · ${plugins} ${plugins === 1 ? 'plugin' : 'plugins'} on` : ''}`;
   }
 
   function focusActiveSectionTab() {
@@ -280,7 +285,7 @@ Rules:
       if (disposed) return;
       resetConfirming = false;
       onchanged?.();
-      resetNote = 'Appearance and Home reset to defaults. App order, sounds, accounts, app locations, and saved versions were kept.';
+      resetNote = 'Appearance and Home reset to defaults. Plugins that controlled these fields were detached, and their saved settings stay. App order, sounds, accounts, app locations, and saved versions were kept.';
       focusActiveSectionTab();
       if (document.revision !== loadedRevision) await loadHistory(document.revision);
     } catch (error) {
@@ -408,7 +413,7 @@ Rules:
           <div class="settings-row">
             <div class="settings-row-copy">
               <strong>{savedLabel(entry.savedAt)}</strong>
-              <span>{describe(entry.config)} · Revision {entry.revision}</span>
+              <span>{describe(entry)} · Revision {entry.revision}</span>
             </div>
             {#if entry.revision === revision}
               <span class="settings-badge is-good">Current</span>
@@ -418,7 +423,7 @@ Rules:
           </div>
           {#if restoreTarget === entry.revision}
             <div class="history-confirm" role="group" aria-label="Confirm restoring a saved version">
-              <p>Restore {versionLabel(entry.savedAt)}? This replaces the current theme, layout, widgets, app order, and sound. Accounts and app locations stay. A new revision is created, so this version stays in history.</p>
+              <p>Restore {versionLabel(entry.savedAt)}? This replaces the current theme, layout, widgets, app order, and sound. Accounts and app locations stay. Plugins from that version are re-enabled only when the same version is still installed; otherwise they stay disabled with an explanation. A new revision is created, so this version stays in history.</p>
               {#if restoreError}<p class="error" role="alert">{restoreError}</p>{/if}
               <div class="settings-actions">
                 <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelRestore}>Cancel</button>
@@ -441,6 +446,7 @@ Rules:
         <li>Theme returns to {defaultThemeName}.</li>
         <li>Density, tile shape, text size, and motion return to their defaults.</li>
         <li>Home rows, columns, and widgets return to their defaults.</li>
+        <li>Enabled plugins that control these fields are detached; they stay installed and keep their saved settings.</li>
       </ul>
       {#if !resetConfirming}
         <div class="settings-actions">
@@ -448,7 +454,7 @@ Rules:
         </div>
       {:else}
         <div class="reset-confirm" role="group" aria-label="Confirm resetting appearance and Home">
-          <p>Reset appearance and Home to defaults? App order, sounds, accounts, app locations, and saved versions stay.</p>
+          <p>Reset appearance and Home to defaults? Plugins that control these fields are detached but stay installed with their settings. App order, sounds, accounts, app locations, and saved versions stay.</p>
           {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}
           <div class="settings-actions">
             <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelReset}>Cancel</button>

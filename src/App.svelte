@@ -129,12 +129,14 @@
   let leagueScores = $state.raw<GameScore[]>(cachedSportsScores().scores);
   let leagueArtwork = $state<Record<string, string>>(Object.fromEntries(cachedSportsArtwork()));
   const leagueCovers: Record<string, string> = { NBA: nbaCover, NFL: nflCover, MLB: mlbCover, NHL: nhlCover };
-  const previewLeague = $derived(previewApp && majorSportsLeagues.includes(previewApp) ? previewApp : null);
+  const previewLeague: AppId | null = $derived(previewApp && majorSportsLeagues.includes(previewApp) ? previewApp : null);
   const leagueGames = $derived(leagueScores.filter(game => game.league === previewLeague).sort((a, b) => ['in', 'pre', 'post'].indexOf(a.state) - ['in', 'pre', 'post'].indexOf(b.state)).slice(0, 5));
+  let leagueGamesLoading = $state(false);
   $effect(() => {
     const league = previewLeague;
-    if (!native || !league) return;
+    if (!native || !league) { leagueGamesLoading = false; return; }
     let active = true;
+    leagueGamesLoading = true;
     const timer = setTimeout(() => {
       void loadSportsScores(league).then(async games => {
         if (!active) return;
@@ -144,9 +146,9 @@
           const art = await loadSportsArtwork(league, first.id);
           if (active) leagueArtwork[first.id] = art;
         }
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => { if (active) leagueGamesLoading = false; });
     }, 180);
-    return () => { active = false; clearTimeout(timer); };
+    return () => { active = false; leagueGamesLoading = false; clearTimeout(timer); };
   });
   function leagueSlide(league: string, game?: GameScore): HeroSlide {
     const art = game ? leagueArtwork[game.id] : '';
@@ -761,7 +763,7 @@
   <div class="view-content" {@attach animateView(tab)}>
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
-      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured }}
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading }}
       actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
