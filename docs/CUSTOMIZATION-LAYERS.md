@@ -654,7 +654,7 @@ The existing category/section pattern stays valid. **Proposal:**
 | System | Startup & memory, Updates | Tray/startup/fast switch, updater. |
 | **Customization** | Extensions, Screens, Versions, Reset appearance, AI access, Problems | Package list/detail, enable/disable/grant/uninstall, screen pinning, 10-version history, visual reset, MCP setup, degraded-load repair, developer mode. |
 
-**Shipped navigation (2026-11-15):** the desktop first category is **Plugins**, with `Installed plugins`, `Theme`, `Home layout`, and `Widgets`. The built-in appearance plugin owns the three appearance sections; old `Appearance & Home`, `Theme`, `Home layout`, and `Widgets` entry points resolve there. The bottom category remains **MCP customization** with AI access, saved versions, and reset. See [PLUGINS.md](PLUGINS.md).
+**Shipped navigation (2026-11-15):** the desktop first category is **Appearance & Home**, with `Theme`, `Home layout`, and `Widgets` as Luma's own built-in settings. Old `Appearance & Home`, `Theme`, `Layout`, `Home layout`, and `Widgets` entry points resolve there. **Plugins** is a separate category that owns `Installed plugins` for import, enable, export, and removal, and sits directly above the bottom **MCP customization** category, which keeps AI access, saved versions, and reset. See [PLUGINS.md](PLUGINS.md).
 
 Notes:
 

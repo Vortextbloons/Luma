@@ -3,13 +3,12 @@ export type SettingsCategory = { name: string; description: string; sections: Se
 
 export const settingsCategories: SettingsCategory[] = [
   {
-    name: 'Plugins',
-    description: 'The built-in appearance plugin, plus plugins you import.',
+    name: 'Appearance & Home',
+    description: 'Theme, layout, widgets, and what appears on Home.',
     sections: [
-      { id: 'installed', name: 'Installed plugins', description: 'Import, enable, export, or remove plugins. New plugins start disabled.' },
-      { id: 'appearance', name: 'Theme', description: 'Built-in appearance plugin: backgrounds, surfaces, and accent together.' },
-      { id: 'layout', name: 'Home layout', description: 'Built-in appearance plugin: density, tile shape, text size, motion, and the order of Home rows.' },
-      { id: 'widgets', name: 'Widgets', description: 'Built-in appearance plugin: now playing and future widgets.' },
+      { id: 'theme', name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
+      { id: 'layout', name: 'Home layout', description: 'Density, tile shape, text size, motion, and the order of Home rows.' },
+      { id: 'widgets', name: 'Widgets', description: 'Now playing and future widgets.' },
     ],
   },
   {
@@ -54,6 +53,13 @@ export const settingsCategories: SettingsCategory[] = [
     ],
   },
   {
+    name: 'Plugins',
+    description: 'Import, export, and manage plugins.',
+    sections: [
+      { id: 'installed', name: 'Installed plugins', description: 'Import, enable, export, or remove plugins. New plugins start disabled.' },
+    ],
+  },
+  {
     name: 'MCP customization',
     description: 'AI access, saved versions, and reset defaults.',
     sections: [
@@ -66,11 +72,10 @@ export const settingsCategories: SettingsCategory[] = [
 
 const legacyTargets: Record<string, [string, string]> = {
   Display: ['Display & Sound', 'display'],
-  'Appearance & Home': ['Plugins', 'appearance'],
-  Theme: ['Plugins', 'appearance'],
-  Layout: ['Plugins', 'layout'],
-  'Home layout': ['Plugins', 'layout'],
-  Widgets: ['Plugins', 'widgets'],
+  Theme: ['Appearance & Home', 'theme'],
+  Layout: ['Appearance & Home', 'layout'],
+  'Home layout': ['Appearance & Home', 'layout'],
+  Widgets: ['Appearance & Home', 'widgets'],
   'TV setup': ['Display & Sound', 'tv'],
   Sound: ['Display & Sound', 'sound'],
   Activity: ['History & Privacy', 'recording'],

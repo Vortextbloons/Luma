@@ -102,6 +102,7 @@
     resetNote = '';
     layoutError = '';
     if (content) content.scrollTop = 0;
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.settings-categories .settings-category[data-category="${next.name}"]`)?.focus());
   }
   function selectSection(id: string) {
     section = id;
@@ -140,7 +141,7 @@
     <div class="settings-brand">
       <img class="settings-brand-logo" src={logo} alt="Luma TV" />
       <h1 id="settings-title">Settings</h1>
-      <p>Plugins, display, apps, remotes, customization, history, and system. Most changes save automatically; Home layout previews before saving.</p>
+      <p>Appearance, display, apps, remotes, history, system, plugins, and customization. Most changes save automatically; Home layout previews before saving.</p>
     </div>
     <div class="settings-header-actions">
       <span class="settings-theme-chip"><i style:--chip-bg={theme.tokens['--bg']} style:--chip-accent={theme.tokens['--accent']}></i>{theme.name}</span>
@@ -150,7 +151,7 @@
   <div class="settings-layout">
     <nav class="settings-categories" aria-label="Settings categories">
       {#each settingsCategories as item (item.name)}
-        <button class={['settings-category', { selected: category === item.name }]} aria-current={category === item.name ? 'page' : undefined} onclick={() => selectCategory(item.name)}>
+        <button class={['settings-category', { selected: category === item.name }]} data-category={item.name} aria-current={category === item.name ? 'page' : undefined} onclick={() => selectCategory(item.name)}>
           <span class="settings-category-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
           <span class="settings-category-mark" aria-hidden="true">›</span>
         </button>
@@ -161,63 +162,56 @@
         <h2>{activeCategory.name}</h2>
         <p>{activeCategory.description}</p>
       </header>
-      <nav class="settings-sections" aria-label={`${activeCategory.name} sections`}>
-        {#each activeCategory.sections as item (item.id)}
-          <button class={['settings-section-tab', { selected: section === item.id }]} data-section={item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => selectSection(item.id)}>{item.name}</button>
-        {/each}
-      </nav>
-      <p class="settings-section-note">{activeSection.description}</p>
+      {#if activeCategory.sections.length > 1}
+        <nav class="settings-sections" aria-label={`${activeCategory.name} sections`}>
+          {#each activeCategory.sections as item (item.id)}
+            <button class={['settings-section-tab', { selected: section === item.id }]} data-section={item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => selectSection(item.id)}>{item.name}</button>
+          {/each}
+        </nav>
+        <p class="settings-section-note">{activeSection.description}</p>
+      {/if}
       {#if message}<p role="status" class="panel-feedback">{message}</p>{/if}
-      {#if activeCategory.name === 'Plugins'}
-        {#if activeSection.id === 'installed'}
-          <PluginSettings {native} {revision} {plugins} loading={pluginsLoading} error={pluginsError} reload={onpluginsreload} onappearance={() => selectSection('appearance')} />
-        {:else}
+      {#if activeCategory.name === 'Appearance & Home'}
+        {#if activeSection.id === 'theme'}
+          <PluginOwnershipNotice {plugins} fields={['theme']} onmanage={() => selectCategory('Plugins')} />
+          <ThemeSettings {settings} />
+        {:else if activeSection.id === 'layout'}
+          <PluginOwnershipNotice {plugins} fields={['density', 'appTileShape', 'textSize', 'reducedMotion', 'homeColumns', 'home']} onmanage={() => selectCategory('Plugins')} />
           <section class="settings-group">
-            <div class="settings-group-head">
-              <h3>Built-in appearance</h3>
-              <span class="settings-badge is-good">Always on</span>
-            </div>
-            <p class="panel-description">Luma's own appearance and Home settings live here as the built-in plugin. They are always available, cannot be removed, and stay reachable when another plugin is disabled or broken.</p>
+            <h3>Layout size</h3>
+            <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
+            <SettingsChoices {settings} section="layout" />
+            <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
+            {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
           </section>
-          {#if activeSection.id === 'appearance'}
-            <PluginOwnershipNotice {plugins} fields={['theme']} onmanage={() => selectSection('installed')} />
-            <ThemeSettings {settings} />
-          {:else if activeSection.id === 'layout'}
-            <PluginOwnershipNotice {plugins} fields={['density', 'appTileShape', 'textSize', 'reducedMotion', 'homeColumns', 'home']} onmanage={() => selectSection('installed')} />
-            <section class="settings-group">
-              <h3>Layout size</h3>
-              <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
-              <SettingsChoices {settings} section="layout" />
-              <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
-              {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
-            </section>
-            {#if layoutError}<p role="alert" class="panel-feedback">{layoutError}</p>{/if}
-            {#if homeDraft}
-              <HomeLayoutSettings
-                rows={homeDraft.home}
-                columns={homeDraft.homeColumns}
-                busy={layoutBusy}
-                {popular}
-                {featured}
-                activityItems={activity.items}
-                apps={settings.order}
-                widget={settings.widgets.spotify}
-                onmove={(id, direction) => homeDraft && (homeDraft.home = moveHomeRow(homeDraft.home, id, direction))}
-                onmoveto={(id, index) => homeDraft && (homeDraft.home = moveHomeRowTo(homeDraft.home, id, index))}
-                ontoggle={id => homeDraft && (homeDraft.home = toggleHomeRow(homeDraft.home, id))}
-                oncolumns={columns => homeDraft && (homeDraft.homeColumns = columns)}
-                onspan={(id, span) => homeDraft && (homeDraft.home = homeDraft.home.map(row => row.id === id ? { ...row, span } : row))}
-                onreset={() => { if (homeDraft) { homeDraft.home = defaultHomeRows(); homeDraft.homeColumns = 1; } }}
-                onpreview={native ? previewHome : undefined}
-                onreload={reloadHome}
-                onrestore={native ? restoreHome : undefined}
-              />
-            {/if}
-          {:else if activeSection.id === 'widgets'}
-            <PluginOwnershipNotice {plugins} fields={['widgets']} onmanage={() => selectSection('installed')} />
-            <WidgetSettings {settings} />
+          {#if layoutError}<p role="alert" class="panel-feedback">{layoutError}</p>{/if}
+          {#if homeDraft}
+            <HomeLayoutSettings
+              rows={homeDraft.home}
+              columns={homeDraft.homeColumns}
+              busy={layoutBusy}
+              {popular}
+              {featured}
+              activityItems={activity.items}
+              apps={settings.order}
+              widget={settings.widgets.spotify}
+              onmove={(id, direction) => homeDraft && (homeDraft.home = moveHomeRow(homeDraft.home, id, direction))}
+              onmoveto={(id, index) => homeDraft && (homeDraft.home = moveHomeRowTo(homeDraft.home, id, index))}
+              ontoggle={id => homeDraft && (homeDraft.home = toggleHomeRow(homeDraft.home, id))}
+              oncolumns={columns => homeDraft && (homeDraft.homeColumns = columns)}
+              onspan={(id, span) => homeDraft && (homeDraft.home = homeDraft.home.map(row => row.id === id ? { ...row, span } : row))}
+              onreset={() => { if (homeDraft) { homeDraft.home = defaultHomeRows(); homeDraft.homeColumns = 1; } }}
+              onpreview={native ? previewHome : undefined}
+              onreload={reloadHome}
+              onrestore={native ? restoreHome : undefined}
+            />
           {/if}
+        {:else if activeSection.id === 'widgets'}
+          <PluginOwnershipNotice {plugins} fields={['widgets']} onmanage={() => selectCategory('Plugins')} />
+          <WidgetSettings {settings} />
         {/if}
+      {:else if activeCategory.name === 'Plugins'}
+        <PluginSettings {native} {revision} {plugins} loading={pluginsLoading} error={pluginsError} reload={onpluginsreload} />
       {:else if activeCategory.name === 'MCP customization'}
         <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => { homeDraft = null; layoutError = ''; }} />
       {:else if activeCategory.name === 'Display & Sound'}

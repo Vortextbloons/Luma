@@ -12,6 +12,7 @@ Notable changes to Luma, newest first. The Release workflow publishes the matchi
 ### Changed
 
 - Play/pause, previous, and next follow the window in front as before; the new music controls always target Spotify.
+- Split Settings into **Appearance & Home** for Luma's own theme, Home layout, and widgets, and a separate **Plugins** category for importing, exporting, and managing plugins. Plugins sits above MCP customization.
 
 ## [0.4.0] - 2026-11-14
 

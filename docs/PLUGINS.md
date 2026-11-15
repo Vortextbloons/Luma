@@ -8,9 +8,9 @@ Luma installs, validates, enables, previews, disables, exports, and removes decl
 
 A plugin never runs scripts, HTML, native code, or install hooks. Packages may contain source files for a future runtime, but a package that declares a non-declarative runtime installs disabled and cannot be enabled in this version.
 
-Appearance and Home are the built-in plugin. There is one owner for their controls: **Settings → Plugins → Theme, Home layout, or Widgets**. The old `Appearance & Home` navigation entry and the `Theme`, `Home layout`, and `Widgets` entry points resolve to those sections. The built-in plugin is always available, cannot be removed, and stays usable when another plugin is disabled or broken.
+Luma's own Theme, Home layout, and widgets are built into the app under **Settings → Appearance & Home**. They are not a plugin: they cannot be removed, and they stay usable when another plugin is disabled or broken. The old `Theme`, `Layout`, `Home layout`, and `Widgets` entry points resolve to those sections.
 
-**Settings → Plugins → Installed plugins** imports, previews, enables, disables, exports, and removes packages. **Settings → MCP customization** remains the bottom category and owns AI access, saved versions, and reset.
+**Settings → Plugins** imports, previews, enables, disables, exports, and removes packages. It holds only installed plugins. **Settings → MCP customization** remains the bottom category and owns AI access, saved versions, and reset.
 
 ## Package format
 
@@ -131,12 +131,13 @@ The manifest author writes the schema and defaults. Luma validates values on wri
 
 ## Navigation and focus
 
-- **Plugins** is a dedicated Settings category with **Installed plugins**, **Theme**, **Home layout**, and **Widgets**.
-- Selecting Plugins opens Installed plugins. Selecting a plugin control or the old `Appearance & Home`, `Theme`, `Home layout`, or `Widgets` entry opens the matching built-in plugin section.
-- The built-in appearance sections render the existing theme, layout, widget, preview, restore, and reset controls exactly once.
+- **Appearance & Home** is Luma's own Settings category with **Theme**, **Home layout**, and **Widgets**. It is not a plugin and cannot be removed.
+- **Plugins** is a separate Settings category holding **Installed plugins**: import, enable, export, and remove. It sits directly above MCP customization.
+- The old `Appearance & Home`, `Theme`, `Layout`, `Home layout`, and `Widgets` entry points open the matching Appearance & Home section.
+- The Appearance & Home sections render the existing theme, layout, widget, preview, restore, and reset controls exactly once.
 - The bottom **MCP customization** category keeps AI access, saved versions, and reset.
-- Back from a plugin review returns to Plugins → Installed plugins. Cancel on a remove confirmation focuses Cancel. Import, action, busy, empty, error, disabled, and unsupported-runtime states are visible.
-- A plugin failure does not remove the built-in appearance sections, Settings, recovery, or the MCP connection.
+- Back from a plugin review returns to Plugins. Cancel on a remove confirmation focuses Cancel. Import, action, busy, empty, error, disabled, and unsupported-runtime states are visible.
+- A plugin failure does not remove the Appearance & Home sections, Settings, recovery, or the MCP connection.
 
 ## MCP
 

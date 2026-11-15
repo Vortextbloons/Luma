@@ -5,14 +5,13 @@
 
   type ImportResult = { plugin: PluginRecord; alreadyInstalled: boolean; replacedVersion: string | null };
 
-  let { native, revision, plugins, loading, error, reload, onappearance }: {
+  let { native, revision, plugins, loading, error, reload }: {
     native: boolean;
     revision: number;
     plugins: PluginsState | null;
     loading: boolean;
     error: string;
     reload: () => Promise<void>;
-    onappearance?: () => void;
   } = $props();
 
   let busy = $state('');
@@ -194,8 +193,7 @@
     <h3>Installed plugins</h3>
     {#if native && list.length}<span class="settings-badge is-muted">{enabledCount} of {list.length} on</span>{/if}
   </div>
-  <p class="panel-description">Plugins add appearance, Home layout, and declared settings. Appearance and Home are the built-in plugin, available under Theme, Home layout, and Widgets. Imported plugins start disabled; preview one and press Keep to enable it.</p>
-  {#if onappearance}<div class="settings-actions"><button class="panel-secondary" onclick={onappearance}>Open built-in appearance</button></div>{/if}
+  <p class="panel-description">Plugins add appearance and Home layout and can declare their own settings. Luma's own theme, Home layout, and widgets stay in Appearance & Home. Imported plugins start disabled; preview one and press Keep to enable it.</p>
   {#if !native}
     <p class="panel-description">Available in the desktop application.</p>
   {:else}

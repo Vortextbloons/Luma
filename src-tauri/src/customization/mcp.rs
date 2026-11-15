@@ -2052,7 +2052,7 @@ fn read_resource(uri: &str) -> Result<(&'static str, String), String> {
 
 fn guidance() -> &'static str {
     "# Luma customization guidance\n\n\
-Luma is a Windows TV launcher. Use MCP to inspect the committed customization, validate a complete candidate, and stage it for the user to review. Appearance and Home are part of the built-in appearance plugin in Luma; external declarative plugins can override those fields.\n\n\
+Luma is a Windows TV launcher. Use MCP to inspect the committed customization, validate a complete candidate, and stage it for the user to review. Theme, Home layout, and widgets are Luma's own settings under Settings > Appearance & Home; external declarative plugins can override those fields.\n\n\
 ## Required flow\n\n\
 1. Call `luma_capabilities_get`, `luma_plugins_list`, and read `luma://plugins/schema` and `luma://plugins/example`.\n\
 2. Call `luma_config_get` and keep its `revision`.\n\
