@@ -157,6 +157,7 @@ export function applyState(state: RemoteState): void {
   };
   const preset = PRESETS.includes(state.sound) ? state.sound : "real";
   sound.setPreset(preset);
+  sound.setLevel(state.settings?.find(item => item.key === "soundLevel")?.value ?? "standard");
   if (state.appearance) applySessionAppearance(state.appearance);
   if (Array.isArray(state.appOrder)) syncAppOrder(state.appOrder);
 }
@@ -177,6 +178,10 @@ export function setTheme(choice: string): void {
   session.themeChoice = known ? choice : "follow";
   saveThemeChoice(session.themeChoice);
   if (appearance) applySessionAppearance(appearance);
+}
+
+export function setSoundLevel(level: string): void {
+  sound.setLevel(level);
 }
 
 export async function pair(code: string): Promise<boolean> {

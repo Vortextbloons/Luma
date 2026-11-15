@@ -146,6 +146,14 @@ export function createCustomizationSync(settings: Settings, report: (message: st
         await refreshPreview();
       } catch (error) { await reconcileFailure(error); throw error; }
     },
+    async restoreLayout() {
+      if (!ready || saving || !current) throw new Error('Wait for preferences to finish saving, then restore the layout again.');
+      try {
+        const document = await invoke<CustomizationDocument>('customization_restore_layout', { expectedRevision: current.revision });
+        if (!disposed) apply(document);
+        await refreshPreview();
+      } catch (error) { await reconcileFailure(error); throw error; }
+    },
     dispose() { disposed = true; previewRead++; stop?.(); stopPreview?.(); },
   };
 }

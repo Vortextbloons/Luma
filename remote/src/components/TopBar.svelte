@@ -27,7 +27,7 @@
   );
   let searching = $derived(session.state?.window === "YouTube");
 
-  const iconButton = "grid size-[38px] flex-none place-items-center rounded-full border border-line bg-white/[0.04] text-muted transition active:scale-95 active:border-line-strong active:bg-white/[0.09] active:text-ink";
+  const iconButton = "grid size-10 flex-none place-items-center rounded-full border border-line bg-white/[0.04] text-muted transition active:scale-95 active:border-line-strong active:bg-white/[0.09] active:text-ink";
 </script>
 
 <header class="flex min-h-11 items-center justify-between gap-2">
@@ -59,7 +59,7 @@
     </button>
 
     <span
-      class="relative grid size-[38px] flex-none place-items-center rounded-full border border-line bg-white/[0.035] text-muted"
+      class="relative grid size-10 flex-none place-items-center rounded-full border border-line bg-white/[0.035] text-muted"
       role="status"
       aria-live="polite"
       aria-label={statusLabel}

@@ -114,8 +114,13 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     }
     const sections = current.closest?.('.settings-sections');
     if (sections && command === 'down') {
-      const bottom = current.getBoundingClientRect().bottom;
-      const target = candidates.find(el => el.closest?.('.settings-content') && !el.closest('.settings-sections') && el.getBoundingClientRect().top >= bottom);
+      const currentRect = current.getBoundingClientRect();
+      const bottom = currentRect.bottom ?? (currentRect.top ?? currentRect.y) + currentRect.height;
+      const target = candidates.find(el => {
+        if (!el.closest?.('.settings-content') || el.closest('.settings-sections')) return false;
+        const rect = el.getBoundingClientRect();
+        return (rect.top ?? rect.y) >= bottom;
+      });
       if (target) focus(target, true);
       return;
     }

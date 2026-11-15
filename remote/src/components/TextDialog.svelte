@@ -60,7 +60,7 @@
   id="text-dialog"
   titleId="text-title"
   {open}
-  className="w-[min(420px,calc(100%-32px))] rounded-[22px] border border-line-strong bg-surface-2 p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] sm:p-6"
+  className="m-auto max-h-[calc(100dvh-32px)] w-[min(420px,calc(100%-32px))] overflow-y-auto rounded-[22px] border border-line-strong bg-surface-2 p-5 shadow-[0_30px_80px_rgba(0,0,0,.55)] sm:p-6"
   onrequestclose={onclose}
 >
   <form onsubmit={submit}>

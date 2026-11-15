@@ -91,6 +91,7 @@ pub fn run() {
             customization::customization_preview_keep,
             customization::customization_preview_cancel,
             customization::customization_restore,
+            customization::customization_restore_layout,
             updates_enabled,
             tv::tv_setup,
             tv::tv_setup_warning,

@@ -5,7 +5,6 @@
   import { apps, loadApps, recentAppsForSession, rememberApp } from "../lib/apps.svelte";
   import { closeApps } from "../lib/screen.svelte";
   import { send } from "../lib/session.svelte";
-  import { say } from "../lib/toast.svelte";
   import type { AppEntry } from "../lib/types";
 
   let backButton = $state<HTMLButtonElement>();
@@ -27,7 +26,6 @@
     const result = await send(app.command);
     if (result.accepted) {
       rememberApp(app.command);
-      say(`Opening ${app.name}…`);
       launching = null;
       closeApps();
       return;
@@ -69,8 +67,7 @@
 
   <div class="mx-auto w-full max-w-[900px] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-5">
     <div class="mb-7">
-      <p class="text-[11px] font-semibold text-faint">Luma</p>
-      <h1 class="mt-1.5 text-[34px] font-semibold leading-[.98] tracking-[-0.055em] text-ink">Apps</h1>
+      <h1 class="text-[34px] font-semibold leading-[.98] tracking-[-0.055em] text-ink">Apps</h1>
       <p class="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-muted">Open something on your TV and keep this phone in hand.</p>
     </div>
 

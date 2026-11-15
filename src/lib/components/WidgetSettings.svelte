@@ -24,12 +24,12 @@
       <article class="widget-card">
         <div class="widget-head">
           <div class="widget-title"><strong>{widget.name}</strong><span>{widget.description}</span></div>
-          <label class="widget-switch"><span>Show</span><input type="checkbox" bind:checked={config.enabled} /></label>
+          <label class="widget-switch"><span>Show</span><input type="checkbox" bind:checked={config.enabled} onchange={() => note = ''} /></label>
         </div>
         {#if config.enabled}
           <div class="widget-placement" role="group" aria-label={`${widget.name} placement`}>
             {#each widget.placements as placement (placement)}
-              <button class={['placement-choice', { 'is-active': config.placement === placement }]} aria-pressed={config.placement === placement} onclick={() => config.placement = placement}>
+              <button class={['placement-choice', { 'is-active': config.placement === placement }]} aria-pressed={config.placement === placement} onclick={() => { config.placement = placement; note = ''; }}>
                 <span class={`placement-screen is-${placement}`} aria-hidden="true"><i></i></span>
                 <span>{placementLabel[placement]}</span>
               </button>

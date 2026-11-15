@@ -32,7 +32,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 1421,
+    port: 1422,
     strictPort: true,
     host: true,
     proxy: {

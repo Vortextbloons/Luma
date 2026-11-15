@@ -17,7 +17,7 @@
       <button
         class={['theme-card', { 'is-active': settings.theme === theme.id }]}
         aria-pressed={settings.theme === theme.id}
-        onclick={() => settings.theme = theme.id}
+        onclick={() => { settings.theme = theme.id; note = ''; }}
       >
         <span
           class="theme-screen"

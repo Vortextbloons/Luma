@@ -1120,7 +1120,7 @@ mod tests {
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
-            assert!(String::from_utf8_lossy(&body).contains("Pair this device"));
+            assert!(String::from_utf8_lossy(&body).contains("<title>Luma Remote</title>"));
         });
     }
 

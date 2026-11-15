@@ -147,7 +147,7 @@
     const app = lifted;
     lifted = null;
     onchange(defaultAppOrder());
-    status = 'App order reset and saved to the default dock.';
+    status = 'App order reset and saved to the default dock. App locations and accounts were not changed.';
     if (app) void refocus(focusTarget, app);
   }
 </script>

@@ -33,15 +33,21 @@ const ROLE_FOR_COMMAND: Record<string, SoundRole> = {
 
 export interface SoundFeedback {
   setPreset(preset: SoundPreset): void;
+  setLevel(level: string): void;
   play(command: string): void;
 }
 
 export function createSoundFeedback(): SoundFeedback {
   let preset: SoundPreset = "real";
+  let level = 1;
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
   let lastMove = 0;
   const buffers = new Map<SoundPreset, Partial<Record<SoundRole, AudioBuffer>>>();
+
+  function masterGain(): number {
+    return 0.9 * level;
+  }
 
   function audioContext(): AudioContext | null {
     if (!context) {
@@ -51,7 +57,7 @@ export function createSoundFeedback(): SoundFeedback {
       try {
         context = new AudioCtor({ latencyHint: "interactive" });
         master = context.createGain();
-        master.gain.value = 0.9;
+        master.gain.value = masterGain();
         master.connect(context.destination);
       } catch (_) {
         context = null;
@@ -110,5 +116,10 @@ export function createSoundFeedback(): SoundFeedback {
     load(target);
   }
 
-  return { setPreset, play };
+  function setLevel(value: string): void {
+    level = value === "soft" ? 0.6 : value === "loud" ? 1.25 : 1;
+    if (master) master.gain.value = masterGain();
+  }
+
+  return { setPreset, setLevel, play };
 }

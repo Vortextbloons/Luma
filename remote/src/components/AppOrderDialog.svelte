@@ -91,7 +91,7 @@
   id="layout-dialog"
   titleId="layout-title"
   {open}
-  className="flex max-h-[min(86dvh,720px)] w-[min(420px,calc(100%-32px))] flex-col overflow-hidden rounded-[24px] border border-line-strong bg-surface-2 shadow-[0_30px_80px_rgba(0,0,0,.55)]"
+  className="layout-dialog m-auto max-h-[min(86dvh,720px)] w-[min(420px,calc(100%-32px))] overflow-hidden rounded-[24px] border border-line-strong bg-surface-2 shadow-[0_30px_80px_rgba(0,0,0,.55)]"
   onrequestclose={onclose}
 >
   <header class="flex items-center justify-between gap-3 border-b border-line px-5 pb-3 pt-5">
@@ -127,7 +127,7 @@
             <span class="flex flex-none gap-1">
               <button
                 type="button"
-                class="grid size-9 place-items-center rounded-lg border border-line-strong bg-white/[0.05] text-ink-dim transition active:bg-white/[0.12] disabled:opacity-30"
+                class="grid size-11 place-items-center rounded-lg border border-line-strong bg-white/[0.05] text-ink-dim transition active:bg-white/[0.12] disabled:opacity-30"
                 aria-label={`Move ${name} up`}
                 disabled={index === 0}
                 onclick={() => move(index, -1)}
@@ -136,7 +136,7 @@
               </button>
               <button
                 type="button"
-                class="grid size-9 place-items-center rounded-lg border border-line-strong bg-white/[0.05] text-ink-dim transition active:bg-white/[0.12] disabled:opacity-30"
+                class="grid size-11 place-items-center rounded-lg border border-line-strong bg-white/[0.05] text-ink-dim transition active:bg-white/[0.12] disabled:opacity-30"
                 aria-label={`Move ${name} down`}
                 disabled={index >= order.length - 2}
                 onclick={() => move(index, 1)}

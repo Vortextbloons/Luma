@@ -658,7 +658,7 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restore()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
+  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={customizationRevision} onlayoutpreview={previewLayout} onlayoutrestore={() => customization.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} />
   {:else}
   <TopNav active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>

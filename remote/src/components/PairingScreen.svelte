@@ -41,8 +41,7 @@
   </div>
 
   <div class="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-center py-10">
-    <p class="text-[11px] font-semibold text-faint">This device</p>
-    <h1 class="mt-2 text-balance text-[38px] font-semibold leading-[.98] tracking-[-0.055em] text-ink">
+    <h1 class="text-balance text-[38px] font-semibold leading-[.98] tracking-[-0.055em] text-ink">
       Pair this remote
     </h1>
     <p class="mt-4 max-w-[36ch] text-[13.5px] leading-relaxed text-muted">

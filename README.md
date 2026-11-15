@@ -43,9 +43,9 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 | Catalog browse | Popular and highly rated titles from Stremio's public Cinemeta feed: posters, ratings, runtime, description, and search, without starting another app first. |
 | Stremio account | Pair with a short device code, pull library and Continue Watching, open titles in Stremio's official web player inside Luma. |
 | Spotify | Playlists, saved albums, liked songs, search, device picking, and transport controls from the TV UI. |
-| Phone remote | Same Wi-Fi, scan the QR code to pair, add it to your phone's home screen, then control Luma with the D-pad, playback, volume, and app shortcuts. A Display Box frame can pair too. |
+| Phone remote | Same Wi-Fi, scan the QR code to pair, add it to your phone's home screen, then control Luma with a D-pad or touchpad, playback, volume, and a separate apps screen. A Display Box frame can pair too. |
 | In-app control | While a launched app is focused, the remote can move the mouse and click inside it. Home returns you to Luma. |
-| TV layout | 10-foot typography, six themes, reorderable home rows and hero, widget placement, drag-to-reorder app dock shared with both remotes, comfortable or compact density, separate display and audio outputs. |
+| TV layout | 10-foot typography, six themes, reorderable home rows and hero, widget placement, drag-to-reorder app dock shared with both remotes, comfortable or compact density, text size and reduced motion, separate display and audio outputs. |
 | Privacy | Local SQLite history, Credential Manager for secrets, remote bound to the local network. |
 | Tray and updates | System tray icon, optional login startup, single-instance lock, signed in-app updates. |
 
@@ -69,7 +69,7 @@ npm install
 npm run tauri dev
 ```
 
-`npm run dev` is fine for UI work in a browser. Launching apps, the remote, display routing, and Spotify need `npm run tauri dev` or a built binary. `npm run tauri build` outputs the Windows installer.
+`npm run dev` is fine for TV UI work in a browser. For the phone remote, `npm run dev:remote` serves it against a running Luma. Launching apps, the remote, display routing, and Spotify need `npm run tauri dev` or a built binary. `npm run tauri build` outputs the Windows installer.
 
 ## Built with
 

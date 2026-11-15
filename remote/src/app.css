@@ -115,6 +115,15 @@ dialog[data-modal] {
   color: var(--text);
 }
 
+dialog[data-modal]:not([open]) {
+  display: none;
+}
+
+dialog[data-modal][open] {
+  display: flex;
+  flex-direction: column;
+}
+
 dialog[data-modal]::backdrop {
   background: rgba(4, 5, 8, .68);
   backdrop-filter: blur(3px);

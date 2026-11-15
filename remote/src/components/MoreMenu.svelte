@@ -67,6 +67,7 @@
 <div class="relative">
   <button
     bind:this={trigger}
+    id="more-toggle"
     type="button"
     class="flex h-12 w-14 items-center justify-center rounded-2xl border border-line bg-white/[0.045] text-muted transition active:scale-[.97] active:bg-white/[.11] active:text-ink"
     aria-label="More actions"

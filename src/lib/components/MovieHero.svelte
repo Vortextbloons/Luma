@@ -24,15 +24,18 @@
   let shownKey = $state('');
   const active = $derived(Math.min(index, slides.length - 1));
   const item = $derived(slides[active]);
+  const art = $derived(item?.art);
+  const artKey = $derived(item?.key);
+  const artShape = $derived(item?.artShape);
   let loadedArt = $state('');
   let loadedShape = $state<HeroSlide['artShape']>();
   $effect(() => {
-    const slide = item;
+    const slide = { art, key: artKey, artShape };
     loadedArt = '';
     let cancelled = false;
     if (!slide?.art) { loadedArt = ''; return; }
     const candidates = [slide.art];
-    if (slide.key.startsWith('steam:')) {
+    if (slide.key?.startsWith('steam:')) {
       const id = slide.key.split(':')[1];
       candidates.push(`https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/library_hero.jpg`, `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`, `https://cdn.akamai.steamstatic.com/steam/apps/${id}/header.jpg`);
     }

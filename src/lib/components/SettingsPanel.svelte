@@ -250,7 +250,7 @@
             <h3>Layout size</h3>
             <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
             <SettingsChoices {settings} section="layout" />
-            <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset layout settings</button></div>
+            <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
             {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
           </section>
           {#if layoutError}<p role="alert" class="panel-feedback">{layoutError}</p>{/if}
@@ -287,6 +287,7 @@
               <div class="settings-row-copy"><strong>Luma window</strong><span>{native ? (settings.fullscreen ? 'Luma is filling the screen.' : 'Luma is running in a window.') : 'Available in the desktop application.'}</span></div>
               <button class="panel-secondary" disabled={!native} onclick={fullscreen}>{settings.fullscreen ? 'Switch to windowed mode' : 'Switch to fullscreen'}</button>
             </div>
+            <SettingsChoices {settings} section="display" />
           </section>
         {:else if activeSection.id === 'tv'}
           <TvSettings {native} />
@@ -334,7 +335,7 @@
         {#if activeSection.id === 'remote'}
           <section class="settings-group">
             <h3>Remote settings</h3>
-            <p class="panel-description">Pair a phone or Display Box to control Luma from another screen. Theme and sound choices on a phone remote stay on that device unless it follows Luma.</p>
+            <p class="panel-description">Pair a phone or Display Box to control Luma from another screen. A phone remote can keep its own theme; layout, sound, and other choices apply to Luma.</p>
           </section>
           <FramePairing {native} />
         {:else if activeSection.id === 'keyboard'}

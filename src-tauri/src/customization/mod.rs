@@ -176,6 +176,27 @@ impl Store {
         Ok(document)
     }
 
+    pub fn restore_layout(&self, expected_revision: u64) -> Result<Document, Error> {
+        let mut preview = self.1.lock().map_err(|error| Error::new("storage", error))?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let current = Self::current(&transaction)?.ok_or_else(|| Error::new("not_initialized", "Open Luma once before restoring a layout."))?;
+        if current.revision != expected_revision { return Err(Error::new("conflict", "The saved layout changed. Reload it before restoring.")); }
+        let raw: Option<String> = transaction.query_row("SELECT previous FROM customization WHERE id = 1", [], |row| row.get(0))?;
+        let previous = Self::decode(&raw.ok_or_else(|| Error::new("no_previous", "No previous layout is available."))?)?;
+        let mut config = current.config.clone();
+        config.home = previous.config.home;
+        config.home_columns = previous.config.home_columns;
+        if config == current.config { return Ok(current); }
+        if current.revision >= 9_007_199_254_740_991 { return Err(Error::new("revision_limit", "Customization revision limit reached.")); }
+        let document = Document { version: 3, revision: current.revision + 1, config };
+        let raw = serde_json::to_string(&document).map_err(|error| Error::new("validation", error))?;
+        transaction.execute("UPDATE customization SET previous = document, document = ?1 WHERE id = 1", params![raw])?;
+        transaction.commit()?;
+        *preview = None;
+        Ok(document)
+    }
+
     pub fn preview(&self) -> Result<Option<Preview>, Error> {
         Ok(self.1.lock().map_err(|error| Error::new("storage", error))?.clone())
     }
@@ -274,6 +295,15 @@ pub async fn customization_restore(app: tauri::AppHandle, expected_revision: u64
 }
 
 #[tauri::command]
+pub async fn customization_restore_layout(app: tauri::AppHandle, expected_revision: u64) -> Result<Document, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = app.state::<Store>().restore_layout(expected_revision)?;
+        publish(&app, &document);
+        Ok(document)
+    }).await.map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
 pub async fn customization_read(app: tauri::AppHandle) -> Result<Option<Document>, Error> {
     tauri::async_runtime::spawn_blocking(move || app.state::<Store>().read()).await.map_err(|error| Error::new("storage", error))?
 }
@@ -326,6 +356,24 @@ mod tests {
         let restored = store.restore(2).unwrap();
         assert_eq!(restored.revision, 3);
         assert_eq!(restored.config, first.config);
+    }
+
+    #[test]
+    fn layout_restore_preserves_unrelated_preferences() {
+        let store = store();
+        let first = store.initialize(Config::default()).unwrap();
+        let mut themed = first.config.clone();
+        themed.theme = "onyx".into();
+        let themed = store.commit(Commit { expected_revision: first.revision, config: themed }).unwrap();
+        let mut rearranged = themed.config.clone();
+        rearranged.home.reverse();
+        let rearranged = store.commit(Commit { expected_revision: themed.revision, config: rearranged }).unwrap();
+        let restored = store.restore_layout(rearranged.revision).unwrap();
+        assert_eq!(restored.revision, rearranged.revision + 1);
+        assert_eq!(restored.config.theme, "onyx");
+        assert_eq!(restored.config.home, first.config.home);
+        assert_eq!(restored.config.home_columns, first.config.home_columns);
+        assert_eq!(restored.config.order, first.config.order);
     }
 
     #[test]

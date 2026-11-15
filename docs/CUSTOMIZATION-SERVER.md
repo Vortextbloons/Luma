@@ -69,6 +69,8 @@ LocalStorage remains a legacy mirror for rollback and unrelated settings. The na
 
 Home layout controls in desktop Settings edit a draft. Choose columns and widths, move/hide sections, then Preview and Keep layout. Back to editor retains the draft. Reload saved layout discards draft changes; default layout prepares a draft for review. Restore previous saved customization immediately restores all supported configuration fields as a new revision, including appearance and app order. Other preference controls keep autosaving.
 
+The desktop Home layout section also offers a scoped restore that returns only Home rows and columns to the previous saved layout, preserving theme, sound, widgets, and app order.
+
 Only one native preview can exist. Starting one requires a visible, non-minimized main launcher. Preview writes neither SQLite nor committed localStorage. Keep uses the exact candidate ID and base revision; failed persistence retains it for retry. Any committed write invalidates it. Explicit cancel, main-window destruction, or process exit discards it. HTTP disconnection alone leaves it active because this API has no client sessions; cancel explicitly when abandoning an edit. A stale ID cannot keep or cancel another candidate. Core navigation and Settings remain outside the configurable sections, including when every section is hidden.
 
 Save errors use existing feedback; preview errors also appear next to recovery actions. Revision conflicts load the latest committed configuration. Other failures retain input without retry loops. `preview_busy`, `preview_mismatch`, and `launcher_unavailable` use HTTP 409.

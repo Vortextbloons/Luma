@@ -3,42 +3,88 @@
   import AppOrderDialog from "./AppOrderDialog.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
+  import SettingSwitch from "./SettingSwitch.svelte";
   import { api } from "../lib/api";
   import { themeColors, themeLabel } from "../lib/appearance";
   import { control, setControlMode } from "../lib/control.svelte";
   import { installEnvironment, installSteps, isStandalone } from "../lib/install";
-  import { disconnect, send, session, setTheme } from "../lib/session.svelte";
-  import { say } from "../lib/toast.svelte";
+  import { disconnect, refresh, send, session, setSoundLevel, setTheme } from "../lib/session.svelte";
   import type { SettingChoice } from "../lib/types";
 
   let { open = false, onclose }: { open?: boolean; onclose: () => void } = $props();
 
-  type Category = "controls" | "browser" | "connection" | "display" | "theme" | "sound" | "order" | "pc";
-
-  const categories: {
-    id: Category;
+  type Category = {
+    id: string;
     group: string;
     title: string;
     blurb: string;
     heading: string;
     description: string;
-  }[] = [
+    settingGroup?: string;
+    cardHeading?: string;
+  };
+
+  const remoteCategories: Category[] = [
     { id: "controls", group: "This remote", title: "Controls", blurb: "Touchpad or directional pad", heading: "Controls", description: "Choose how this phone's pad drives Luma. Other remotes keep their own setting." },
     { id: "browser", group: "This remote", title: "This browser", blurb: "Theme and fullscreen", heading: "This browser", description: "Appearance and window options saved on this device." },
     { id: "connection", group: "This remote", title: "Connection", blurb: "Pairing and this session", heading: "Connection", description: "The link between this browser and your PC." },
-    { id: "display", group: "Luma app", title: "Display", blurb: "Cards and spacing", heading: "Display", description: "Choose how cards and rows fill the TV. Changes apply to every connected display." },
-    { id: "theme", group: "Luma app", title: "Theme", blurb: "Background and accent", heading: "Theme", description: "The background, surfaces, and accent used across Luma." },
-    { id: "sound", group: "Luma app", title: "Sound", blurb: "Interface sounds and level", heading: "Sound", description: "Short feedback for focus, select, back, and app launch." },
+  ];
+
+  const appActions: Category[] = [
     { id: "order", group: "Luma app", title: "App order", blurb: "Arrange the dock everywhere", heading: "App order", description: "Arrange the app dock on the TV, the Display Box, and this remote." },
     { id: "pc", group: "Luma app", title: "PC actions", blurb: "Fullscreen on the PC", heading: "PC actions", description: "Control the Luma window running on your PC." },
   ];
 
-  const groups: { label: string; ids: Category[] }[] = [
-    { label: "This remote", ids: ["controls", "browser", "connection"] },
-    { label: "Luma app", ids: ["display", "theme", "sound", "order", "pc"] },
-  ];
+  const settingMeta: Record<string, { blurb: string; description: string; cardHeading: string }> = {
+    Appearance: {
+      blurb: "TV theme",
+      description: "The look of Luma on the TV and connected displays.",
+      cardHeading: "TV appearance",
+    },
+    Layout: {
+      blurb: "Cards, text, and motion",
+      description: "How cards, text, and motion fill the TV. Changes apply to every connected display.",
+      cardHeading: "Cards, text, and motion",
+    },
+    Sound: {
+      blurb: "Sounds and level",
+      description: "Interface sounds on the TV and this remote.",
+      cardHeading: "Interface sounds",
+    },
+  };
 
-  let category = $state<Category>("browser");
+  let settingCategories: Category[] = $derived.by(() => {
+    const groups = new Map<string, SettingChoice[]>();
+    for (const choice of session.state?.settings ?? []) {
+      if (!choice.group) continue;
+      if (!groups.has(choice.group)) groups.set(choice.group, []);
+      groups.get(choice.group)!.push(choice);
+    }
+    return [...groups.keys()].map(group => {
+      const meta = settingMeta[group] ?? {
+        blurb: "Luma app settings",
+        description: "Settings shared with the TV and connected displays.",
+        cardHeading: group,
+      };
+      return {
+        id: `app:${group.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        group: "Luma app",
+        title: group,
+        heading: group,
+        settingGroup: group,
+        ...meta,
+      };
+    });
+  });
+
+  let categories: Category[] = $derived([...remoteCategories, ...settingCategories, ...appActions]);
+
+  let groups: { label: string; ids: string[] }[] = $derived([
+    { label: "This remote", ids: remoteCategories.map(item => item.id) },
+    { label: "Luma app", ids: [...settingCategories.map(item => item.id), ...appActions.map(item => item.id)] },
+  ]);
+
+  let category = $state("controls");
   let detail = $state(false);
   let narrow = $state(false);
   let themeOpen = $state(false);
@@ -54,12 +100,13 @@
   let disconnectBusy = $state(false);
   let disconnectNotice = $state("");
   let installNote = $state("");
+  let browserNote = $state("");
+  let pcNote = $state("");
   let wasOpen = false;
 
   let active = $derived(categories.find(item => item.id === category) ?? categories[0]);
   let appearance = $derived(session.state?.appearance);
   let themeName = $derived(themeLabel(appearance, session.themeChoice));
-  let stateSettings = $derived(session.state?.settings ?? []);
   let fullscreenLabel = $derived(!fullscreenSupported ? "Unavailable" : fullscreenActive ? "Exit" : "Enter");
   let fullscreenNote = $derived(
     !fullscreenSupported
@@ -71,19 +118,22 @@
   let pcFullscreen = $derived(session.state?.windowFullscreen);
   let pcLabel = $derived(pcFullscreen === true ? "Exit" : pcFullscreen === false ? "Fullscreen" : "Toggle");
 
-  function settingsFor(group: string): SettingChoice[] {
-    return stateSettings.filter(item => String(item.group).toLowerCase() === group);
+  function settingsFor(group?: string): SettingChoice[] {
+    if (!group) return [];
+    return (session.state?.settings ?? []).filter(item => item.group === group);
   }
 
-  function categoryClass(id: Category): string {
+  function categoryClass(id: string): string {
     return `settings-category ${category === id ? "is-current" : ""}`;
   }
 
-  function selectCategory(id: Category): void {
+  function selectCategory(id: string): void {
     category = id;
     themeOpen = false;
     settingsNote = "";
     settingsTone = "neutral";
+    browserNote = "";
+    pcNote = "";
     if (narrow) {
       detail = true;
       void tick().then(() => document.querySelector<HTMLElement>(`#settings-dialog h2[data-panel="${id}"]`)?.focus());
@@ -158,6 +208,7 @@
           item.key === choice.key ? { ...item, value } : item,
         );
       }
+      if (choice.key === "soundLevel") setSoundLevel(value);
       settingsNote = "Change sent to Luma.";
       settingsTone = "good";
     } catch (_) {
@@ -171,25 +222,30 @@
 
   async function toggleRemoteFullscreen(): Promise<void> {
     if (!fullscreenSupported) return;
+    browserNote = "";
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     } catch (_) {
-      say("Remote fullscreen is unavailable in this browser.", true);
+      browserNote = "Remote fullscreen is unavailable in this browser.";
     }
   }
 
   async function togglePcFullscreen(): Promise<void> {
+    pcNote = "";
     const result = await send("fullscreen");
-    if (!result.accepted) return;
+    if (!result.accepted) {
+      pcNote = result.error ?? "Luma did not accept the fullscreen command.";
+      return;
+    }
     const state = result.state ?? session.state;
     const name = state?.window ?? "The PC window";
     const value = state?.windowFullscreen;
-    say(value === true
+    pcNote = value === true
       ? `${name} is fullscreen.`
       : value === false
         ? `${name} is windowed.`
-        : "Fullscreen command sent to the PC app.");
+        : "Fullscreen command sent to the PC app.";
   }
 
   async function disconnectRemote(): Promise<void> {
@@ -227,9 +283,14 @@
   });
 
   $effect(() => {
+    if (!categories.some(item => item.id === category)) category = categories[0]?.id ?? "controls";
+  });
+
+  $effect(() => {
     if (open && !wasOpen) {
       wasOpen = true;
       detail = false;
+      void refresh();
       void tick().then(() => document.querySelector<HTMLElement>(`#settings-dialog [data-category="${category}"]`)?.focus());
     } else if (!open) {
       wasOpen = false;
@@ -277,7 +338,7 @@
       <h2 id="settings-title">Settings</h2>
       <p>This remote and your Luma app</p>
     </div>
-    <button type="button" class="settings-close" aria-label="Close settings" onclick={onclose}>
+    <button type="button" id="settings-close" class="settings-close" aria-label="Close settings" onclick={onclose}>
       <Icon name="close" className="size-[15px]" />
     </button>
   </header>
@@ -324,16 +385,11 @@
               <b>Touchpad mode</b>
               <small>Drag the pad to move the PC pointer and tap to click. Leave this off for directional keys on Luma and TV-style apps.</small>
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={control.mode === "touchpad"}
-              aria-label="Touchpad mode"
-              class={`relative h-7 w-12 flex-none rounded-full border transition ${control.mode === "touchpad" ? "border-transparent bg-accent" : "border-line-strong bg-white/[0.12]"}`}
-              onclick={() => setControlMode(control.mode === "touchpad" ? "dpad" : "touchpad")}
-            >
-              <span class={`absolute left-0.5 top-0.5 size-6 rounded-full shadow-[0_1px_4px_rgba(0,0,0,.45)] transition-transform ${control.mode === "touchpad" ? "translate-x-5 bg-accent-ink" : "bg-ink"}`}></span>
-            </button>
+            <SettingSwitch
+              checked={control.mode === "touchpad"}
+              label="Touchpad mode"
+              onchange={value => setControlMode(value ? "touchpad" : "dpad")}
+            />
           </div>
           <p class="row-note">This setting is saved on this phone. Touchpad mode is for desktop-style apps; the D-pad is the default for Luma.</p>
         </section>
@@ -341,10 +397,10 @@
 
       {#if category === "browser"}
         <section class="group">
-          <h3>Appearance</h3>
-          <div class="row">
+          <h3>Theme</h3>
+          <div class="field">
             <span class="row-copy">
-              <b>Theme</b>
+              <b>Remote theme</b>
               <small>Follow the TV or keep a theme on this phone.</small>
             </span>
             <div class="theme-picker" bind:this={themePicker}>
@@ -395,6 +451,7 @@
               {fullscreenLabel}
             </button>
           </div>
+          {#if browserNote}<p class="row-note" role="status">{browserNote}</p>{/if}
         </section>
       {/if}
 
@@ -439,30 +496,45 @@
         </section>
       {/if}
 
-      {#if category === "display" || category === "theme" || category === "sound"}
+      {#if active.settingGroup}
         <section class="group">
-          <h3>{category === "display" ? "Cards and layout" : category === "theme" ? "App theme" : "Interface sounds"}</h3>
+          <h3>{active.cardHeading}</h3>
           {#if settingsNote}
             <p class="settings-note" data-tone={settingsTone} role="status" aria-live="polite">{settingsNote}</p>
           {/if}
-          {#if settingsFor(category).length}
-            {#each settingsFor(category) as choice (choice.key)}
-              <label class="field" for={`setting-${choice.key}`}>
-                <span class="row-copy">
-                  <b>{choice.label}</b>
-                  <small>{choice.description}</small>
-                </span>
-                <select
-                  id={`setting-${choice.key}`}
-                  value={drafts[choice.key] ?? choice.value}
-                  disabled={settingsSaving}
-                  onchange={event => saveSetting(choice, event.currentTarget.value)}
-                >
-                  {#each choice.options as option (option.value)}
-                    <option value={option.value}>{option.label}</option>
-                  {/each}
-                </select>
-              </label>
+          {#if settingsFor(active.settingGroup).length}
+            {#each settingsFor(active.settingGroup) as choice (choice.key)}
+              {#if choice.kind === "toggle"}
+                <div class="row">
+                  <span class="row-copy">
+                    <b>{choice.label}</b>
+                    <small>{choice.description}</small>
+                  </span>
+                  <SettingSwitch
+                    checked={(drafts[choice.key] ?? choice.value) === "true"}
+                    label={choice.label}
+                    disabled={settingsSaving}
+                    onchange={value => saveSetting(choice, String(value))}
+                  />
+                </div>
+              {:else}
+                <label class="field" for={`setting-${choice.key}`}>
+                  <span class="row-copy">
+                    <b>{choice.label}</b>
+                    <small>{choice.description}</small>
+                  </span>
+                  <select
+                    id={`setting-${choice.key}`}
+                    value={drafts[choice.key] ?? choice.value}
+                    disabled={settingsSaving}
+                    onchange={event => saveSetting(choice, event.currentTarget.value)}
+                  >
+                    {#each choice.options as option (option.value)}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
             {/each}
           {:else}
             <p class="row-note">{session.state ? "No settings are available for this section." : "Connecting to Luma…"}</p>
@@ -476,7 +548,7 @@
           <div class="row">
             <span class="row-copy">
               <b>App order</b>
-              <small>Move apps and choose which ones appear.</small>
+              <small>Move apps into the order you want.</small>
             </span>
             <button type="button" class="pill" data-order-trigger onclick={() => (orderOpen = true)}>Edit</button>
           </div>
@@ -501,6 +573,7 @@
               {pcLabel}
             </button>
           </div>
+          {#if pcNote}<p class="row-note" role="status">{pcNote}</p>{/if}
         </section>
       {/if}
     </div>
@@ -767,7 +840,9 @@
   }
 
   .row + .row,
-  .field + .field {
+  .field + .field,
+  .field + .row,
+  .row + .field {
     border-top: 1px solid var(--line);
   }
 
@@ -844,7 +919,7 @@
   }
 
   .pill {
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 16px;
     border: 1px solid var(--line-strong);
     border-radius: 99px;
@@ -885,7 +960,7 @@
 
   .theme-picker {
     position: relative;
-    flex: none;
+    width: 100%;
   }
 
   .theme-select {
@@ -893,9 +968,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    min-width: 150px;
-    max-width: 190px;
-    min-height: 40px;
+    width: 100%;
+    min-height: 44px;
     padding: 0 12px;
     border: 1px solid var(--line-strong);
     border-radius: 11px;
@@ -931,7 +1005,7 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 10px;
     border-radius: 9px;
     background: transparent;
@@ -1020,10 +1094,6 @@
 
     .row {
       gap: 12px;
-    }
-
-    .theme-select {
-      max-width: 150px;
     }
   }
 </style>

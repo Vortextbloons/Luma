@@ -157,6 +157,7 @@
 {/if}
 
 {#if view === 'all' || view === 'accounts'}
+{#if native}
 <section class="settings-group">
   <h3>Connected services</h3>
   <p class="panel-description">Connect the services you use to see what you're watching in Luma. Each service is optional, and one that is offline will not stop the rest of Luma. Visibility is under History &amp; Privacy.</p>
@@ -221,6 +222,12 @@
     {/each}
   </div>
 </section>
+{:else}
+<section class="settings-group">
+  <h3>Connected services</h3>
+  <p class="panel-description">Account connections are available in the desktop application.</p>
+</section>
+{/if}
 {/if}
 
 {#if error}<p class="error" role="alert">{error}</p>{/if}

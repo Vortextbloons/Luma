@@ -46,6 +46,8 @@ export interface SettingOption {
 export interface SettingChoice {
   key: string;
   group: string;
+  section?: string;
+  kind?: "choice" | "toggle" | string;
   label: string;
   description: string;
   options: SettingOption[];

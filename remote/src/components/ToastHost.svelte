@@ -11,7 +11,7 @@
 <style>
   .toast {
     position: fixed;
-    top: calc(58px + env(safe-area-inset-top));
+    top: calc(124px + env(safe-area-inset-top));
     left: 50%;
     z-index: 80;
     width: min(calc(100% - 32px), 398px);
