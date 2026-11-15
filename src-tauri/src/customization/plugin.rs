@@ -3310,6 +3310,30 @@ mod tests {
     }
 
     #[test]
+    fn archive_validation_rejects_too_many_files_and_oversized_files() {
+        let count_manifest = serde_json::to_vec(&manifest("com.example.count", "1.0.0")).unwrap();
+        let mut files = vec![("luma-extension.json".to_string(), count_manifest)];
+        for index in 0..MAX_FILES + 1 {
+            files.push((format!("source/file-{index}.txt"), b"x".to_vec()));
+        }
+        let entries: Vec<(&str, &[u8])> = files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        assert!(archive::read(&zip_bytes(&entries)).is_err());
+
+        let mut large = manifest("com.example.large", "1.0.0");
+        large["source"] = serde_json::json!(["source/large.bin"]);
+        let large_manifest = serde_json::to_vec(&large).unwrap();
+        let oversized = vec![b'x'; (MAX_FILE_BYTES + 1) as usize];
+        let bytes = zip_bytes(&[
+            ("luma-extension.json", large_manifest.as_slice()),
+            ("source/large.bin", oversized.as_slice()),
+        ]);
+        assert!(archive::read(&bytes).is_err());
+    }
+
+    #[test]
     fn failed_update_leaves_the_previous_enabled_package_intact() {
         let (store, root) = store();
         stage(&store, "com.example.lounge", "1.0.0");

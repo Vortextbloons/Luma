@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import type { PluginRecord, PluginSettingValue, PluginsState } from '../services/plugins';
-  import { pluginControlSummary, pluginSettingValues } from '../services/plugins';
+  import { pluginControlSummary, pluginFieldLabel, pluginSettingValues } from '../services/plugins';
 
   type ImportResult = { plugin: PluginRecord; alreadyInstalled: boolean; replacedVersion: string | null };
 
@@ -63,6 +63,13 @@
     } catch (value) {
       actionError = messageOf(value);
     }
+  }
+
+  async function retryPlugins() {
+    if (busy) return;
+    busy = 'reload';
+    await run('', reload);
+    busy = '';
   }
 
   async function importPlugin() {
@@ -199,7 +206,7 @@
     {#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
     {#if error}
       <p class="error" role="alert">{error}</p>
-      <div class="settings-actions"><button class="panel-secondary" onclick={() => void reload()}>Try again</button></div>
+      <div class="settings-actions"><button class="panel-secondary" disabled={!!busy} onclick={retryPlugins}>{busy === 'reload' ? 'Checking…' : 'Try again'}</button></div>
     {/if}
     {#if loading && !plugins}
       <p class="panel-description" role="status">Checking installed plugins…</p>
@@ -222,9 +229,9 @@
             <p class="plugin-status">{pluginControlSummary(record)}</p>
             {#if record.executionReason}<p class="plugin-warning" role="status">{record.executionReason}</p>{/if}
             {#if record.disabledReason}<p class="plugin-warning" role="status">{record.disabledReason}</p>{/if}
-            {#if record.detachedFields.length}<p class="plugin-warning" role="status">You changed {record.detachedFields.join(', ')} in Luma, so this plugin no longer controls {record.detachedFields.length === 1 ? 'that setting' : 'those settings'}.</p>{/if}
+            {#if record.detachedFields.length}<p class="plugin-warning" role="status">You changed {record.detachedFields.map(pluginFieldLabel).join(', ')} in Luma, so this plugin no longer controls {record.detachedFields.length === 1 ? 'that setting' : 'those settings'}.</p>{/if}
             {#if record.conflicts.length}<p class="plugin-warning" role="status">Conflicts with another plugin: {record.conflicts.join(', ')}.</p>{/if}
-            {#if record.enableError}<p class="plugin-warning" role="status">{record.enableError}</p>{/if}
+            {#if record.enableError && record.enableError !== record.executionReason}<p class="plugin-warning" role="status">{record.enableError}</p>{/if}
             <div class="settings-actions plugin-actions">
               {#if record.enabled}
                 {#if record.detachedFields.length}

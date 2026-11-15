@@ -175,7 +175,7 @@ pub(super) fn find_entry(
         .find(|entry| entry.revision == revision))
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(super) fn find(connection: &Connection, revision: u64) -> Result<Option<Document>, Error> {
     Ok(find_entry(connection, revision)?.map(|entry| Document {
         version: 3,
@@ -184,7 +184,7 @@ pub(super) fn find(connection: &Connection, revision: u64) -> Result<Option<Docu
     }))
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(super) fn previous(connection: &Connection, revision: u64) -> Result<Option<Document>, Error> {
     Ok(previous_entry(connection, revision)?.map(|entry| Document {
         version: 3,

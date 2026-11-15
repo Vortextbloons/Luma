@@ -42,7 +42,7 @@ Each Home row is `{ "id": "personal-dock", "component": "apps", "visible": true,
 
 At startup, v1/v2 current and previous documents are validated and upgraded together in one transaction. Older layouts gain one column and full-width spans. Revisions and restore are preserved. Incompatible/corrupt documents prevent partial migration and are not replaced with defaults. API writes require the v3 shape; read before editing instead of replaying old payloads.
 
-Revisions increase only for actual changes. A stale expected revision conflicts even when the proposed configuration is valid. Restore commits the previous configuration with a new revision and retains the replaced configuration, allowing one-step reversal. It is not a history browser.
+Revisions increase only for actual changes. A stale expected revision conflicts even when the proposed configuration is valid. Restore commits the previous configuration with a new revision and retains the replaced configuration, allowing one-step reversal through REST. Settings separately exposes the last ten saved versions; the REST route remains the one-step compatibility path.
 
 Example from a PowerShell session with the same token available, after migration:
 

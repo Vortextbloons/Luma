@@ -6,11 +6,12 @@
 
   const owners = $derived((plugins?.plugins ?? []).filter(plugin => plugin.enabled && plugin.controls.some(field => fields.includes(field))));
   const labels = $derived([...new Set(owners.flatMap(plugin => plugin.controls.filter(field => fields.includes(field))))].map(pluginFieldLabel));
+  const labelText = $derived(labels.length < 2 ? labels[0] ?? '' : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`);
 </script>
 
 {#if owners.length}
   <p class="plugin-ownership" role="status">
-    {#each owners as plugin, index (plugin.id)}{index ? ', ' : ''}{plugin.name}{/each} controls {labels.join(' and ')}. Changing it here detaches that control from the plugin and keeps your choice.
+    {#each owners as plugin, index (plugin.id)}{index ? ', ' : ''}{plugin.name}{/each} controls {labelText}. Changing it here detaches that control from the plugin and keeps your choice.
     {#if onmanage}<button class="text-link" onclick={onmanage}>Manage plugins</button>{/if}
   </p>
 {/if}
