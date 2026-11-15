@@ -19,7 +19,12 @@ try {
 }
 if (head !== upstream) throw new Error('Push the current commit before releasing.');
 
-if (capture('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`])) {
+let released = false;
+try {
+  execFileSync('gh', ['release', 'view', tag, '--json', 'tagName'], { stdio: 'ignore' });
+  released = true;
+} catch {}
+if (released || capture('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`])) {
   throw new Error(`${tag} already exists. Delete the unfinished draft or bump the version before releasing.`);
 }
 
