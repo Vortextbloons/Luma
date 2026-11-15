@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
-  import { cachedSportsArtwork, cachedSportsScores, loadSportsArtwork, cachedSportsListing, isSportsFavorite, loadSportsListing, loadSportsScores, majorSportsLeagues, onSportsClosed, openSportsStream, readSportsFavorites, toggleSportsFavorite, updateSportsScore, writeSportsFavorites, type SportsEvent, type SportsFavorite, type SportsListing } from '../services/sports';
+  import { cachedSportsArtwork, cachedSportsScores, loadSportsArtwork, cachedSportsListing, isSportsFavorite, loadSportsListing, loadSportsScores, majorSportsLeagues, onSportsClosed, openSportsStream, readSportsFavorites, sportsScoresHidden, toggleSportsFavorite, updateSportsScore, writeSportsFavorites, type SportsEvent, type SportsFavorite, type SportsListing } from '../services/sports';
   import { matchScore, scoreSummary, scoreTeam, type GameScore } from '../services/sportsScores';
   import { slideIndicator } from '../services/motion';
   import nbaIcon from '../../../src-tauri/resources/icons/sports-nba.png';
@@ -24,7 +24,7 @@
   let opening = $state(false);
   let watching = $state(false);
   let favorites = $state<SportsFavorite[]>(readSportsFavorites());
-  let hideScores = $state(readHideScores());
+  let hideScores = $state(sportsScoresHidden());
   const artworkCache = new SvelteMap<string, string>(cachedSportsArtwork());
   let sourceIndexes: Record<string, number> = {};
   let returnFocus: HTMLElement | null = null;
@@ -43,7 +43,6 @@
   const artwork = $derived(featuredGame ? artworkCache.get(featuredGame.id) ?? '' : '');
   const sections = $derived([{ title: 'Live Now', events: liveEvents }, { title: 'Upcoming', events: upcoming }, { title: 'Final scores', events: finished }].filter(section => section.events.length));
 
-  function readHideScores() { try { return localStorage.getItem('luma-sports-hide-scores') === 'true'; } catch { return false; } }
   function game(event: SportsEvent) { return matchScore(event, scores); }
   function live(event: SportsEvent) { const matched = game(event); return matched ? matched.state === 'in' : event.live; }
   function eventFavorite(event: SportsEvent) { return event.teams.some(team => isSportsFavorite(favorites, event.league, team.name)); }

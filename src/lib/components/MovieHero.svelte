@@ -15,6 +15,7 @@
     primaryIcon?: 'play' | 'open';
     primary: () => void;
     details?: () => void;
+    detailsLabel?: string;
   }
 </script>
 
@@ -94,7 +95,7 @@
         {#if item.details}
           <button data-focus-key={`${item.key}:details`} class="btn btn-glass" onclick={item.details}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></svg>
-            Details
+            {item.detailsLabel ?? 'Details'}
           </button>
         {/if}
       </div>

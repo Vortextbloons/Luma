@@ -38,8 +38,8 @@
   import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, setFastAppSwitch, saveAppPaths, onNavigation, onOpenMusic, openYouTube, openYouTubeVideo, youtubeFeed, onYouTubeFeed, stremioStatus, stremioSync, stremioOpen, stremioOpenDetail, steamRecentGames, steamStoreRecommendations, steamOpenGame, steamOpenStore } from './lib/services/tauri';
   import { loadCatalog, searchMovies } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from './lib/types';
-  import { cachedSportsArtwork, cachedSportsScores, loadSportsScores, loadSportsArtwork, majorSportsLeagues } from './lib/services/sports';
-  import type { GameScore } from './lib/services/sportsScores';
+  import { cachedSportsArtwork, cachedSportsScores, cachedSportsListing, loadSportsListing, loadSportsScores, loadSportsArtwork, majorSportsLeagues, onSportsClosed, openSportsStream, sportsScoresHidden, updateSportsScore, type SportsEvent } from './lib/services/sports';
+  import { matchEvent, scoreSummary, type GameScore } from './lib/services/sportsScores';
   import nbaCover from '../src-tauri/resources/icons/sports-nba.png';
   import nflCover from '../src-tauri/resources/icons/sports-nfl.png';
   import mlbCover from '../src-tauri/resources/icons/sports-mlb.png';
@@ -133,12 +133,29 @@
   const previewLeague: AppId | null = $derived(previewApp && majorSportsLeagues.includes(previewApp) ? previewApp : null);
   const leagueGames = $derived(leagueScores.filter(game => game.league === previewLeague).sort((a, b) => ['in', 'pre', 'post'].indexOf(a.state) - ['in', 'pre', 'post'].indexOf(b.state)).slice(0, 5));
   let leagueGamesLoading = $state(false);
+  let sportsListing: SportsEvent[] | null = cachedSportsListing()?.events ?? null;
+  let openingGame = false;
+  let scoreTimer: ReturnType<typeof setInterval> | undefined;
+  function stopScoreSync() {
+    if (scoreTimer) { clearInterval(scoreTimer); scoreTimer = undefined; }
+  }
+  function startScoreSync(game: GameScore) {
+    stopScoreSync();
+    scoreTimer = setInterval(() => {
+      void loadSportsScores(game.league, true).then(games => {
+        leagueScores = [...leagueScores.filter(score => score.league !== game.league), ...games];
+        const latest = games.find(candidate => candidate.id === game.id);
+        if (latest) return updateSportsScore(scoreSummary(latest, sportsScoresHidden()));
+      }).catch(() => {});
+    }, 30000);
+  }
   $effect(() => {
     const league = previewLeague;
     if (!native || !league) { leagueGamesLoading = false; return; }
     let active = true;
     leagueGamesLoading = true;
     const timer = setTimeout(() => {
+      if (!sportsListing) void loadSportsListing().then(listing => { if (active) sportsListing = listing.events; }).catch(() => {});
       void loadSportsScores(league).then(async games => {
         if (!active) return;
         leagueScores = [...leagueScores.filter(game => game.league !== league), ...games];
@@ -161,10 +178,35 @@
       description: game?.venue || 'Live and upcoming games',
       art: art || game?.leagueLogo || leagueCovers[league],
       artShape: art ? undefined : 'square',
-      primaryLabel: `Open ${league}`,
-      primaryIcon: 'open',
-      primary: () => { void launch(league as AppId); },
+      primaryLabel: game ? game.state === 'in' ? 'Watch live' : 'Watch game' : `Open ${league}`,
+      primaryIcon: game ? 'play' : 'open',
+      primary: () => { if (game) void watchLeagueGame(game); else void launch(league as AppId); },
+      ...(game ? { detailsLabel: `Open ${league}`, details: () => { void launch(league as AppId); } } : {}),
     };
+  }
+  async function watchLeagueGame(game: GameScore) {
+    if (!native) { message = 'Watching sports is available in the desktop app.'; return; }
+    if (openingGame) return;
+    openingGame = true;
+    try {
+      let events = sportsListing;
+      if (!events) {
+        message = 'Finding a stream…';
+        try { events = (await loadSportsListing()).events; sportsListing = events; }
+        catch { message = 'Sports streams could not load. Check your connection and try again.'; void playSound('error'); return; }
+      }
+      const event = matchEvent(game, events);
+      if (!event) {
+        message = `No stream is listed for ${game.teams.map(team => team.name).join(' vs ')}. Open ${game.league} for game details.`;
+        void playSound('error');
+        return;
+      }
+      await openSportsStream(event.url, 0, event.title, scoreSummary(game, sportsScoresHidden()), event.sources);
+      startScoreSync(game);
+      message = '';
+      void playSound('open');
+    } catch (error) { message = String(error); void playSound('error'); }
+    finally { openingGame = false; }
   }
 
   let youTubeFeed = $state.raw<YouTubeFeedItem[]>([]);
@@ -421,6 +463,7 @@
           await tick();
           await sportsHome?.showLeague(event.payload);
         }));
+        track(await onSportsClosed(stopScoreSync));
         track(await listen<string>('tv-setup-error', event => message = event.payload));
         track(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
         track(await listen<{ key: string; value: string }>('app-setting', event => {
@@ -481,6 +524,7 @@
     return () => {
       customization.dispose();
       disposed = true;
+      stopScoreSync();
       cleanup.splice(0).forEach(stop => stop());
       window.removeEventListener('pointerdown', unlock, true);
       window.removeEventListener('keydown', unlock, true);
@@ -766,7 +810,7 @@
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
       data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading }}
-      actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
+      actions={{ openStremio, openStremioPairing, previewStremio, openSteamGame, previewSteamGame, openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, openYouTubeItem, previewVideo, playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem, openSteamStore, previewSteamRecommendation, select, previewMovie }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} />{/if}

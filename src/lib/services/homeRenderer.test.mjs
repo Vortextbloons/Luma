@@ -37,7 +37,7 @@ function fixture() {
     order: ['YouTube', 'Spotify', 'Custom'], launching: null, catalogVisible: true, youTubeFeed: [], previewMusic: [], steamRecommendations: [], steamRecommendationSource: null,
     previewActivity: [], musicLoading: false, popular: [], featured: [], previewLeague: null, leagueGames: [], leagueGamesLoading: false,
   };
-  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
+  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'watchLeagueGame', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
   return { rows: defaultHomeRows(), data, actions };
 }
 

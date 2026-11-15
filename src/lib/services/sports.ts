@@ -32,6 +32,10 @@ export interface SportsFavorite {
 
 export const majorSportsLeagues = ['NBA', 'NFL', 'MLB', 'NHL'];
 
+export function sportsScoresHidden() {
+  try { return localStorage.getItem('luma-sports-hide-scores') === 'true'; } catch { return false; }
+}
+
 const favoritesKey = 'luma-sports-favorites-v1';
 interface CachedValue<T> { value: T; updatedAt: number }
 const cachePrefix = 'luma-sports-cache-v1-';

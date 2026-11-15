@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { GameScore } from '../services/sportsScores';
 
-  let { league, games, loading = false, open }: {
+  let { league, games, loading = false, watch }: {
     league: string;
     games: GameScore[];
     loading?: boolean;
-    open: () => void;
+    watch: (game: GameScore) => void;
   } = $props();
 
   const live = $derived(games.filter(game => game.state === 'in').length);
@@ -17,7 +17,7 @@
     return Number.isNaN(date.getTime()) ? game.league : date.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   }
   function label(game: GameScore) {
-    return `${game.teams.map(team => team.name).join(' vs ')}, ${game.state === 'in' ? 'live now' : status(game)}. Open ${league} games.`;
+    return `${game.teams.map(team => team.name).join(' vs ')}, ${game.state === 'in' ? 'live now' : status(game)}. Watch ${game.league} game.`;
   }
 </script>
 
@@ -28,7 +28,7 @@
   {#if games.length}
     <div class="activity-track is-cinematic">
       {#each games as game (game.id)}
-        <button data-focus-key={`league:${league}:${game.id}`} class="league-game" style:--team-color={game.teams[0]?.color || '#39374f'} onclick={open} aria-label={label(game)}>
+        <button data-focus-key={`league:${league}:${game.id}`} class="league-game" style:--team-color={game.teams[0]?.color || '#39374f'} onclick={() => watch(game)} aria-label={label(game)}>
           <span class="league-game-art">
             {#each game.teams as team (team.name)}
               <span class="league-team">

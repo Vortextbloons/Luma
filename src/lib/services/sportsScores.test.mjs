@@ -1,6 +1,6 @@
 ﻿import assert from 'node:assert/strict';
 import test from 'node:test';
-import { matchScore, parseScoreboard, scoreSummary, scoreTeam } from './sportsScores.ts';
+import { matchEvent, matchScore, parseScoreboard, scoreSummary, scoreTeam } from './sportsScores.ts';
 
 const makeGame = (id = '1') => ({ id, date: '2026-11-15T18:00Z', competitions: [{
   status: { type: { state: 'in', shortDetail: '3rd 6:28' } }, venue: { fullName: 'Home arena' },
@@ -40,4 +40,15 @@ test('known full city naming variants match while missing data stays empty', () 
   assert.ok(matchScore({ ...event, teams: [{ name: 'Los Angeles Clippers' }, { name: 'Indiana Pacers' }] }, [game]));
   assert.deepEqual(parseScoreboard({ events: [] }, 'NBA'), []);
   assert.throws(() => parseScoreboard({}, 'NBA'));
+});
+
+test('a scoreboard game maps back to its single stream event', () => {
+  const game = parseScoreboard({ events: [makeGame()] }, 'NBA')[0];
+  const streams = [
+    { id: 'a', league: 'NBA', teams: [{ name: 'Indiana Pacers' }, { name: 'Philadelphia 76ers' }] },
+    { id: 'b', league: 'NBA', teams: [{ name: 'Indiana Pacers' }, { name: 'Boston Celtics' }] },
+  ];
+  assert.equal(matchEvent(game, streams)?.id, 'a');
+  assert.equal(matchEvent({ ...game, league: 'NFL' }, streams), undefined);
+  assert.equal(matchEvent(game, [...streams, { ...streams[0] }]), undefined);
 });

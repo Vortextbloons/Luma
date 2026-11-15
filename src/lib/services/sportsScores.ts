@@ -53,6 +53,14 @@ export function matchScore(event: { league: string; teams: { name: string }[] },
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+export function matchEvent<T extends { league: string; teams: { name: string }[] }>(game: GameScore, events: T[]): T | undefined {
+  if (game.teams.length !== 2) return;
+  const names = game.teams.map(team => normalize(team.name));
+  const matches = events.filter(event => event.league === game.league
+    && event.teams.length === 2 && event.teams.every(team => names.includes(normalize(team.name))));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function scoreTeam(game: GameScore | undefined, name: string): GameTeam | undefined {
   return game?.teams.find(team => normalize(team.name) === normalize(name));
 }
