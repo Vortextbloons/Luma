@@ -2,6 +2,22 @@
 
 Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
+## [0.7.0] - 2026-11-15
+
+### Added
+
+- Watch a league game from Home: the sports hero offers **Watch live** or **Watch game**, opens the matching stream, and keeps the score updating while the game plays. Opening the league itself stays available as a secondary action.
+- The pairing screen shows the PC's other local addresses when more than one is available.
+
+### Changed
+
+- Luma pauses its Spotify polling and activity progress while its window is hidden or minimized, then resumes when it returns.
+- Pairing prefers an adapter with internet access and ignores virtual adapters from Hyper-V, VirtualBox, VMware, and Docker.
+
+### Fixed
+
+- Appearance and Home settings no longer report unsaved changes when the stored document differs only in key order.
+
 ## [0.6.1] - 2026-11-15
 
 ### Added
