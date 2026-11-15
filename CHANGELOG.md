@@ -2,6 +2,21 @@
 
 Notable changes to Luma, newest first. The Release workflow publishes the matching section as the GitHub release notes and in-app update notes.
 
+## [0.4.0] - 2026-11-14
+
+### Added
+
+- Change Luma's theme, app tile shape, layout density, sound set, and sound level from the phone remote, with settings synchronized with the TV app.
+- Separate phone settings into This remote and Luma app tabs, with save feedback and rollback on failure.
+
+### Changed
+
+- Refreshed phone remote styling, mobile settings layout, and keyboard focus indicators.
+
+### Fixed
+
+- Allow same-origin connections in the app's Content Security Policy.
+
 ## [0.3.0] - 2026-11-14
 
 ### Added
