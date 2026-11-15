@@ -58,7 +58,17 @@ export function createCustomizationSync(settings: Settings, report: (message: st
       await refreshPlugins();
     } catch { }
   }
-  const same = (a: CustomizationConfig, b: CustomizationConfig) => JSON.stringify(a) === JSON.stringify(b);
+  const same = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => same(value, b[index]));
+    }
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length && keys.every(key => Object.prototype.hasOwnProperty.call(right, key) && same(left[key], right[key]));
+  };
   function apply(document: CustomizationDocument) {
     if (current && document.revision < current.revision) return;
     current = document;

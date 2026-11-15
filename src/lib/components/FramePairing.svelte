@@ -181,6 +181,10 @@
           </ol>
           {#if status.addresses.length}
             <code class="address">{status.phoneUrl}</code>
+            {#if status.addresses.length > 1}
+              <p class="remote-note">If that address does not open, try the other one for this PC:</p>
+              <div class="frame-addresses">{#each status.addresses.slice(1) as address (address)}<code class="address">http://{address}:9877</code>{/each}</div>
+            {/if}
           {:else}
             <p class="remote-note">No network address was found. Connect this PC to Wi-Fi and try again.</p>
           {/if}

@@ -38,6 +38,35 @@ test('migration hydrates native preferences and incoming changes do not echo bac
   assert.equal(stopped, true);
 });
 
+test('a document serialized in a different key order does not trigger another save', async () => {
+  const settings = config();
+  let writes = 0;
+  globalThis.__customizationTest = {
+    listen: async () => () => {},
+    invoke: async command => {
+      if (command === 'customization_preview_read') return null;
+      if (command === 'customization_initialize') {
+        const value = config();
+        return { version: 3, revision: 2, config: {
+          theme: value.theme, density: value.density, appTileShape: value.appTileShape, textSize: value.textSize,
+          reducedMotion: value.reducedMotion, interfaceSounds: value.interfaceSounds, soundLevel: value.soundLevel,
+          homeColumns: value.homeColumns, home: value.home, widgets: value.widgets, order: value.order,
+        } };
+      }
+      assert.equal(command, 'customization_commit');
+      writes++;
+      return document(3);
+    },
+  };
+  const sync = createCustomizationSync(settings, error => assert.fail(error));
+  try {
+    await sync.start();
+    sync.update(customizationConfig(settings));
+    await flush();
+    assert.equal(writes, 0);
+  } finally { sync.dispose(); delete globalThis.__customizationTest; }
+});
+
 test('rapid edits serialize with increasing revisions and preserve edits during a save', async () => {
   const settings = config();
   const writes = [];

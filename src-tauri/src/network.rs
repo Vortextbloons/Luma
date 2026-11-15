@@ -25,6 +25,13 @@ fn vpn_interface(kind: u32, name: &str) -> bool {
         .any(|part| name.contains(part))
 }
 
+fn virtual_interface(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["vethernet", "hyper-v", "virtualbox", "vmware", "docker"]
+        .iter()
+        .any(|part| name.contains(part))
+}
+
 #[cfg(windows)]
 #[tauri::command]
 pub async fn network_status() -> Result<Status, String> {
@@ -75,9 +82,12 @@ pub async fn network_status() -> Result<Status, String> {
 pub fn local_addresses() -> Result<Vec<String>, String> {
     use windows::Networking::Connectivity::{NetworkConnectivityLevel, NetworkInformation};
     let mut addresses = Vec::new();
-    let mut adapters = Vec::new();
+    let mut adapters: Vec<(windows::core::GUID, u8)> = Vec::new();
     for profile in NetworkInformation::GetConnectionProfiles().map_err(|error| error.to_string())? {
-        if profile.GetNetworkConnectivityLevel().ok() == Some(NetworkConnectivityLevel::None) {
+        let Ok(level) = profile.GetNetworkConnectivityLevel() else {
+            continue;
+        };
+        if level == NetworkConnectivityLevel::None {
             continue;
         }
         let Ok(adapter) = profile.NetworkAdapter() else {
@@ -89,9 +99,11 @@ pub fn local_addresses() -> Result<Vec<String>, String> {
         let Ok(name) = profile.ProfileName() else {
             continue;
         };
-        if matches!(kind, 6 | 71) && !vpn_interface(kind, &name.to_string()) {
+        let name = name.to_string();
+        if matches!(kind, 6 | 71) && !vpn_interface(kind, &name) && !virtual_interface(&name) {
             if let Ok(id) = adapter.NetworkAdapterId() {
-                adapters.push(id);
+                let rank = u8::from(level != NetworkConnectivityLevel::InternetAccess);
+                adapters.push((id, rank));
             }
         }
     }
@@ -105,9 +117,9 @@ pub fn local_addresses() -> Result<Vec<String>, String> {
         let Ok(id) = adapter.NetworkAdapterId() else {
             continue;
         };
-        if !adapters.contains(&id) {
+        let Some((_, rank)) = adapters.iter().find(|(adapter, _)| *adapter == id) else {
             continue;
-        }
+        };
         let Ok(name) = host.CanonicalName() else {
             continue;
         };
@@ -115,12 +127,15 @@ pub fn local_addresses() -> Result<Vec<String>, String> {
             continue;
         };
         if !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified() {
-            addresses.push(ip.to_string());
+            addresses.push((*rank, ip));
         }
     }
     addresses.sort();
-    addresses.dedup();
-    Ok(addresses)
+    addresses.dedup_by(|left, right| left.1 == right.1);
+    Ok(addresses
+        .into_iter()
+        .map(|(_, ip)| ip.to_string())
+        .collect())
 }
 
 #[cfg(not(windows))]
@@ -154,7 +169,7 @@ pub fn watch(app: &tauri::AppHandle) -> windows::core::Result<Watcher> {
 
 #[cfg(test)]
 mod tests {
-    use super::vpn_interface;
+    use super::{virtual_interface, vpn_interface};
 
     #[test]
     fn identifies_tunnels_and_named_vpn_adapters_without_marking_wifi() {
@@ -164,5 +179,15 @@ mod tests {
         assert!(vpn_interface(6, "ProtonVPN"));
         assert!(!vpn_interface(71, "Home Wi-Fi"));
         assert!(!vpn_interface(6, "Ethernet"));
+    }
+
+    #[test]
+    fn skips_virtual_switches_that_only_this_pc_can_reach() {
+        assert!(virtual_interface("vEthernet (WSL (Hyper-V firewall))"));
+        assert!(virtual_interface("vEthernet (Default Switch)"));
+        assert!(virtual_interface("VirtualBox Host-Only Network"));
+        assert!(virtual_interface("VMware Network Adapter VMnet8"));
+        assert!(!virtual_interface("Home Wi-Fi"));
+        assert!(!virtual_interface("Ethernet"));
     }
 }
