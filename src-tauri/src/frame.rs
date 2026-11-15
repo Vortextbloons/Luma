@@ -446,6 +446,24 @@ struct LayoutRequest {
     order: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingRequest {
+    key: String,
+    value: String,
+}
+
+async fn phone_setting(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<SettingRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    same_origin(&headers)?;
+    phone_authorized(&app, &headers)?;
+    server::change_setting(&app, request.key, request.value).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(serde_json::json!({"accepted": true})))
+}
+
 async fn phone_layout(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -712,6 +730,7 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/disconnect", post(phone_disconnect))
         .route("/phone/state", get(phone_state))
         .route("/phone/layout", post(phone_layout))
+        .route("/phone/settings", post(phone_setting))
         .route("/phone/ws", get(phone_socket))
         .route("/phone/command", post(phone_command))
         .route("/phone/sound/{preset}/{role}", get(phone_sound))

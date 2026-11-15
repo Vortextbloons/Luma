@@ -7,7 +7,7 @@ use tauri::Manager;
 const TICK: Duration = Duration::from_millis(16);
 const LEASE: Duration = Duration::from_millis(1500);
 const SPEED: f32 = 1100.0;
-const DEAD_ZONE: f32 = 0.16;
+const DEAD_ZONE: f32 = 0.10;
 
 pub(crate) const HIDE: &str = "(() => { if (document.getElementById('luma-remote-cursor')) return; const style = document.createElement('style'); style.id = 'luma-remote-cursor'; style.textContent = '*{cursor:none !important}'; document.documentElement.appendChild(style); const show = event => { if (event && event.type === 'pointermove' && !event.movementX && !event.movementY) return; style.remove(); window.removeEventListener('pointermove', show, true); if (window.__lumaRemoteCursor === show) delete window.__lumaRemoteCursor; }; window.__lumaRemoteCursor = show; window.addEventListener('pointermove', show, true); })();";
 pub(crate) const SHOW: &str = "(() => { const show = window.__lumaRemoteCursor; if (typeof show === 'function') show(); document.getElementById('luma-remote-cursor')?.remove(); })();";
@@ -57,7 +57,7 @@ fn velocity(x: f32, y: f32) -> (f32, f32) {
         return (0.0, 0.0);
     }
     let scaled = ((magnitude - DEAD_ZONE) / (1.0 - DEAD_ZONE)).min(1.0);
-    let speed = SPEED * scaled / magnitude;
+    let speed = SPEED * scaled * scaled / magnitude;
     (x * speed, y * speed)
 }
 
@@ -371,6 +371,8 @@ mod tests {
         assert!(y > 1000.0);
         let (slow_x, _) = velocity(0.2, 0.0);
         assert!(slow_x < 100.0);
+        let (medium_x, _) = velocity(0.5, 0.0);
+        assert!(medium_x > slow_x && medium_x < 250.0);
     }
 
     #[test]

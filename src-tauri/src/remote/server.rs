@@ -54,6 +54,40 @@ pub struct ThemeOption {
     tokens: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SettingOption {
+    value: String,
+    label: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SettingChoice {
+    key: String,
+    group: String,
+    label: String,
+    description: String,
+    options: Vec<SettingOption>,
+    value: String,
+}
+
+#[tauri::command]
+pub fn update_settings(remote: tauri::State<Remote>, settings: Vec<SettingChoice>) -> Result<(), String> {
+    remote.state.lock().map_err(|error| error.to_string())?.settings = settings;
+    Ok(())
+}
+
+pub(crate) fn change_setting(app: &tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+    {
+        let remote = app.state::<Remote>();
+        let state = remote.state.lock().map_err(|error| error.to_string())?;
+        let choice = state.settings.iter().find(|choice| choice.key == key).ok_or("Unknown setting")?;
+        if !choice.options.iter().any(|option| option.value == value) {
+            return Err("Invalid setting value".into());
+        }
+    }
+    app.emit_to("main", "app-setting", serde_json::json!({ "key": key, "value": value })).map_err(|error| error.to_string())
+}
+
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
@@ -65,6 +99,7 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Option::is_none")]
     appearance: Option<Appearance>,
     app_order: Vec<String>,
+    settings: Vec<SettingChoice>,
 }
 
 impl AppState {
@@ -328,6 +363,7 @@ impl Default for Remote {
                 window_fullscreen: None,
                 appearance: None,
                 app_order: Vec::new(),
+                settings: Vec::new(),
             }),
             appearance: tokio::sync::watch::channel(None).0,
             app_order: tokio::sync::watch::channel(Vec::new()).0,
@@ -551,6 +587,7 @@ mod tests {
             window_fullscreen: Some(true),
             appearance: None,
             app_order: Vec::new(),
+                settings: Vec::new(),
         };
         let value = serde_json::to_value(state).unwrap();
         assert_eq!(value["window"], "YouTube");

@@ -116,6 +116,7 @@ pub fn run() {
             server::update_app_state,
             server::update_appearance,
             server::update_app_order,
+            server::update_settings,
             youtube::open_youtube,
             youtube::youtube_feed,
             youtube::youtube_open_video,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingChoices } from '../services/settings';
   import { homeShortcut } from '../services/navigation';
   import { previewSounds, setSoundSettings } from '../services/sound';
   import logo from '../../assets/luma.png';
@@ -122,14 +123,14 @@
             <button class="panel-secondary" disabled={!native} onclick={fullscreen}>{settings.fullscreen ? 'Switch to windowed mode' : 'Switch to fullscreen'}</button>
           </div>
           <div class="settings-form-grid">
-            <label class="field">App tile shape
-              <select bind:value={settings.appTileShape}><option value="wide">Pills</option><option value="square">Squares</option></select>
-              <span class="field-hint">Wide cards suit artwork; squares fit more apps.</span>
-            </label>
-            <label class="field">Layout density
-              <select bind:value={settings.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select>
-              <span class="field-hint">Compact fits more rows on screen.</span>
-            </label>
+            {#each settingChoices.filter(choice => choice.group === 'Display') as choice (choice.key)}
+              <label class="field">{choice.label}
+                <select bind:value={settings[choice.key]}>
+                  {#each choice.options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
+                </select>
+                <span class="field-hint">{choice.description}</span>
+              </label>
+            {/each}
           </div>
         </section>
       {:else if category === 'TV setup'}
@@ -139,23 +140,14 @@
           <h3>Interface sounds</h3>
           <p class="panel-description">Short feedback for focus, select, back, and app launch. Plays on this screen and on the web remote.</p>
           <div class="settings-form-grid">
-            <label class="field">Sound set
-              <select bind:value={settings.interfaceSounds}>
-                <option value="real">Real hardware</option>
-                <option value="google">Google TV</option>
-                <option value="roku">Roku</option>
-                <option value="off">Off</option>
-              </select>
-              <span class="field-hint">Real hardware uses recorded remote and Roku clicks.</span>
-            </label>
-            <label class="field">Level
-              <select bind:value={settings.soundLevel} disabled={settings.interfaceSounds === 'off'}>
-                <option value="soft">Soft</option>
-                <option value="standard">Standard</option>
-                <option value="loud">Loud</option>
-              </select>
-              <span class="field-hint">Standard is tuned for a quiet room.</span>
-            </label>
+            {#each settingChoices.filter(choice => choice.group === 'Sound') as choice (choice.key)}
+              <label class="field">{choice.label}
+                <select bind:value={settings[choice.key]} disabled={choice.key === 'soundLevel' && settings.interfaceSounds === 'off'}>
+                  {#each choice.options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
+                </select>
+                <span class="field-hint">{choice.description}</span>
+              </label>
+            {/each}
           </div>
           <div class="settings-actions"><button class="panel-secondary" disabled={settings.interfaceSounds === 'off'} onclick={() => { setSoundSettings(settings.interfaceSounds, settings.soundLevel); previewSounds(); }}>Preview sounds</button></div>
         </section>

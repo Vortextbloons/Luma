@@ -154,3 +154,39 @@ test('navigation sends on press without a duplicate on release and preserves key
   handlers.click({ ...event, detail: 0 });
   assert.deepEqual(sent, ['right', 'right']);
 });
+
+const settingsSource = source.slice(source.indexOf("  let settingsSignature = ''"), source.indexOf('  function applyState(state)'));
+test('remote renders app settings from the shared catalog and restores a rejected change', async () => {
+  class Element {
+    children = [];
+    listeners = {};
+    append(...items) { this.children.push(...items); }
+    replaceChildren(fragment) { this.children = fragment.children; }
+    contains() { return false; }
+    addEventListener(name, handler) { this.listeners[name] = handler; }
+    querySelectorAll(tag) {
+      return this.children.flatMap(child => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]);
+    }
+  }
+  const fields = new Element(), note = new Element();
+  const requests = [];
+  const context = vm.createContext({
+    document: {
+      getElementById: id => id === 'app-settings-fields' ? fields : note,
+      createDocumentFragment: () => new Element(),
+      createElement: tag => Object.assign(new Element(), { tag }),
+    },
+    request: async (path, options) => { requests.push([path, JSON.parse(options.body)]); return { response: { ok: false } }; },
+  });
+  vm.runInContext(settingsSource, context);
+  vm.runInContext(`syncSettings([{ key: 'density', group: 'Display', label: 'Layout density', description: 'Choose spacing', value: 'comfortable', options: [{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }] }])`, context);
+  const [select] = fields.querySelectorAll('select');
+  assert.equal(select.value, 'comfortable');
+  assert.equal(select.children.length, 2);
+  select.value = 'compact';
+  await select.listeners.change();
+  assert.deepEqual(requests, [['/phone/settings', { key: 'density', value: 'compact' }]]);
+  assert.equal(select.value, 'comfortable');
+  assert.equal(select.disabled, false);
+  assert.match(note.textContent, /Could not save/);
+});

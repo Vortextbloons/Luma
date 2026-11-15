@@ -27,6 +27,7 @@
   import ContinueWatching from './lib/components/activity/ContinueWatching.svelte';
   import RecentlyPlayed from './lib/components/activity/RecentlyPlayed.svelte';
   import RecentApps from './lib/components/activity/RecentApps.svelte';
+  import { remoteSettings, applyRemoteSetting } from './lib/services/settings';
   import { createSettings, normalizeAppOrder } from './lib/state/settings.svelte';
   import { createActivity } from './lib/state/activity.svelte';
   import { createNavigation } from './lib/services/navigation';
@@ -290,6 +291,9 @@
     invoke('update_appearance', { appearance: appearanceFor(theme) }).catch(() => {});
   });
   $effect(() => {
+    if (native) void invoke('update_settings', { settings: remoteSettings(settings) }).catch(error => message = String(error));
+  });
+  $effect(() => {
     if (!native) return;
     invoke('update_app_order', { order: settings.order }).catch(() => {});
   });
@@ -320,6 +324,9 @@
         track(stopMusic);
         track(await listen<string>('tv-setup-error', event => message = event.payload));
         track(await listen('stremio-closed', () => { if (!disposed) void refreshStremio(true); }));
+        track(await listen<{ key: string; value: string }>('app-setting', event => {
+          if (!disposed) applyRemoteSetting(settings, event.payload);
+        }));
         track(await listen<string[]>('app-order', event => {
           if (!disposed) settings.order = normalizeAppOrder(event.payload);
         }));
