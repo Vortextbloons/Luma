@@ -2,6 +2,20 @@
 
 Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
+## [0.8.0] - 2026-11-15
+
+### Added
+
+- **Multi Watch** puts up to two players on screen side by side, on separate displays, or in a floating window that stays above Luma while you browse. Add a Luma source or any open app or browser window, choose which player the remote controls, and remove a window to restore its previous placement.
+- Move widgets anywhere on Home: drag the Spotify bar with a pointer or the remote, or pin it to a corner. Widgets can always show, appear only when Spotify is available, or appear only during playback, and custom positions stay on screen when the display size changes.
+- Search on the phone remote covers Movies, Shows, YouTube, Sports, and History in source tabs, with result counts and live sports cards. Results open on the display from the same search.
+- Show posters use TVmaze artwork when Stremio artwork is missing, and cards show a clear placeholder instead of a broken image when nothing is available.
+
+### Changed
+
+- Focus rings use Luma's accent color across cards and controls, and settings categories have their own icons.
+- Press Ctrl+Alt+M, or use **Settings → Display & Sound → Switch display**, to move Luma and its current layout to the next monitor without changing the saved startup display.
+
 ## [0.7.0] - 2026-11-15
 
 ### Added
