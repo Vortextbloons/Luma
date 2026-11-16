@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "extension-spike",
+  "description": "The development-only isolated extension spike window grants no Tauri permissions. Host actions reach the backend through a native invoke guard that rejects every other command.",
+  "windows": [
+    "extension-spike"
+  ],
+  "permissions": []
+}

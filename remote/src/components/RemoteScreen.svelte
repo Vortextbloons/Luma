@@ -9,9 +9,10 @@
   import OfflineBanner from "./OfflineBanner.svelte";
   import RemoteKey from "./RemoteKey.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
+  import SearchDialog from "./SearchDialog.svelte";
   import TextDialog from "./TextDialog.svelte";
   import TopBar from "./TopBar.svelte";
-  import { openApps, screen } from "../lib/screen.svelte";
+  import { openApps, openSearch, closeSearch, screen } from "../lib/screen.svelte";
   import { send, session } from "../lib/session.svelte";
   import { say } from "../lib/toast.svelte";
 
@@ -48,6 +49,13 @@
     void tick().then(() => document.querySelector<HTMLElement>("[data-type-trigger]")?.focus());
   }
 
+  $effect(() => {
+    if (screen.current === "remote" && screen.restoreSearchFocus) {
+      screen.restoreSearchFocus = false;
+      void tick().then(() => document.querySelector<HTMLElement>("[data-search-trigger]")?.focus());
+    }
+  });
+
   onMount(() => {
     if (screen.restoreAppsFocus) {
       screen.restoreAppsFocus = false;
@@ -58,6 +66,7 @@
 
 <div class="remote-shell screen-enter">
   <TopBar
+    onsearch={openSearch}
     onapps={openApps}
     ontype={() => (textOpen = true)}
     onsettings={() => (settingsOpen = true)}
@@ -94,6 +103,7 @@
   <MusicCard onsend={command} />
 
   <SettingsDialog open={settingsOpen} onclose={closeSettings} />
+  <SearchDialog open={screen.current === "search"} onclose={closeSearch} />
   <TextDialog open={textOpen} onclose={closeText} />
 </div>
 

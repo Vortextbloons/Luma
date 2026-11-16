@@ -225,3 +225,10 @@ export function toggleSportsFavorite(favorites: SportsFavorite[], league: string
     ? favorites.filter(favorite => favoriteKey(favorite.league, favorite.team) !== key)
     : [...favorites, { league: league.trim(), team: team.trim() }];
 }
+
+export async function loadSportsTeams(league: string): Promise<SportsTeam[]> {
+  const data = await invoke<{ sports?: { leagues?: { teams?: { team: { displayName: string; logos?: { href: string }[] } }[] }[] }[] }>('sports_teams', { league });
+  const teams = data.sports?.[0]?.leagues?.[0]?.teams;
+  if (!teams?.length) throw new Error('Teams are unavailable.');
+  return teams.map(({ team }) => ({ name: team.displayName, logo: imageUrl(team.logos?.[0]?.href) })).sort((a, b) => a.name.localeCompare(b.name));
+}

@@ -3,6 +3,7 @@ mod background;
 mod commands;
 mod credentials;
 mod customization;
+mod extension_spike;
 mod frame;
 mod integrations;
 mod network;
@@ -47,6 +48,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol(extension_spike::SCHEME, extension_spike::protocol)
         .manage(tv::Tv::default())
         .manage(apps::Apps::default())
         .manage(services::Services::default())
@@ -80,6 +82,7 @@ pub fn run() {
             app.manage(network::watch(app.handle())?);
             tv::load(app.handle()).map_err(std::io::Error::other)?;
             background::setup(app)?;
+            extension_spike::autostart(app.handle().clone());
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(
                 activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?,
@@ -101,6 +104,7 @@ pub fn run() {
                     if let Some(store) = window.app_handle().try_state::<customization::Store>() {
                         store.clear_preview();
                     }
+                    extension_spike::dismiss(window.app_handle());
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -108,7 +112,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(extension_spike::guard(tauri::generate_handler![
             customization::customization_read,
             customization::customization_initialize,
             customization::customization_commit,
@@ -180,11 +184,11 @@ pub fn run() {
             frame::open_phone_remote,
             server::update_app_state,
             server::update_appearance,
-            server::update_settings,
             sports::sports_listing,
             sports::sports_streameast_listing,
             sports::sports_open,
             sports::sports_scoreboard,
+            sports::sports_teams,
             sports::sports_artwork,
             sports::sports_update_score,
             youtube::open_youtube,
@@ -207,7 +211,7 @@ pub fn run() {
             stremio::stremio_sync,
             stremio::stremio_disconnect,
             stremio::stremio_open
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while running Luma");
     app.run(|app, event| {

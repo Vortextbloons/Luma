@@ -4,6 +4,7 @@ export type IconName =
   | "back"
   | "home"
   | "more"
+  | "search"
   | "apps"
   | "keyboard"
   | "display"

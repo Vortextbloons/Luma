@@ -78,7 +78,7 @@ These are facts about the current checkout, not the target design.
 | Preview | One native in-memory candidate; `customization_preview` requires a visible, non-minimized main launcher. Keep is revision-checked; cancel, a committed write, launcher destruction, or process exit discards it. | Preview remains a candidate, never a second source of truth. It covers data surfaces, not executable code installation. |
 | Frontend sync | `src/lib/services/customization.ts` subscribes before initialization, serializes saves, suppresses stale events, reconciles conflicts, and disposes listeners. | New surfaces must use this service rather than writing localStorage or events directly. |
 | Local HTTP | `src-tauri/src/customization/server.rs` is opt-in through `LUMA_CUSTOMIZATION_TOKEN`, binds `127.0.0.1:9878`, requires a bearer token, rejects Origin, and limits bodies to 32 KiB. It currently grants direct commit and Keep to the token holder. | This is a developer/full-trust surface, not yet the user-facing MCP permission model. See §6.6 and [the MCP plan](CUSTOMIZATION-MCP-PLAN.md). |
-| Remote mirror | `src-tauri/src/remote/server.rs` mirrors app order, appearance, sound, and settings; `publish()` also emits `customization-changed` to the main window. | Remote changes must keep flowing through the same native owner. |
+| Remote mirror | `src-tauri/src/remote/server.rs` derives the settings payload from the revisioned native document and mirrors app order, appearance, and sound; `publish()` also emits `customization-changed` to the main window. | Remote changes must keep flowing through the same native owner. |
 
 ### 3.2 Appearance
 
@@ -819,6 +819,8 @@ Exit criteria:
 - Luma remains fully usable after disconnect; a background-only session can answer read/validate but not fake a preview.
 
 ### Stage 6 — Executable UI gate and first runtime
+
+Contract and acceptance record: [CUSTOMIZATION-RUNTIME-SPIKE.md](CUSTOMIZATION-RUNTIME-SPIKE.md). It is pre-spike: no runtime is selected and no live check has passed.
 
 Dependency: G1/G2 evidence and a feature that cannot be expressed declaratively.
 

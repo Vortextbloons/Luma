@@ -1,14 +1,14 @@
 import type { MediaItem } from '../types';
 
-const endpoint = 'https://v3-cinemeta.strem.io/catalog/movie';
+const endpoint = 'https://v3-cinemeta.strem.io/catalog';
 
 interface CinemetaMeta {
   id: string; name: string; description?: string; genres?: string[]; genre?: string[];
   year?: string; runtime?: string; imdbRating?: string; poster?: string; background?: string;
 }
 
-async function load(id: string): Promise<MediaItem[]> {
-  const response = await fetch(`${endpoint}/${id}.json`);
+async function load(id: string, kind = 'movie'): Promise<MediaItem[]> {
+  const response = await fetch(`${endpoint}/${kind}/${id}.json`);
   if (!response.ok) throw new Error(`Movie catalog request failed (${response.status}).`);
   const data = await response.json() as { metas?: CinemetaMeta[] };
   return (data.metas ?? []).slice(0, 10).map(meta => ({
@@ -24,8 +24,10 @@ async function load(id: string): Promise<MediaItem[]> {
 }
 
 export async function loadCatalog() {
-  const [popular, featured] = await Promise.all([load('top'), load('imdbRating')]);
-  return { popular, featured };
+  const [popular, featured, shows] = await Promise.all([load('top'), load('imdbRating'), load('top', 'series')]);
+  return { popular, featured, shows };
 }
 
 export const searchMovies = (query: string) => load(`top/search=${encodeURIComponent(query.trim())}`);
+
+export const searchShows = (query: string) => load(`top/search=${encodeURIComponent(query.trim())}`, 'series');

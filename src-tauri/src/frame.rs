@@ -33,7 +33,7 @@ const WEB_ICON_192: &[u8] = include_bytes!("web/luma-192.png");
 const WEB_ICON_512: &[u8] = include_bytes!("web/luma-512.png");
 const WEB_ICON_MASKABLE: &[u8] = include_bytes!("web/luma-maskable-512.png");
 const WEB_ICON_APPLE: &[u8] = include_bytes!("web/apple-touch-icon.png");
-const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws:; manifest-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws: https://v3-cinemeta.strem.io; manifest-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const DISPLAY_CREDENTIAL: &str = "display";
 const PHONE_CREDENTIAL: &str = "phone";
 
@@ -764,6 +764,58 @@ struct TextRequest {
     text: String,
 }
 
+async fn remote_search(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<TextRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    same_origin(&headers)?;
+    let text = request.text.trim();
+    if text.is_empty() || text.len() > 1024 || text.chars().any(char::is_control) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let query = text.to_lowercase();
+    let (videos, sports_html, stream_east) = tokio::join!(
+        youtube::youtube_feed(app.state::<youtube::Bridge>()),
+        crate::commands::sports::sports_listing(),
+        crate::commands::sports::sports_streameast_listing(app.clone(), None)
+    );
+    let history = app.state::<crate::activity::Activity>().snapshot().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({"videos": videos.unwrap_or_default().into_iter().filter(|item| item.title.to_lowercase().contains(&query)).collect::<Vec<_>>(), "history": history.items.into_iter().filter(|item| item.title.to_lowercase().contains(&query)).collect::<Vec<_>>(),
+        "sportsHtml": sports_html.as_ref().ok(), "streamEast": stream_east.as_ref().ok(),
+        "sportsUnavailable": sports_html.is_err() && stream_east.is_err()})))
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum SearchTarget {
+    Movie { id: String },
+    Series { id: String },
+    Video { id: String },
+    Activity { id: String },
+    Sports { url: String, title: String, sources: Option<Vec<String>> },
+}
+
+async fn remote_search_open(
+    State(app): State<tauri::AppHandle>, headers: HeaderMap, Json(target): Json<SearchTarget>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    same_origin(&headers)?;
+    server::wake(&app).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let result = match target {
+        SearchTarget::Movie { id } => crate::commands::stremio::stremio_open(app.clone(), app.state::<crate::commands::stremio::Stremio>(), Some(id), Some("movie".into())).await,
+        SearchTarget::Series { id } => crate::commands::stremio::stremio_open(app.clone(), app.state::<crate::commands::stremio::Stremio>(), Some(id), Some("series".into())).await,
+        SearchTarget::Video { id } => youtube::open_video(app.clone(), &id, true).await,
+        SearchTarget::Activity { id } => crate::activity::manager::open_activity(app.clone(), id, true).await.map(|_| ()),
+        SearchTarget::Sports { url, title, sources } => crate::commands::sports::sports_open(app.clone(), url, 0, title, String::new(), sources).await,
+    };
+    Ok(Json(match result {
+        Ok(()) => serde_json::json!({"accepted": true}),
+        Err(error) => serde_json::json!({"error": error}),
+    }))
+}
+
 async fn remote_text(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -865,6 +917,8 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/sound/{preset}/{role}", get(phone_sound))
         .route("/pointer", post(pointer))
         .route("/text", post(remote_text))
+        .route("/phone/search", post(remote_search))
+        .route("/phone/search/open", post(remote_search_open))
         .route("/apps", get(apps_list))
         .route("/apps/{command}/icon", get(app_icon))
         .layer(DefaultBodyLimit::max(4096))

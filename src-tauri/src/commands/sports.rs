@@ -281,6 +281,11 @@ pub async fn sports_scoreboard(league: String) -> Result<serde_json::Value, Stri
 }
 
 #[tauri::command]
+pub async fn sports_teams(league: String) -> Result<serde_json::Value, String> {
+    data_request(&format!("{}/teams?limit=100", league_path(&league)?)).await
+}
+
+#[tauri::command]
 pub async fn sports_artwork(league: String, event_id: String) -> Result<Option<String>, String> {
     if event_id.is_empty() || !event_id.chars().all(|character| character.is_ascii_digit()) {
         return Err("Invalid game identifier.".into());

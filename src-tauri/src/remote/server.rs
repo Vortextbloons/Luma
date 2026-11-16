@@ -106,7 +106,7 @@ fn setting_choice(
     }
 }
 
-fn setting_catalog() -> Vec<SettingChoice> {
+fn setting_catalog(config: &crate::customization::document::Config) -> Vec<SettingChoice> {
     vec![
         setting_choice(
             "theme",
@@ -114,7 +114,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "theme",
             "App theme",
             "The look of Luma on the TV and connected displays.",
-            "violet-night",
+            &config.theme,
             vec![
                 setting_option("violet-night", "Violet Night"),
                 setting_option("sapphire", "Sapphire"),
@@ -130,7 +130,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "layout",
             "App tile shape",
             "Wide cards suit artwork; squares fit more apps.",
-            "wide",
+            &config.app_tile_shape,
             vec![
                 setting_option("wide", "Pills"),
                 setting_option("square", "Squares"),
@@ -142,7 +142,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "layout",
             "Layout density",
             "Compact fits more rows on screen.",
-            "comfortable",
+            &config.density,
             vec![
                 setting_option("comfortable", "Comfortable"),
                 setting_option("compact", "Compact"),
@@ -154,7 +154,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "layout",
             "Text size",
             "Scales text and controls for easier reading from the sofa.",
-            "standard",
+            &config.text_size,
             vec![
                 setting_option("standard", "Standard"),
                 setting_option("large", "Large"),
@@ -169,7 +169,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             label: "Reduce motion".into(),
             description: "Turns off screen transitions and animated height changes.".into(),
             options: vec![setting_option("true", "On"), setting_option("false", "Off")],
-            value: "false".into(),
+            value: config.reduced_motion.to_string(),
         },
         setting_choice(
             "interfaceSounds",
@@ -177,7 +177,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "sound",
             "Sound set",
             "Feedback for focus, select, back, and app launch.",
-            "real",
+            &config.interface_sounds,
             vec![
                 setting_option("real", "Real hardware"),
                 setting_option("google", "Google TV"),
@@ -191,7 +191,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "sound",
             "Sound level",
             "Standard is tuned for a quiet room.",
-            "standard",
+            &config.sound_level,
             vec![
                 setting_option("soft", "Soft"),
                 setting_option("standard", "Standard"),
@@ -204,7 +204,7 @@ fn setting_catalog() -> Vec<SettingChoice> {
             "remote-layout",
             "Home columns",
             "One or two columns of rows on Home.",
-            "1",
+            &config.home_columns.to_string(),
             vec![
                 setting_option("1", "One column"),
                 setting_option("2", "Two columns"),
@@ -220,22 +220,6 @@ fn sound_preset(value: &str) -> SoundPreset {
         "off" => SoundPreset::Off,
         _ => SoundPreset::Real,
     }
-}
-
-#[tauri::command]
-pub fn update_settings(
-    remote: tauri::State<Remote>,
-    settings: Vec<SettingChoice>,
-) -> Result<(), String> {
-    if settings.is_empty() {
-        return Ok(());
-    }
-    remote
-        .state
-        .lock()
-        .map_err(|error| error.to_string())?
-        .settings = settings;
-    Ok(())
 }
 
 pub(crate) fn change_setting(
@@ -266,13 +250,7 @@ pub(crate) fn change_setting(
             | "soundLevel"
             | "homeColumns"
     ) {
-        return app
-            .emit_to(
-                "main",
-                "app-setting",
-                serde_json::json!({ "key": key, "value": value }),
-            )
-            .map_err(|error| error.to_string());
+        return Err("Unknown setting".into());
     }
     let document = app
         .state::<crate::customization::Store>()
@@ -443,18 +421,7 @@ pub(crate) fn sync_customization(
         }
     }
     remote.appearance.send_replace(state.appearance.clone());
-    for choice in &mut state.settings {
-        match choice.key.as_str() {
-            "theme" => choice.value = config.theme.clone(),
-            "density" => choice.value = config.density.clone(),
-            "appTileShape" => choice.value = config.app_tile_shape.clone(),
-            "textSize" => choice.value = config.text_size.clone(),
-            "reducedMotion" => choice.value = config.reduced_motion.to_string(),
-            "interfaceSounds" => choice.value = config.interface_sounds.clone(),
-            "soundLevel" => choice.value = config.sound_level.clone(),
-            _ => {}
-        }
-    }
+    state.settings = setting_catalog(config);
     state.sound = sound_preset(&config.interface_sounds);
     Ok(())
 }
@@ -670,7 +637,7 @@ impl Default for Remote {
                 window_fullscreen: None,
                 appearance: None,
                 app_order: Vec::new(),
-                settings: setting_catalog(),
+                settings: setting_catalog(&crate::customization::document::Config::default()),
                 music: None,
             }),
             appearance: tokio::sync::watch::channel(None).0,
@@ -788,7 +755,7 @@ pub fn update_app_state(
     sound: SoundPreset,
 ) -> Result<(), String> {
     if ![
-        "Home", "Watch", "Sports", "Library", "Music", "Apps", "Settings", "Details",
+        "Home", "Search", "Watch", "Sports", "Library", "Music", "Apps", "Settings", "Details",
     ]
     .contains(&view.as_str())
     {
@@ -886,7 +853,7 @@ mod tests {
 
     #[test]
     fn ordinary_settings_are_available_before_a_launcher_connects() {
-        let settings = super::setting_catalog();
+        let settings = super::setting_catalog(&crate::customization::document::Config::default());
         let keys: Vec<&str> = settings.iter().map(|choice| choice.key.as_str()).collect();
         assert!(keys.contains(&"theme"));
         assert!(keys.contains(&"density"));
@@ -895,6 +862,7 @@ mod tests {
         assert!(keys.contains(&"reducedMotion"));
         assert!(keys.contains(&"interfaceSounds"));
         assert!(keys.contains(&"soundLevel"));
+        assert!(keys.contains(&"homeColumns"));
         assert_eq!(
             settings
                 .iter()
@@ -905,6 +873,29 @@ mod tests {
         assert!(settings
             .iter()
             .all(|choice| !choice.section.is_empty() && !choice.options.is_empty()));
+    }
+
+    #[test]
+    fn ordinary_settings_values_come_from_the_native_configuration() {
+        let mut config = crate::customization::document::Config::default();
+        config.theme = "onyx".into();
+        config.density = "compact".into();
+        config.app_tile_shape = "square".into();
+        config.text_size = "larger".into();
+        config.reduced_motion = true;
+        config.interface_sounds = "roku".into();
+        config.sound_level = "soft".into();
+        config.home_columns = 2;
+        let settings = super::setting_catalog(&config);
+        let value = |key: &str| settings.iter().find(|choice| choice.key == key).map(|choice| choice.value.as_str());
+        assert_eq!(value("theme"), Some("onyx"));
+        assert_eq!(value("density"), Some("compact"));
+        assert_eq!(value("appTileShape"), Some("square"));
+        assert_eq!(value("textSize"), Some("larger"));
+        assert_eq!(value("reducedMotion"), Some("true"));
+        assert_eq!(value("interfaceSounds"), Some("roku"));
+        assert_eq!(value("soundLevel"), Some("soft"));
+        assert_eq!(value("homeColumns"), Some("2"));
     }
 
     #[test]

@@ -20,6 +20,9 @@
     <rect x="14" y="3.5" width="6.5" height="6.5" rx="1.8" />
     <rect x="3.5" y="14" width="6.5" height="6.5" rx="1.8" />
     <rect x="14" y="14" width="6.5" height="6.5" rx="1.8" />
+  {:else if name === "search"}
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
   {:else if name === "keyboard"}
     <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
     <path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 13.6h9" />
