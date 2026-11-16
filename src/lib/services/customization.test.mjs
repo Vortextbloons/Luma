@@ -5,7 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 
 const source = stripTypeScriptTypes(readFileSync(new URL('./customization.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, ''));
 const { createCustomizationSync, customizationConfig } = await import(`data:text/javascript;base64,${Buffer.from(`const invoke = (...args) => globalThis.__customizationTest.invoke(...args); const listen = (...args) => globalThis.__customizationTest.listen(...args);\n${source}`).toString('base64')}`);
-const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', textSize: 'standard', reducedMotion: false, interfaceSounds: 'real', soundLevel: 'standard', home: [{ id: 'hero', component: 'hero', visible: true, span: 2 }], homeColumns: 1, widgets: { spotify: { enabled: true, placement: 'bar' } }, order: ['Custom'] });
+const config = () => ({ theme: 'violet-night', density: 'comfortable', appTileShape: 'wide', textSize: 'standard', reducedMotion: false, interfaceSounds: 'real', soundLevel: 'standard', home: [{ id: 'hero', component: 'hero', visible: true, span: 2 }], homeColumns: 1, widgets: { spotify: { enabled: true, placement: 'bar', visibility: 'available', position: null } }, order: ['Custom'] });
 const document = (revision, value = config()) => ({ version: 3, revision, config: structuredClone(value) });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -87,6 +87,8 @@ test('rapid edits serialize with increasing revisions and preserve edits during 
     settings.home[0].visible = false;
     sync.update(customizationConfig(settings));
     settings.widgets.spotify.placement = 'bottom-left';
+    settings.widgets.spotify.position = { x: 125, y: 700 };
+    settings.widgets.spotify.visibility = 'playing';
     sync.update(customizationConfig(settings));
     assert.equal(writes.length, 1);
     assert.equal(writes[0].config.widgets.spotify.placement, 'bar');
@@ -96,6 +98,8 @@ test('rapid edits serialize with increasing revisions and preserve edits during 
     assert.equal(writes[1].expectedRevision, 2);
     assert.equal(writes[1].config.home[0].visible, false);
     assert.equal(writes[1].config.widgets.spotify.placement, 'bottom-left');
+    assert.deepEqual(writes[1].config.widgets.spotify.position, { x: 125, y: 700 });
+    assert.equal(writes[1].config.widgets.spotify.visibility, 'playing');
     finishes[1](document(3, writes[1].config));
     await flush();
     sync.update(customizationConfig(settings));

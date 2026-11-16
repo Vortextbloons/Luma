@@ -1819,7 +1819,9 @@ fn candidate_schema() -> Value {
                         "additionalProperties": false,
                         "properties": {
                             "enabled": { "type": "boolean" },
-                            "placement": { "type": "string", "enum": PLACEMENTS }
+                            "placement": { "type": "string", "enum": PLACEMENTS },
+                            "visibility": { "type": "string", "enum": ["always", "available", "playing"] },
+                            "position": { "anyOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "properties": { "x": { "type": "integer", "minimum": 0, "maximum": 1000 }, "y": { "type": "integer", "minimum": 0, "maximum": 1000 } }, "required": ["x", "y"] }] }
                         },
                         "required": ["enabled", "placement"]
                     }
@@ -1948,7 +1950,9 @@ fn capabilities() -> Value {
             "widgets": {
                 "spotify": {
                     "enabled": "boolean",
-                    "placement": PLACEMENTS
+                    "placement": PLACEMENTS,
+                    "visibility": ["always", "available", "playing"],
+                    "position": "null for preset, or x/y integers from 0 through 1000"
                 }
             },
             "apps": {

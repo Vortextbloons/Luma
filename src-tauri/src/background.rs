@@ -66,6 +66,7 @@ pub(crate) fn dismiss(app: &tauri::AppHandle, label: &str) {
         let _ = window.hide();
         publish_visibility(&window, false);
     }
+    crate::viewing::release(app, label);
     if !retains_views() {
         unload(app, label);
     }

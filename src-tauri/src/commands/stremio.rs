@@ -826,7 +826,7 @@ fn permitted(app: &AppHandle, url: &tauri::Url) -> bool {
         && url.path() == "/__luma_close__"
     {
         let app = app.clone();
-        tauri::async_runtime::spawn(async move { close(&app) });
+        tauri::async_runtime::spawn(async move { if !crate::viewing::return_home(&app) { close(&app); } });
         return false;
     }
     url.scheme() == "about" || (url.scheme() == "https" && web_host(url.host_str()))

@@ -162,7 +162,7 @@ pub async fn sports_open(
             {
                 let handle = navigation.clone();
                 tauri::async_runtime::spawn(async move {
-                    close(&handle);
+                    if !crate::viewing::return_home(&handle) { close(&handle); }
                 });
                 return false;
             }

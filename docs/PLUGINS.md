@@ -102,7 +102,7 @@ A contribution is either a static value or `{ "setting": "key" }`. Bindings are 
 | `home.rows.<component>.visible` | boolean | boolean |
 | `home.rows.<component>.span` | 1 or 2 | integer number limited to 1–2 |
 | `widgets.spotifyEnabled` | boolean | boolean |
-| `widgets.spotifyPlacement` | `bar`, `top-right`, `bottom-right`, or `bottom-left` | enum with supported options |
+| `widgets.spotifyPlacement` | `bar`, `top-left`, `top-right`, `bottom-right`, or `bottom-left` | enum with supported options |
 | `order` | all twelve app ids once, `Custom` last | static only |
 
 A plugin owns every field it contributes. Two enabled plugins cannot own the same field. Enabling the second one fails with an explicit conflict naming the field and current owner. Disabled plugins may be installed with overlapping contributions; the conflict only blocks enabling.

@@ -564,6 +564,28 @@ mod tests {
     }
 
     #[test]
+    fn widget_positions_and_visibility_round_trip_and_validate() {
+        let mut config = Config::default();
+        config.widgets.spotify.visibility = "playing".into();
+        config.widgets.spotify.position = Some(WidgetPosition { x: 125, y: 1000 });
+        assert!(validate(&config).is_ok());
+        let raw = serde_json::to_string(&config).unwrap();
+        assert_eq!(serde_json::from_str::<Config>(&raw).unwrap(), config);
+        config.widgets.spotify.position.as_mut().unwrap().x = 1001;
+        assert!(validate(&config).is_err());
+        config.widgets.spotify.position = None;
+        config.widgets.spotify.visibility = "sometimes".into();
+        assert!(validate(&config).is_err());
+    }
+
+    #[test]
+    fn old_widget_settings_keep_the_available_visibility_default() {
+        let mut raw = serde_json::to_value(Config::default()).unwrap();
+        raw["widgets"]["spotify"] = serde_json::json!({ "enabled": true, "placement": "bar" });
+        assert_eq!(serde_json::from_value::<Config>(raw).unwrap(), Config::default());
+    }
+
+    #[test]
     fn reordered_configuration_is_valid() {
         let mut config = Config::default();
         config.home.reverse();

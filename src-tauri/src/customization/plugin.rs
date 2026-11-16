@@ -814,6 +814,7 @@ fn apply_plugin(config: &mut Config, plugin: &StoredPlugin) -> Result<(), Error>
             if let Some(bound) = &widgets.spotify_placement {
                 config.widgets.spotify.placement =
                     resolve_string(plugin, bound, "widgets")?;
+                config.widgets.spotify.position = None;
             }
         }
     }

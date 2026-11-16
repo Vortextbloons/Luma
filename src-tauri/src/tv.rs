@@ -10,7 +10,12 @@ pub struct Preferences {
 }
 
 #[derive(Default)]
-pub struct Tv(pub Mutex<Preferences>, Mutex<Option<String>>, Mutex<Option<String>>);
+pub struct Tv(
+    pub Mutex<Preferences>,
+    Mutex<Option<String>>,
+    Mutex<Option<String>>,
+    Mutex<Option<u32>>,
+);
 
 fn selected_display(app: &tauri::AppHandle) -> Result<String, String> {
     let state = app.state::<Tv>();
@@ -29,15 +34,37 @@ pub fn switch_display(app: tauri::AppHandle) -> Result<String, String> {
         return Err("Connect another display before switching screens.".into());
     }
     let selected = selected_display(&app)?;
-    let current = crate::viewing::selected(&app)
+    let current = app
+        .get_webview_window("main")
         .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| app.get_webview_window("main").and_then(|window| window.current_monitor().ok().flatten()));
-    let index = current.as_ref().and_then(|current| monitors.iter().position(|monitor| monitor.position() == current.position()))
-        .or_else(|| monitors.iter().position(|monitor| monitor.name() == Some(&selected))).unwrap_or(0);
+        .or_else(|| {
+            crate::viewing::selected(&app)
+                .and_then(|window| window.current_monitor().ok().flatten())
+        });
+    let index = current
+        .as_ref()
+        .and_then(|current| {
+            monitors
+                .iter()
+                .position(|monitor| monitor.position() == current.position())
+        })
+        .or_else(|| {
+            monitors
+                .iter()
+                .position(|monitor| monitor.name() == Some(&selected))
+        })
+        .unwrap_or(0);
     let target = &monitors[(index + 1) % monitors.len()];
-    let name = target.name().cloned().ok_or("This display has no identifier.")?;
+    let name = target
+        .name()
+        .cloned()
+        .ok_or("This display has no identifier.")?;
     *app.state::<Tv>().2.lock().map_err(|e| e.to_string())? = Some(name.clone());
-    for window in app.webview_windows().values().filter(|window| ["main", "youtube", "stremio", "sports"].contains(&window.label())) {
+    for window in app
+        .webview_windows()
+        .values()
+        .filter(|window| ["main", "youtube", "stremio", "sports"].contains(&window.label()))
+    {
         place(window)?;
     }
     crate::commands::session::place_current(&app)?;
@@ -49,14 +76,28 @@ pub fn switch_display(app: tauri::AppHandle) -> Result<String, String> {
 pub fn shortcut(app: &tauri::AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
-        use windows::Win32::UI::{Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT}, WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY}};
+        use windows::Win32::UI::{
+            Input::KeyboardAndMouse::{
+                RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+            },
+            WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY},
+        };
         unsafe {
+            *app.state::<Tv>()
+                .3
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) =
+                Some(windows::Win32::System::Threading::GetCurrentThreadId());
             if RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, b'M' as u32).is_err() {
+                *app.state::<Tv>()
+                    .3
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = None;
                 report_audio(&app, Some("Ctrl+Alt+M is in use by another app. Use Switch display in Luma or the remote.".into()));
                 return;
             }
             let mut message = MSG::default();
-            while GetMessageW(&mut message, None, 0, 0).as_bool() {
+            while GetMessageW(&mut message, None, 0, 0).0 > 0 {
                 if message.message == WM_HOTKEY {
                     let handle = app.clone();
                     let _ = app.run_on_main_thread(move || {
@@ -68,12 +109,35 @@ pub fn shortcut(app: &tauri::AppHandle) {
                 }
             }
             let _ = UnregisterHotKey(None, 1);
+            *app.state::<Tv>()
+                .3
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = None;
         }
     });
 }
 
 #[cfg(not(windows))]
 pub fn shortcut(_: &tauri::AppHandle) {}
+
+pub fn stop_shortcut(app: &tauri::AppHandle) {
+    #[cfg(windows)]
+    if let Ok(thread) = app.state::<Tv>().3.lock() {
+        if let Some(thread) = *thread {
+            use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+            let _ = unsafe {
+                PostThreadMessageW(
+                    thread,
+                    WM_QUIT,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(0),
+                )
+            };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +280,8 @@ pub async fn save_tv_setup(app: tauri::AppHandle, preferences: Preferences) -> R
     for window in app.webview_windows().values() {
         place(window)?;
     }
+    crate::commands::session::place_current(&app)?;
+    crate::viewing::arrange(&app)?;
     Ok(())
 }
 

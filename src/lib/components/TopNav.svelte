@@ -3,7 +3,7 @@
   import NetworkStatus from './NetworkStatus.svelte';
   import { slideIndicator } from '../services/motion';
   import logo from '../../assets/luma.png';
-  let { active, navigate, settings, connect, fullscreen, toggle }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void } = $props();
+  let { active, navigate, settings, connect, fullscreen, toggle, viewing, switchDisplay }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void; viewing: () => void; switchDisplay: () => void } = $props();
   let clock = $state('');
   onMount(() => {
     const update = () => clock = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -22,6 +22,8 @@
     {/each}
   </nav>
   <div class="header-right">
+    <button class="header-btn" title="Multi Watch and floating video" onclick={viewing}>Multi Watch</button>
+    <button class="header-btn is-icon" title="Switch display (Ctrl+Alt+M)" aria-label="Switch display" onclick={switchDisplay}><svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="14" height="10" rx="2" /><path d="M7 18h4M9 14v4M18 10h4v10h-9v-3" /></svg></button>
     <NetworkStatus />
     <time class="clock" aria-label="Local time">{clock}</time>
     <button class="header-btn is-icon" title="Connect a remote" aria-label="Connect a remote" onclick={connect}>

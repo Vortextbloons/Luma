@@ -104,6 +104,9 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::Focused(true)) {
                 viewing::focus(window.app_handle(), window.label());
             }
+            if matches!(event, tauri::WindowEvent::Destroyed) && ["youtube", "stremio", "sports"].contains(&window.label()) {
+                viewing::release(window.app_handle(), window.label());
+            }
             if window.label() == "main" {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     if let Some(store) = window.app_handle().try_state::<customization::Store>() {
@@ -233,6 +236,7 @@ pub fn run() {
         }
         if matches!(event, tauri::RunEvent::Exit) {
             commands::session::close_steam(app);
+            tv::stop_shortcut(app);
             media::stop(app);
             stremio::shutdown(app);
             let _ = tv::restore_audio_sync();

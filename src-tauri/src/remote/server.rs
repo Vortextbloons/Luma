@@ -779,6 +779,11 @@ pub(crate) fn sync_music(
 }
 
 pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
+    if !crate::viewing::browsing(app) {
+        if let Some(window) = crate::viewing::selected(app) {
+            return crate::viewing::viewing_configure(app.clone(), crate::viewing::Mode::Single, Some(window.label().into())).map(|_| ());
+        }
+    }
     if let Some(result) = crate::commands::session::fullscreen(app) {
         return result;
     }

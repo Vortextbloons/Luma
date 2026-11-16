@@ -79,14 +79,14 @@
             <span class="preview-empty">No rows on Home</span>
           {/each}
         </div>
-        {#if widget.enabled && widget.placement === 'bar'}
+        {#if widget.enabled && widget.placement === 'bar' && !widget.position}
           <div class="widget-bar">
             <span class="widget-art"><ProviderIcon provider="spotify" /></span>
             <span class="widget-copy"><i class="widget-line"></i><i class="widget-line is-short"></i></span>
             <span class="widget-controls"><i></i><i></i><i></i></span>
           </div>
         {:else if widget.enabled}
-          <div class="widget-card" class:is-top-right={widget.placement === 'top-right'} class:is-bottom-right={widget.placement === 'bottom-right'} class:is-bottom-left={widget.placement === 'bottom-left'}>
+          <div class="widget-card" style:left={widget.position ? `${widget.position.x / 10}%` : undefined} style:top={widget.position ? `${widget.position.y / 10}%` : undefined} style:transform={widget.position ? `translate(-${widget.position.x / 10}%, -${widget.position.y / 10}%)` : undefined} class:is-top-left={!widget.position && widget.placement === 'top-left'} class:is-top-right={!widget.position && widget.placement === 'top-right'} class:is-bottom-right={!widget.position && widget.placement === 'bottom-right'} class:is-bottom-left={!widget.position && widget.placement === 'bottom-left'}>
             <span class="widget-art"><ProviderIcon provider="spotify" /></span>
             <span class="widget-copy"><i class="widget-line"></i><i class="widget-line is-short"></i></span>
             <span class="widget-controls"><i></i></span>
@@ -447,6 +447,7 @@
     border-radius: inherit;
     background: var(--accent);
   }
+  .widget-card.is-top-left { top: 7.4cqw; left: 2.2cqw; }
   .widget-card.is-top-right {
     top: 7.4cqw;
     right: 2.2cqw;

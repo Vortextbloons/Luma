@@ -223,7 +223,7 @@ async fn youtube_exit(State(app): State<AppHandle>, headers: HeaderMap) -> Respo
     if !origin_allowed(&headers) {
         return reply(StatusCode::FORBIDDEN, "text/plain", Vec::new());
     }
-    close(&app);
+    if !crate::viewing::return_home(&app) { close(&app); }
     reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
 }
 
