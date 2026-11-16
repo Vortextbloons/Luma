@@ -39,7 +39,7 @@
 .team-name{flex:1;min-width:0;font-size:clamp(17px,1.1vw,21px);font-weight:650;line-height:1.2}
 .team-score{font-size:27px;font-weight:750;font-variant-numeric:tabular-nums}
 .card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--text-dim, var(--muted))}
-.watch-label{padding:7px 12px;border-radius:99px;background:var(--accent-soft);color:var(--text, var(--ink));font-weight:650}
+.watch-label{padding:7px 12px;border-radius:99px;background:var(--accent);color:var(--accent-ink);font-weight:700}
 
  .sports-card { width: 100%; min-width: 0; }
   .sports-card:disabled { opacity: .6; }

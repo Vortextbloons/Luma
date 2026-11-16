@@ -48,6 +48,16 @@
   const initial = untrack(() => resolveSettingsTarget(startCategory));
   let category = $state(initial.category);
   let section = $state(initial.section);
+  const categoryIcons: Record<string, string[]> = {
+    'Appearance & Home': ['M4.5 8.5h9v12h-9z', 'M10.5 4.5h9v12h-9z'],
+    'Display & Sound': ['M3.5 5.5h17v10h-17z', 'M9 20h6', 'M12 15.5V20'],
+    'Apps & Services': ['M4.5 4.5h6v6h-6z', 'M13.5 4.5h6v6h-6z', 'M4.5 13.5h6v6h-6z', 'M13.5 13.5h6v6h-6z'],
+    'Remotes & Devices': ['M8.5 3.5h7a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2z', 'M11 17.5h2'],
+    'History & Privacy': ['M12 4.5a7.5 7.5 0 1 0 7.4 8.8', 'M12 8.5V12l2.6 1.8', 'M3.6 8.4V4.2h4.2'],
+    'System': ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 3.4v2.2', 'M12 18.4v2.2', 'M4.6 12H2.4', 'M21.6 12h-2.2', 'M6.6 6.6 5.1 5.1', 'M18.9 18.9l-1.5-1.5', 'M17.4 6.6l1.5-1.5', 'M5.1 18.9l1.5-1.5'],
+    'Plugins': ['M9 3.5v3.6', 'M15 3.5v3.6', 'M6.5 7.1h11v7.4a5.5 5.5 0 0 1-11 0z'],
+    'MCP customization': ['M4.5 6.5h15v11h-15z', 'M8.5 12h7'],
+  };
   const activeCategory = $derived(settingsCategory(category));
   const activeSection = $derived(activeCategory.sections.find(item => item.id === section) ?? activeCategory.sections[0]);
   const theme = $derived(themeById(settings.theme));
@@ -153,6 +163,7 @@
     <nav class="settings-categories" aria-label="Settings categories">
       {#each settingsCategories as item (item.name)}
         <button class={['settings-category', { selected: category === item.name }]} data-category={item.name} aria-current={category === item.name ? 'page' : undefined} onclick={() => selectCategory(item.name)}>
+          <svg class="settings-category-icon" viewBox="0 0 24 24" aria-hidden="true">{#each categoryIcons[item.name] ?? [] as path}<path d={path} />{/each}</svg>
           <span class="settings-category-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
           <span class="settings-category-mark" aria-hidden="true">›</span>
         </button>

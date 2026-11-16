@@ -63,7 +63,7 @@
     transition: transform var(--motion-base) var(--ease-out), border-color var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
   }
   .steam-card:hover { transform: translateY(-1px); border-color: var(--line-strong); box-shadow: 0 14px 30px #0005; }
-  .steam-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; transform: translateY(-2px); }
+  .steam-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; box-shadow: var(--focus-glow); transform: translateY(-2px); }
   .steam-art { display: block; aspect-ratio: 460 / 215; background: var(--surface-3); }
   .steam-art img { width: 100%; height: 100%; object-fit: contain; }
   .steam-icon {

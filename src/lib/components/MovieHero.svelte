@@ -257,9 +257,9 @@
   }
   .hero-actions .btn {
     min-width: clamp(116px, 8vw, 148px);
-    min-height: 42px;
-    padding: 0 20px;
-    border-radius: 10px;
+    min-height: 46px;
+    padding: 0 22px;
+    border-radius: var(--control-radius);
   }
   .hero-actions .btn svg {
     width: 17px;
@@ -293,8 +293,8 @@
     transition: width .2s var(--ease-out), background .2s var(--ease-out);
   }
   .hero-dots button:hover { background: #ffffff78; filter: none; }
-  .hero-dots button.is-active { width: 26px; background: #fff; }
-  .hero-dots button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .hero-dots button.is-active { width: 26px; background: var(--accent); }
+  .hero-dots button:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; box-shadow: var(--focus-glow); }
   @media (max-width: 1100px) {
     .hero-cover { display: none; }
   }

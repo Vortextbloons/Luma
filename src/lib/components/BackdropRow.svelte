@@ -81,7 +81,11 @@
   .backdrop-card:focus-visible {
     outline: 3px solid var(--accent);
     outline-offset: 4px;
+    box-shadow: var(--focus-glow);
     transform: translateY(-3px);
+  }
+  .backdrop-card:focus-visible .backdrop-art {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
   .backdrop-fade {
     position: absolute;

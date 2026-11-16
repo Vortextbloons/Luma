@@ -58,7 +58,8 @@
 <style>
   .league-game { min-width: 0; display: block; padding: 0; text-align: left; background: transparent; border-radius: calc(var(--card-radius) + 2px); transition: transform .18s; }
   .league-game:hover { transform: translateY(-2px); }
-  .league-game:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; transform: translateY(-3px); }
+  .league-game:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; box-shadow: var(--focus-glow); transform: translateY(-3px); }
+  .league-game:focus-visible .league-game-art { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
   .league-game:active { transform: translateY(-1px) scale(.995); transition-duration: var(--motion-press); }
   .league-game-art { display: flex; flex-direction: column; justify-content: center; gap: 9px; aspect-ratio: 16 / 9; padding: 14px 16px; overflow: hidden; border: 1px solid #ffffff14; border-radius: calc(var(--card-radius) + 2px); background: linear-gradient(115deg, var(--surface-2) 35%, color-mix(in srgb, var(--team-color) 35%, var(--surface-2))); box-shadow: 0 10px 26px #0004; transition: border-color .18s, box-shadow .18s; }
   .league-game:hover .league-game-art, .league-game:focus-visible .league-game-art { border-color: #ffffff33; box-shadow: 0 16px 36px #0007; }
