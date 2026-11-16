@@ -107,6 +107,7 @@ fn edge_arguments(profile: &Path, url: &str, fullscreen: bool) -> Vec<String> {
         format!("--app={url}"),
         format!("--user-data-dir={}", profile.display()),
         "--no-first-run".into(),
+        "--disk-cache-size=67108864".into(),
         "--no-default-browser-check".into(),
         "--enable-spatial-navigation".into(),
         "--remote-debugging-address=127.0.0.1".into(),
@@ -738,6 +739,7 @@ mod tests {
         assert!(arguments
             .iter()
             .any(|argument| argument.as_str() == "--enable-spatial-navigation"));
+        assert!(arguments.iter().any(|argument| argument == "--disk-cache-size=67108864"));
         assert!(arguments
             .iter()
             .any(|argument| argument.as_str() == "--remote-debugging-port=0"));

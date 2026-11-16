@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::{
     integrations::spotify::auth::Auth,
@@ -30,6 +30,7 @@ const SCRIPT: &str = include_str!("extension_spike/page.js");
 const STYLE: &str = include_str!("extension_spike/page.css");
 
 static PONGS: AtomicU64 = AtomicU64::new(0);
+static STARTED: AtomicBool = AtomicBool::new(false);
 
 fn enabled() -> bool {
     cfg!(debug_assertions) && matches!(std::env::var(ENV).as_deref(), Ok("1"))
@@ -152,19 +153,52 @@ pub(crate) fn dismiss(app: &AppHandle) {
     destroy(app, false);
 }
 
+pub(crate) fn close(app: &AppHandle) {
+    destroy(app, true);
+}
+
+pub(crate) fn active(app: &AppHandle) -> bool {
+    app.get_webview_window(LABEL).is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+    })
+}
+
+const FOCUS_UP: &str = r#"window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));"#;
+const FOCUS_DOWN: &str =
+    r#"window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));"#;
+const FOCUS_LEFT: &str =
+    r#"window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));"#;
+const FOCUS_RIGHT: &str =
+    r#"window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));"#;
+const ACTIVATE: &str = r#"(() => { const target = document.activeElement; if (target instanceof HTMLElement && target.matches('button:not(:disabled)')) target.click(); })();"#;
+
+fn relay(command: &str) -> Option<&'static str> {
+    match command {
+        "up" => Some(FOCUS_UP),
+        "down" => Some(FOCUS_DOWN),
+        "left" => Some(FOCUS_LEFT),
+        "right" => Some(FOCUS_RIGHT),
+        "activate" => Some(ACTIVATE),
+        _ => None,
+    }
+}
+
+pub(crate) fn forward(app: &AppHandle, command: &str) {
+    let Some(script) = relay(command) else {
+        return;
+    };
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.eval(script);
+    }
+}
+
 pub(crate) fn autostart(app: AppHandle) {
-    if !enabled() {
+    if !enabled() || STARTED.swap(true, Ordering::AcqRel) {
         return;
     }
-    tauri::async_runtime::spawn(async move {
-        let opened = match crate::background::main_window(&app).await {
-            Ok(_) => open(&app),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = opened {
-            eprintln!("Extension runtime spike: {error}");
-        }
-    });
+    if let Err(error) = open(&app) {
+        eprintln!("Extension runtime spike: {error}");
+    }
 }
 
 #[derive(Deserialize)]
@@ -271,7 +305,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{permitted, playback, serve, Action, ActionRequest, LABEL, MAX_TEXT};
+    use super::{
+        permitted, playback, relay, serve, Action, ActionRequest, LABEL, MAX_TEXT, SCRIPT,
+    };
     use crate::remote::server::MusicState;
     use serde_json::json;
     use tauri::http::{header, StatusCode};
@@ -368,6 +404,42 @@ mod tests {
         );
         assert!(parsed(serde_json::json!({ "action": true })).is_err());
         assert!(parsed(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn relays_only_bounded_navigation_keys_to_the_spike_page() {
+        for (command, key) in [
+            ("up", "ArrowUp"),
+            ("down", "ArrowDown"),
+            ("left", "ArrowLeft"),
+            ("right", "ArrowRight"),
+        ] {
+            let script = relay(command).expect("directions relay");
+            assert!(script.contains(key));
+            assert!(
+                SCRIPT.contains(key),
+                "the spike page no longer handles {key}"
+            );
+        }
+        let activate = relay("activate").expect("activate relays");
+        assert!(activate.contains("document.activeElement"));
+        assert!(activate.contains("button:not(:disabled)"));
+        assert!(activate.contains(".click()"));
+        for command in [
+            "home",
+            "back",
+            "close",
+            "identity",
+            "playback",
+            "up; alert(1)",
+            "ArrowUp",
+            "",
+        ] {
+            assert!(
+                relay(command).is_none(),
+                "{command} must not reach the spike page"
+            );
+        }
     }
 
     #[test]

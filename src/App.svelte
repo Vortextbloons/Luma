@@ -38,7 +38,7 @@
   import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
   import { setAppVisible } from './lib/services/visibility';
   import { providerName } from './lib/services/activity';
-  import { native, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube } from './lib/services/tauri';
+  import { native, searchYouTube, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube } from './lib/services/tauri';
   import { searchMovies, searchShows } from './lib/services/catalog';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem } from './lib/types';
   import { loadSportsListing, type SportsEvent } from './lib/services/sports';
@@ -98,15 +98,19 @@
   async function runSearch() {
     const request = ++searchRequest;
     submittedQuery = movieQuery.trim();
-    movieResults = []; showResults = []; matchedSports = []; searchStatus = '';
+    movieResults = []; showResults = []; matchedSports = []; searchVideos = []; searchStatus = '';
     if (!submittedQuery) { searching = false; return; }
     searching = true;
     const query = submittedQuery;
-    const results = await Promise.allSettled([searchMovies(query), searchShows(query), loadSportsListing()]);
+    const results = await Promise.allSettled([
+      searchYouTube(query).then(items => { if (request === searchRequest) searchVideos = items; }),
+      searchMovies(query).then(items => { if (request === searchRequest) movieResults = items; }),
+      searchShows(query).then(items => { if (request === searchRequest) showResults = items; }),
+      loadSportsListing().then(listing => {
+        if (request === searchRequest) matchedSports = listing.events.filter(item => matchesSearch(item.title + ' ' + item.league));
+      }),
+    ]);
     if (request !== searchRequest) return;
-    if (results[0].status === 'fulfilled') movieResults = results[0].value;
-    if (results[1].status === 'fulfilled') showResults = results[1].value;
-    if (results[2].status === 'fulfilled') matchedSports = results[2].value.events.filter(item => matchesSearch(item.title + ' ' + item.league));
     searching = false;
     searchStatus = results.some(result => result.status === 'rejected') ? 'Some sources could not load. Search again to retry.' : movieResults.length + showResults.length + matchedSports.length + searchVideos.length + searchHistory.length ? '' : 'No results found. Try another title, team, or league.';
   }
@@ -152,7 +156,7 @@
   }
 
   const youTubeFeed = $derived(youtube.feed);
-  const searchVideos = $derived(submittedQuery ? youTubeFeed.filter(item => matchesSearch(item.title)) : []);
+  let searchVideos = $state.raw<import('./lib/types').YouTubeFeedItem[]>([]);
 
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
@@ -558,13 +562,13 @@
   {#if tab === 'Search'}
     <header class="page-head">
       <div><span class="eyebrow">FIND YOUR NEXT WATCH</span><h1>{tab}</h1><p>Find movies, shows, videos, and sports. Open a result to watch.</p></div>
-    </header>
-    <section class="content-row" aria-label="Search all sources">
       <form onsubmit={searchWatch} class="movie-search-field" role="search">
         <svg class="movie-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         <input id="movie-search" type="search" bind:value={movieQuery} placeholder="Search titles, teams, or leagues" aria-label="Search all sources" autocomplete="off" spellcheck="false" />
         <button type="submit" class="movie-search-submit">Search</button>
       </form>
+    </header>
+    <section class="content-row" aria-label="Search status">
       <p class="movie-search-status" role="status">{searching ? 'Searching sources…' : searchStatus}</p>
     </section>
     {#if movieResults.length}
@@ -574,7 +578,7 @@
     {#if submittedQuery}
       <div id="search-extra">
         {#if searchVideos.length}
-          <section class="content-row" aria-label="YouTube search results"><div class="row-heading"><div><h2>YouTube</h2><p>Videos from your feed</p></div></div>
+          <section class="content-row" aria-label="YouTube search results"><div class="row-heading"><div><h2>YouTube</h2><p>YouTube search results</p></div></div>
             <div class="video-track">
               {#each searchVideos as item (item.id)}
                 <button class="video-card" onclick={() => openYouTubeItem(item.id)}>

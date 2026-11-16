@@ -16,7 +16,7 @@ use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
 
-pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=67108864";
 
 #[tauri::command]
 fn updates_enabled(app: tauri::AppHandle) -> bool {
@@ -82,7 +82,6 @@ pub fn run() {
             app.manage(network::watch(app.handle())?);
             tv::load(app.handle()).map_err(std::io::Error::other)?;
             background::setup(app)?;
-            extension_spike::autostart(app.handle().clone());
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(
                 activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?,
@@ -193,6 +192,7 @@ pub fn run() {
             sports::sports_update_score,
             youtube::open_youtube,
             youtube::youtube_feed,
+            youtube::youtube_search,
             youtube::youtube_open_video,
             activity::manager::activity_snapshot,
             activity::manager::refresh_provider,

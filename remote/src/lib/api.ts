@@ -42,7 +42,7 @@ export const api = {
   layout: (order: string[]) => request<CommandResponse>("/phone/layout", post({ order })),
   playback: (position?: number) =>
     request<PlaybackResponse>("/phone/playback", position === undefined ? {} : post({ position })),
-  search: (text: string) => request<{ videos: YouTubeFeedItem[]; history: ActivityItem[]; sportsHtml: string | null; streamEast: unknown; sportsUnavailable: boolean }>("/phone/search", post({ text })),
+  search: (text: string) => request<{ videos: YouTubeFeedItem[]; history: ActivityItem[]; sportsHtml: string | null; streamEast: unknown; sportsUnavailable: boolean; youtubeUnavailable: boolean }>("/phone/search", post({ text })),
   openSearch: (target: unknown) => request<{ accepted?: boolean; error?: string }>("/phone/search/open", post(target)),
   text: (text: string) => request<{ accepted?: boolean; error?: string }>("/text", post({ text })),
   disconnect: () => request<unknown>("/phone/disconnect", { method: "POST" }),

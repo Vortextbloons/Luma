@@ -94,6 +94,7 @@ pub async fn sports_streameast_listing(app: AppHandle, force: Option<bool>) -> R
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = std::sync::Mutex::new(Some(sender));
     let window = WebviewWindowBuilder::new(&app, "sports-catalog", WebviewUrl::External("https://gostreameast.one/".parse().map_err(|_| "Invalid source URL")?))
+        .additional_browser_args(crate::BROWSER_ARGS)
         .visible(false).focused(false).skip_taskbar(true)
         .initialization_script(include_str!("../../resources/sports-catalog.js"))
         .on_new_window(|_, _| NewWindowResponse::Deny)

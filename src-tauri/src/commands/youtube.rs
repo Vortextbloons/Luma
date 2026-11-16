@@ -29,6 +29,36 @@ pub struct FeedItem {
     pub title: String,
 }
 
+fn search_items(value: &serde_json::Value, items: &mut Vec<FeedItem>) {
+    if items.len() >= 12 { return; }
+    if let Some(video) = value.get("videoRenderer") {
+        if let Some(id) = video.get("videoId").and_then(|v| v.as_str()).filter(|id| checked_id(id).is_ok()) {
+            let title = video.pointer("/title/runs").and_then(|v| v.as_array()).map(|runs| runs.iter().filter_map(|run| run.get("text").and_then(|v| v.as_str())).collect::<String>()).unwrap_or_default();
+            if !title.is_empty() && !items.iter().any(|item| item.id == id) { items.push(FeedItem { id: id.to_string(), title }); }
+        }
+        return;
+    }
+    match value {
+        serde_json::Value::Object(map) => for child in map.values() { search_items(child, items); },
+        serde_json::Value::Array(array) => for child in array { search_items(child, items); },
+        _ => {}
+    }
+}
+
+#[tauri::command]
+pub async fn youtube_search(query: String) -> Result<Vec<FeedItem>, String> {
+    let query = query.trim();
+    if query.is_empty() || query.len() > 1024 { return Err("Enter a search of up to 1024 bytes.".into()); }
+    let response = client().post("https://www.youtube.com/youtubei/v1/search")
+        .json(&serde_json::json!({"context":{"client":{"clientName":"WEB","clientVersion":"2.20261114.01.00"}},"query":query}))
+        .send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| error.to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
+    let contents = data.get("contents").ok_or("YouTube search is unavailable. Try again.")?;
+    let mut items = Vec::new();
+    search_items(contents, &mut items);
+    Ok(items)
+}
+
 #[derive(Deserialize)]
 struct VideoQuery {
     #[serde(rename = "videoID")]
@@ -492,5 +522,21 @@ mod tests {
         ] {
             assert!(!permits(value), "{value}");
         }
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn search_extracts_unique_playable_videos_from_nested_results() {
+        let video = serde_json::json!({"videoRenderer":{"videoId":"abcdefghijk","title":{"runs":[{"text":"How to "},{"text":"cook rice"}]}}});
+        let data = serde_json::json!({"sections":[video.clone(), video, {"videoRenderer":{"videoId":"invalid","title":{"runs":[{"text":"Invalid"}]}}}, {"channelRenderer":{"title":{"simpleText":"Channel"}}}]});
+        let mut items = Vec::new();
+        search_items(&data, &mut items);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "abcdefghijk");
+        assert_eq!(items[0].title, "How to cook rice");
     }
 }

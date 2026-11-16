@@ -574,3 +574,17 @@ Parent verification: focused frontend plugin/customization tests passed (11). Af
 The debug harness now accepts a strict argument-free `playback` action and returns exactly `{connected, title, artist, playing}`. It projects the existing native player's remote music mirror rather than invoking Spotify or Windows media again. Title and artist are trimmed and capped at 200 characters each. No credentials, account names, URLs, artwork, device identifiers, or paths are returned. `connected` reports stored Spotify authentication presence, not provider reachability; the mirror can reflect the last published state rather than current provider state.
 
 Parent source review traced this mirror through `Player` publishing and `remote::server::sync_music`. The focused native suite passed seven tests, including exact response fields, empty state, bounded Unicode text, and rejection of additional playback arguments. The page reads playback once on open and on explicit Refresh, with loading, empty, disconnected, and recoverable error states. Refresh failures retain the previous snapshot. Arrow keys move among enabled controls; Escape/BrowserBack request host closure. Parent review fixed refresh completion stealing focus after navigation. No live playback, denial, focus, phone, tray, or performance gate is completed by these tests.
+
+
+Playback page regression coverage: `page.test.mjs` uses a dependency-free VM harness for successful/empty/disconnected snapshots, failed refresh with retained data, initial-error recovery, request serialization, focus restoration without stealing focus, enabled-button navigation, Escape, and BrowserBack. Parent reviewed and ran all 12 cases successfully. Simulated DOM behavior does not prove WebView2 blur, native focus, IPC, or window closure. Native phone/tray routing work remains in progress.
+
+
+## 17. Host navigation and lifecycle checkpoint (2026-11-15)
+
+The native phone navigation path gives a visible, non-minimized spike priority: Back closes it without touching main's Back stack; Home dismisses it before normal Home routing; arrows and Activate use fixed host-owned scripts with no interpolated input. Remote wake recognizes the spike. Hide-to-tray, remote stop, and main destruction dismiss it.
+
+Parent review closed the reported surface-overlap gap: the debug probe now starts once after successful launcher presentation, rather than concurrently during setup. Later normal presentations dismiss it, covering tray Open, Exit review, and existing app presentation paths. This remains an environment-variable development entry, without an installed-plugin trigger or DOM focus-restoration target. A visible spike consumes phone navigation even when it lacks native focus. Native keyboard Home and Back while main has focus are still outside the spike's page path.
+
+Tests cover the bounded relay and Back/Home routing decisions. Actual WebView key delivery, phone behavior, native focus/closure, competing presentations, tray cleanup, and resource measurements still require a live run. No Stage 6 live gate is marked passed by this checkpoint.
+
+Parent verification after lifecycle integration: all 175 native library tests and all 133 `npm test` cases passed. Diff whitespace checks passed for the affected spike/routing files; unrelated generated `phone.html` whitespace remains outside this slice. No live acceptance or performance measurements were performed.

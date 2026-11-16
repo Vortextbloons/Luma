@@ -119,7 +119,7 @@ pub(crate) async fn main_window(app: &tauri::AppHandle) -> Result<tauri::Webview
             None => {
                 readiness().send_replace(false);
                 tauri::WebviewWindowBuilder::from_config(&handle, &handle.config().app.windows[0])
-                    .and_then(|builder| builder.build())
+                    .and_then(|builder| builder.additional_browser_args(crate::BROWSER_ARGS).build())
                     .map_err(|error| error.to_string())
             }
         };
@@ -139,7 +139,9 @@ pub fn show(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         match main_window(&app).await {
             Ok(window) => {
-                let _ = present(window, None).await;
+                if present(window, None).await.is_ok() {
+                    crate::extension_spike::autostart(app.clone());
+                }
             }
             Err(error) => eprintln!("Could not open Luma: {error}"),
         }
@@ -170,6 +172,7 @@ pub fn quit_app(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn hide_to_tray(app: tauri::AppHandle) {
     crate::commands::session::close_steam(&app);
+    crate::extension_spike::dismiss(&app);
     unload(&app, "main");
     unload(&app, "youtube");
     unload(&app, "stremio");
@@ -239,6 +242,7 @@ pub(crate) async fn present(
     dispatcher
         .run_on_main_thread(move || {
             let result = (|| -> tauri::Result<()> {
+                crate::extension_spike::dismiss(window.app_handle());
                 if let Some(fullscreen) = fullscreen {
                     window.set_fullscreen(fullscreen)?;
                 }

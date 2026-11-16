@@ -777,14 +777,14 @@ async fn remote_search(
     }
     let query = text.to_lowercase();
     let (videos, sports_html, stream_east) = tokio::join!(
-        youtube::youtube_feed(app.state::<youtube::Bridge>()),
+        youtube::youtube_search(text.to_string()),
         crate::commands::sports::sports_listing(),
         crate::commands::sports::sports_streameast_listing(app.clone(), None)
     );
     let history = app.state::<crate::activity::Activity>().snapshot().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(serde_json::json!({"videos": videos.unwrap_or_default().into_iter().filter(|item| item.title.to_lowercase().contains(&query)).collect::<Vec<_>>(), "history": history.items.into_iter().filter(|item| item.title.to_lowercase().contains(&query)).collect::<Vec<_>>(),
+    Ok(Json(serde_json::json!({"videos": videos.clone().unwrap_or_default(), "history": history.items.into_iter().filter(|item| item.title.to_lowercase().contains(&query)).collect::<Vec<_>>(),
         "sportsHtml": sports_html.as_ref().ok(), "streamEast": stream_east.as_ref().ok(),
-        "sportsUnavailable": sports_html.is_err() && stream_east.is_err()})))
+        "youtubeUnavailable": videos.is_err(), "sportsUnavailable": sports_html.is_err() && stream_east.is_err()})))
 }
 
 #[derive(Deserialize)]

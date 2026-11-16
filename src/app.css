@@ -394,3 +394,5 @@ button:focus,input:focus,select:focus{scroll-margin-block:calc(var(--topbar-h) +
 }
 html[data-reduced-motion=true] *,html[data-reduced-motion=true] *::before,html[data-reduced-motion=true] *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
 
+
+.page-head:has(.movie-search-field){align-items:center;gap:32px;flex-wrap:wrap}.page-head .movie-search-field{flex:1;max-width:760px;min-width:min(100%,360px)}

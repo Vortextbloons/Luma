@@ -11,6 +11,7 @@ export const hideToTray = () => invoke<void>('hide_to_tray');
 export const setFastAppSwitch = (enabled: boolean) => invoke<void>('set_fast_app_switch', { enabled });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
+export const searchYouTube = (query: string) => invoke<YouTubeFeedItem[]>('youtube_search', { query });
 export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');
 export const openYouTubeVideo = (videoId: string, fullscreen: boolean) => invoke<void>('youtube_open_video', { videoId, fullscreen });
 export const onYouTubeFeed = (callback: (items: YouTubeFeedItem[]) => void) => listen<YouTubeFeedItem[]>('youtube-feed', event => callback(event.payload));

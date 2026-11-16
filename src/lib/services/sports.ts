@@ -39,6 +39,14 @@ export function sportsScoresHidden() {
 const favoritesKey = 'luma-sports-favorites-v1';
 interface CachedValue<T> { value: T; updatedAt: number }
 const cachePrefix = 'luma-sports-cache-v1-';
+try {
+  for (let index = localStorage.length - 1; index >= 0; index--) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(cachePrefix)) continue;
+    const cached = JSON.parse(localStorage.getItem(key) ?? 'null');
+    if (!cached || !Number.isFinite(cached.updatedAt) || Date.now() - cached.updatedAt >= 86400000) localStorage.removeItem(key);
+  }
+} catch {}
 function readCache<T>(key: string): CachedValue<T> | null {
   try {
     const cached = JSON.parse(localStorage.getItem(cachePrefix + key) ?? 'null');
@@ -178,6 +186,9 @@ export function loadSportsArtwork(league: string, eventId: string): Promise<stri
   if (pending) return pending;
   const request = invoke<string | null>('sports_artwork', { league, eventId }).then(value => {
     artworkCache[eventId] = { value: value ?? '', updatedAt: Date.now() };
+    for (const [id, cached] of Object.entries(artworkCache)) {
+      if (Date.now() - cached.updatedAt >= 86400000) delete artworkCache[id];
+    }
     const oldest = Object.keys(artworkCache).sort((a, b) => artworkCache[a].updatedAt - artworkCache[b].updatedAt);
     for (const id of oldest.slice(0, Math.max(0, oldest.length - 24))) delete artworkCache[id];
     saveCache('artwork', artworkCache);

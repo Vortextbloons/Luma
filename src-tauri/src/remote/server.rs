@@ -457,13 +457,14 @@ fn should_wake(visible: bool, external_session: bool) -> bool {
 }
 
 pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
-    let visible = ["main", "youtube", "stremio", "sports"]
-        .iter()
-        .any(|label| {
-            app.get_webview_window(label).is_some_and(|window| {
-                window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
-            })
-        });
+    let visible = crate::extension_spike::active(app)
+        || ["main", "youtube", "stremio", "sports"]
+            .iter()
+            .any(|label| {
+                app.get_webview_window(label).is_some_and(|window| {
+                    window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+                })
+            });
     if should_wake(visible, crate::commands::session::active(app)) {
         let window = crate::background::main_window(app).await?;
         crate::background::present(window, None).await?;
@@ -473,6 +474,7 @@ pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
 
 pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     crate::commands::session::close_steam(app);
+    crate::extension_spike::dismiss(app);
     crate::remote::pointer::stop_all(app);
     crate::remote::pointer::show_cursor(app);
     for label in ["main", "youtube", "stremio", "sports"] {
@@ -527,6 +529,25 @@ pub(crate) fn type_text(_: &str) -> Result<(), String> {
     Err("Remote typing requires Windows.".into())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpikeRoute {
+    Dismiss,
+    Close,
+    Forward,
+}
+
+fn spike_route(command: NavigationCommand) -> SpikeRoute {
+    match command {
+        NavigationCommand::Home => SpikeRoute::Dismiss,
+        NavigationCommand::Back => SpikeRoute::Close,
+        NavigationCommand::Up
+        | NavigationCommand::Down
+        | NavigationCommand::Left
+        | NavigationCommand::Right
+        | NavigationCommand::Activate => SpikeRoute::Forward,
+    }
+}
+
 pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
     match command {
         NavigationCommand::Home => {
@@ -539,6 +560,19 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
         | NavigationCommand::Right
         | NavigationCommand::Activate
         | NavigationCommand::Back => crate::remote::pointer::hide_cursor(app),
+    }
+    if crate::extension_spike::active(app) {
+        match spike_route(command) {
+            SpikeRoute::Dismiss => crate::extension_spike::dismiss(app),
+            SpikeRoute::Close => {
+                crate::extension_spike::close(app);
+                return;
+            }
+            SpikeRoute::Forward => {
+                crate::extension_spike::forward(app, command.as_str());
+                return;
+            }
+        }
     }
     if app
         .get_webview_window("sports")
@@ -786,8 +820,8 @@ pub fn update_appearance(
 #[cfg(test)]
 mod tests {
     use super::{
-        frontend_receives, should_wake, show_main, validate_appearance, Appearance,
-        NavigationCommand, SoundPreset, ThemeOption,
+        frontend_receives, should_wake, show_main, spike_route, validate_appearance, Appearance,
+        NavigationCommand, SoundPreset, SpikeRoute, ThemeOption,
     };
     use std::collections::BTreeMap;
 
@@ -849,6 +883,21 @@ mod tests {
         assert!(validate_appearance(&appearance).is_err());
         appearance.themes.truncate(8);
         assert!(validate_appearance(&appearance).is_ok());
+    }
+
+    #[test]
+    fn spike_input_closes_the_spike_before_the_launcher_back_stack() {
+        assert_eq!(spike_route(NavigationCommand::Back), SpikeRoute::Close);
+        assert_eq!(spike_route(NavigationCommand::Home), SpikeRoute::Dismiss);
+        for command in [
+            NavigationCommand::Up,
+            NavigationCommand::Down,
+            NavigationCommand::Left,
+            NavigationCommand::Right,
+            NavigationCommand::Activate,
+        ] {
+            assert_eq!(spike_route(command), SpikeRoute::Forward);
+        }
     }
 
     #[test]
