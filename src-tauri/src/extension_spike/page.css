@@ -162,6 +162,43 @@ h1 {
   margin-top: 2px;
 }
 
+.now-playing__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.now-playing__controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 104px;
+  min-height: 42px;
+}
+
+#playback-toggle {
+  font-weight: 600;
+}
+
+.control-status {
+  min-height: 18px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9aa4b8;
+  overflow-wrap: anywhere;
+}
+
+.control-status[data-tone="success"] {
+  color: #6fe3b0;
+}
+
+.control-status[data-tone="error"] {
+  color: #ffb1b1;
+}
+
 .tag {
   padding: 3px 10px;
   border-radius: 999px;
@@ -272,7 +309,7 @@ button:disabled:hover {
   gap: 8px;
 }
 
-#refresh.is-loading::after {
+button.is-loading::after {
   content: "";
   width: 10px;
   height: 10px;
@@ -294,7 +331,7 @@ button:disabled:hover {
     transition: none;
   }
 
-  #refresh.is-loading::after {
+  button.is-loading::after {
     animation: none;
   }
 }

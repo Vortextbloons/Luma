@@ -11,7 +11,7 @@
       <header class="panel__header">
         <p class="eyebrow">Isolated runtime spike</p>
         <h1>Host boundary probe</h1>
-        <p class="hint">Development only. The host supplies read-only data to this separate origin. Esc or Back returns to Luma.</p>
+        <p class="hint">Development only. The host supplies playback data and a few narrow commands to this separate origin. Esc or Back returns to Luma.</p>
       </header>
 
       <section class="now-playing" id="now-playing" data-state="idle" aria-labelledby="now-playing-label">
@@ -21,6 +21,12 @@
         </div>
         <p class="track" id="playback-title">Not read yet</p>
         <p class="artist" id="playback-artist"></p>
+        <div class="now-playing__controls" id="playback-controls" role="group" aria-label="Playback controls">
+          <button type="button" id="playback-previous">Previous track</button>
+          <button type="button" id="playback-toggle" class="primary">Play</button>
+          <button type="button" id="playback-next">Next track</button>
+        </div>
+        <p class="control-status" id="playback-control-status" role="status"></p>
         <div class="now-playing__foot">
           <button type="button" id="refresh">Refresh playback</button>
           <span class="tag" id="playback-playstate" data-playing="false" hidden></span>

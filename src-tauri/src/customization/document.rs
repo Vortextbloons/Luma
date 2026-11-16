@@ -41,7 +41,7 @@ const APP_IDS: [&str; 16] = [
     "Custom",
 ];
 const CUSTOM_APP: &str = "Custom";
-const PLACEMENTS: [&str; 4] = ["bar", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -111,6 +111,21 @@ pub struct Widgets {
 pub struct Widget {
     pub enabled: bool,
     pub placement: String,
+    #[serde(default = "default_widget_visibility")]
+    pub visibility: String,
+    #[serde(default)]
+    pub position: Option<WidgetPosition>,
+}
+
+fn default_widget_visibility() -> String {
+    "available".into()
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WidgetPosition {
+    pub x: u16,
+    pub y: u16,
 }
 
 #[derive(Deserialize)]
@@ -190,6 +205,8 @@ impl Default for Config {
                 spotify: Widget {
                     enabled: true,
                     placement: "bar".into(),
+                    visibility: default_widget_visibility(),
+                    position: None,
                 },
             },
             order: APP_IDS.iter().map(|id| (*id).into()).collect(),
@@ -233,6 +250,12 @@ pub fn validate(config: &Config) -> Result<(), String> {
             "Unknown Spotify placement: {}.",
             config.widgets.spotify.placement
         ));
+    }
+    if !["always", "playing", "available"].contains(&config.widgets.spotify.visibility.as_str()) {
+        return Err("Unknown widget visibility.".into());
+    }
+    if config.widgets.spotify.position.as_ref().is_some_and(|position| position.x > 1000 || position.y > 1000) {
+        return Err("Widget position must be between 0 and 1000.".into());
     }
     validate_home(&config.home)?;
     validate_order(&config.order)
@@ -745,6 +768,8 @@ mod tests {
         config.widgets.spotify = Widget {
             enabled: false,
             placement: "bottom-right".into(),
+            visibility: "available".into(),
+            position: None,
         };
 
         let raw = legacy_document(&config, 12).to_string();
@@ -773,6 +798,8 @@ mod tests {
         config.widgets.spotify = Widget {
             enabled: false,
             placement: "bottom-right".into(),
+            visibility: "available".into(),
+            position: None,
         };
 
         let mut expected = config.clone();

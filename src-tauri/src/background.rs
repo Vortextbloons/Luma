@@ -232,6 +232,7 @@ pub(crate) async fn present(
     window: tauri::WebviewWindow,
     fullscreen: Option<bool>,
 ) -> Result<(), String> {
+    if crate::viewing::present(&window)? { return Ok(()); }
     crate::tv::place(&window)?;
     let audio_error = crate::tv::apply_audio(window.app_handle()).await.err();
     let (sender, receiver) = tokio::sync::oneshot::channel();

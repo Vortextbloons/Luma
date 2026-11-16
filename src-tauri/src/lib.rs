@@ -10,6 +10,7 @@ mod network;
 mod remote;
 mod sound;
 mod tv;
+mod viewing;
 
 use commands::{apps, media, services, session, sports, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
@@ -50,6 +51,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol(extension_spike::SCHEME, extension_spike::protocol)
         .manage(tv::Tv::default())
+        .manage(viewing::Viewing::default())
         .manage(apps::Apps::default())
         .manage(services::Services::default())
         .manage(session::Session::default())
@@ -81,6 +83,7 @@ pub fn run() {
             #[cfg(windows)]
             app.manage(network::watch(app.handle())?);
             tv::load(app.handle()).map_err(std::io::Error::other)?;
+            tv::shortcut(app.handle());
             background::setup(app)?;
             app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
             app.manage(
@@ -98,6 +101,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(true)) {
+                viewing::focus(window.app_handle(), window.label());
+            }
             if window.label() == "main" {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     if let Some(store) = window.app_handle().try_state::<customization::Store>() {
@@ -137,6 +143,10 @@ pub fn run() {
             customization::mcp::customization_mcp_rotate,
             updates_enabled,
             tv::tv_setup,
+            tv::switch_display,
+            viewing::viewing_state,
+            viewing::viewing_configure,
+            viewing::viewing_remove,
             tv::tv_setup_warning,
             tv::save_tv_setup,
             tv::restore_tv_audio,

@@ -588,3 +588,14 @@ Parent review closed the reported surface-overlap gap: the debug probe now start
 Tests cover the bounded relay and Back/Home routing decisions. Actual WebView key delivery, phone behavior, native focus/closure, competing presentations, tray cleanup, and resource measurements still require a live run. No Stage 6 live gate is marked passed by this checkpoint.
 
 Parent verification after lifecycle integration: all 175 native library tests and all 133 `npm test` cases passed. Diff whitespace checks passed for the affected spike/routing files; unrelated generated `phone.html` whitespace remains outside this slice. No live acceptance or performance measurements were performed.
+
+
+## 18. Bounded playback controls checkpoint (2026-11-15)
+
+The development relay now accepts exactly three additional argument-free actions: `playback-toggle`, `playback-next`, and `playback-previous`. They map to the existing native Spotify player owner with no value/device/URI argument. Extra fields and adjacent actions such as seek, transfer, volume, connect, or arbitrary commands are rejected. The same opt-in, fixed-window, and current-origin checks apply before dispatch.
+
+Controls execute asynchronously, with one in flight across the spike and an immediate busy rejection for overlap. Success means `{accepted:true}`, not that a refreshed snapshot has arrived. The existing player owns subsequent publication; the extension does not authenticate, create a player, select devices, or poll. Closing a surface does not undo a media command already dispatched.
+
+Parent source review checked action parsing, fixed command mapping, and nonblocking resolver dispatch; all 10 focused native spike tests passed. UI integration and live Spotify/remote checks remain pending. Production package grants, activation, renderer isolation, and the other Stage 6 live gates are unchanged.
+
+Playback UI integration: Previous, Play/Pause, and Next use those exact argument-free actions with pending/accepted/error feedback. Controls and refresh serialize without optimistic playback changes or polling; the user explicitly refreshes the cached snapshot. Parent review added a handler-level refresh guard during controls and a regression test. All 23 page tests, JavaScript syntax checking, and all 177 native library tests passed. Real player effects, WebView focus, and phone activation remain unverified.

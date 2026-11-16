@@ -7,9 +7,9 @@ export type SoundLevel = 'soft' | 'standard' | 'loud';
 export type TextSize = 'standard' | 'large' | 'larger';
 export type HomeRowId = 'hero' | 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
 export type WidgetId = 'spotify';
-export type WidgetPlacement = 'bar' | 'top-right' | 'bottom-right' | 'bottom-left';
+export type WidgetPlacement = 'bar' | 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
 export interface HomeRow { id: string; component: HomeRowId; visible: boolean; span: 1 | 2; }
-export interface WidgetConfig { enabled: boolean; placement: WidgetPlacement; }
+export interface WidgetConfig { enabled: boolean; placement: WidgetPlacement; visibility: 'always' | 'playing' | 'available'; position: { x: number; y: number } | null; }
 export interface Settings {
   theme: ThemeId;
   density: 'comfortable' | 'compact';

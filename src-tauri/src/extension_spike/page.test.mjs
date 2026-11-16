@@ -16,6 +16,11 @@ const ids = [
   'playback-artist',
   'playback-playstate',
   'playback-status',
+  'playback-controls',
+  'playback-previous',
+  'playback-toggle',
+  'playback-next',
+  'playback-control-status',
   'refresh',
   'ping',
   'probe',
@@ -23,7 +28,16 @@ const ids = [
   'close',
 ];
 
-const buttons = ['refresh', 'ping', 'probe', 'crash', 'close'];
+const buttons = [
+  'playback-previous',
+  'playback-toggle',
+  'playback-next',
+  'refresh',
+  'ping',
+  'probe',
+  'crash',
+  'close',
+];
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -115,7 +129,7 @@ test('a linked playback snapshot fills the now playing card', async () => {
   assert.equal(page.node('playback-playstate').hidden, false);
   assert.equal(page.node('playback-playstate').dataset.playing, 'true');
   assert.equal(page.node('playback-playstate').textContent, 'Playing');
-  assert.match(page.node('playback-status').textContent, /^Read .+ Showing the last published host snapshot\. Read-only\.$/);
+  assert.match(page.node('playback-status').textContent, /^Read .+ Showing the last published host snapshot\.$/);
 });
 
 test('a connected host with nothing playing reports an empty card', async () => {
@@ -256,4 +270,239 @@ test('BrowserBack prevents navigation and requests host closure', () => {
   assert.deepEqual(page.callsFor('close'), [
     { command: 'extension_spike_action', args: { action: 'close' } },
   ]);
+});
+
+const controlIds = ['playback-previous', 'playback-toggle', 'playback-next'];
+
+test('playback controls stay disabled until a linked track is on the card', async () => {
+  const page = createPage();
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+
+  page.pending.shift().resolve({ connected: false });
+  await flush();
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+
+  page.click('refresh');
+  page.pending.shift().resolve({ connected: true, title: null, playing: false });
+  await flush();
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+
+  page.click('refresh');
+  page.pending.shift().resolve({ connected: true, title: 'Blue in Green', playing: false });
+  await flush();
+  for (const id of controlIds) assert.equal(page.node(id).disabled, false);
+});
+
+test('controls ignore clicks until a linked track is available', () => {
+  const page = createPage();
+  page.click('playback-toggle');
+  page.click('playback-next');
+  assert.equal(page.callsFor('playback-toggle').length, 0);
+  assert.equal(page.callsFor('playback-next').length, 0);
+});
+
+test('a control sends one argument-free command and reports acceptance without inventing state', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'Blue in Green', artist: 'Miles Davis', playing: true });
+  await flush();
+  page.node('playback-toggle').focus();
+  page.click('playback-toggle');
+
+  assert.deepEqual(page.callsFor('playback-toggle'), [
+    { command: 'extension_spike_action', args: { action: 'playback-toggle' } },
+  ]);
+  assert.equal(page.node('playback-control-status').textContent, 'Sending Pause…');
+  assert.equal(page.node('playback-control-status').dataset.tone, 'pending');
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+  assert.equal(page.node('refresh').disabled, true);
+  assert.equal(page.node('playback-toggle').attributes['aria-busy'], 'true');
+  assert.equal(page.node('playback-playstate').textContent, 'Playing');
+  assert.equal(page.node('playback-toggle').textContent, 'Pause');
+
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+
+  assert.equal(
+    page.node('playback-control-status').textContent,
+    'Pause accepted. Refresh playback to see the updated snapshot.',
+  );
+  assert.equal(page.node('playback-control-status').dataset.tone, 'success');
+  assert.equal(page.node('playback-playstate').textContent, 'Playing');
+  assert.equal(page.node('playback-toggle').textContent, 'Pause');
+  assert.equal(page.node('now-playing').dataset.state, 'live');
+  assert.equal(page.node('playback-title').textContent, 'Blue in Green');
+  assert.equal(page.callsFor('playback').length, 1);
+  assert.equal(page.node('refresh').disabled, false);
+  for (const id of controlIds) assert.equal(page.node(id).disabled, false);
+  assert.equal(page.node('playback-toggle').attributes['aria-busy'], 'false');
+  assert.equal(page.document.activeElement, page.node('playback-toggle'));
+});
+
+test('previous and next send their own argument-free commands after the card settles', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+
+  page.click('playback-previous');
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  page.click('playback-next');
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+
+  assert.deepEqual(page.callsFor('playback-previous').map(call => call.args), [{ action: 'playback-previous' }]);
+  assert.deepEqual(page.callsFor('playback-next').map(call => call.args), [{ action: 'playback-next' }]);
+  assert.equal(page.callsFor('playback').length, 1);
+  assert.match(page.node('playback-control-status').textContent, /^Next track accepted\./);
+});
+
+test('control requests never overlap while one is in flight', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+
+  page.click('playback-previous');
+  page.click('playback-next');
+  page.click('playback-toggle');
+  page.click('playback-previous');
+
+  assert.equal(page.callsFor('playback-previous').length, 1);
+  assert.equal(page.callsFor('playback-next').length, 0);
+  assert.equal(page.callsFor('playback-toggle').length, 0);
+
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  page.click('playback-next');
+  assert.equal(page.callsFor('playback-next').length, 1);
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+});
+
+test('a rejected control reports the failure and keeps the last snapshot', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', artist: 'Miles Davis', playing: false });
+  await flush();
+
+  page.click('playback-next');
+  page.pending.shift().reject('host offline');
+  await flush();
+
+  assert.equal(
+    page.node('playback-control-status').textContent,
+    'Next track failed: host offline. The last read is still shown.',
+  );
+  assert.equal(page.node('playback-control-status').dataset.tone, 'error');
+  assert.equal(page.node('now-playing').dataset.state, 'live');
+  assert.equal(page.node('playback-title').textContent, 'So What');
+  assert.equal(page.node('playback-artist').textContent, 'Miles Davis');
+  assert.equal(page.node('playback-playstate').textContent, 'Paused');
+  assert.equal(page.node('refresh').disabled, false);
+  for (const id of controlIds) assert.equal(page.node(id).disabled, false);
+  assert.equal(page.callsFor('playback').length, 1);
+});
+
+test('a host response without acceptance is reported as a failed control', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+
+  page.click('playback-previous');
+  page.pending.shift().resolve({ accepted: false });
+  await flush();
+
+  assert.equal(
+    page.node('playback-control-status').textContent,
+    'Previous track failed: the host did not accept the command. The last read is still shown.',
+  );
+  assert.equal(page.node('playback-control-status').dataset.tone, 'error');
+});
+
+test('a refresh disables the controls and clears stale control feedback', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+
+  page.click('playback-next');
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  assert.match(page.node('playback-control-status').textContent, /accepted\./);
+
+  page.click('refresh');
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+  assert.equal(page.node('playback-control-status').textContent, '');
+
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: true });
+  await flush();
+  for (const id of controlIds) assert.equal(page.node(id).disabled, false);
+  assert.equal(page.node('playback-toggle').textContent, 'Pause');
+});
+
+test('a finished control restores focus only when it dropped focus to the page', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+
+  const next = page.node('playback-next');
+  next.focus();
+  page.click('playback-next');
+  page.document.activeElement = page.document.body;
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  assert.equal(page.document.activeElement, next);
+
+  page.click('playback-previous');
+  page.node('ping').focus();
+  const focused = next.focusCount;
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  assert.equal(page.document.activeElement, page.node('ping'));
+  assert.equal(next.focusCount, focused);
+  assert.equal(page.node('playback-previous').focusCount, 0);
+});
+
+test('arrow keys traverse enabled playback controls in card order', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'So What', playing: false });
+  await flush();
+  assert.equal(page.document.activeElement, page.node('close'));
+
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('playback-previous'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('playback-toggle'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('playback-next'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('refresh'));
+  page.press('ArrowLeft');
+  assert.equal(page.document.activeElement, page.node('playback-next'));
+
+  page.click('playback-next');
+  for (const id of controlIds) assert.equal(page.node(id).disabled, true);
+  page.press('ArrowLeft');
+  assert.equal(page.document.activeElement, page.node('close'));
+
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  assert.equal(page.document.activeElement, page.node('close'));
+  for (const id of controlIds) assert.equal(page.node(id).disabled, false);
+});
+
+
+
+test('refresh cannot overlap an in-flight playback control', async () => {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: true, title: 'Track', playing: true });
+  await flush();
+  page.click('playback-next');
+  page.click('refresh');
+  assert.equal(page.callsFor('playback').length, 1);
+  assert.equal(page.pending.length, 1);
+  page.pending.shift().resolve({ accepted: true });
+  await flush();
+  page.click('refresh');
+  assert.equal(page.callsFor('playback').length, 2);
+  page.pending.shift().resolve({ connected: true, title: 'Next track', playing: true });
+  await flush();
+  assert.equal(page.node('playback-title').textContent, 'Next track');
 });

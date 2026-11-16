@@ -119,6 +119,7 @@
   const featured = $derived(homeState.featured);
   const popularShows = $derived(homeState.popularShows);
   let playerOpen = $state(false);
+  let widgetHost = $state<WidgetHost>();
   let musicHome = $state<MusicHome>();
   let sportsHome = $state<SportsHome>();
   let player = $state<NowPlaying>();
@@ -303,6 +304,7 @@
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
+    if (widgetHost?.cancelMove()) return;
     if (layoutPreview && !exitRequested && !remotePairing && !stremioPairing && !details && !playerOpen) { void cancelReview(); return; }
     if (exitRequested) { void playSound('back'); cancelExit(); return; }
     if (remotePairing) { void playSound('back'); closeRemotePairing(); return; }
@@ -574,7 +576,7 @@
     {#if movieResults.length}
       <MediaRow id="search-results" title="Movies - Stremio" items={movieResults} onselect={item => openStremioDetail('movie', item.id)} />
     {/if}
-    {#if showResults.length}<MediaRow id="show-results" title="Shows - Stremio" items={showResults} onselect={item => openStremioDetail('series', item.id)} />{/if}
+    {#if showResults.length}<MediaRow kind="series" id="show-results" title="Shows - Stremio" items={showResults} onselect={item => openStremioDetail('series', item.id)} />{/if}
     {#if submittedQuery}
       <div id="search-extra">
         {#if searchVideos.length}
@@ -602,7 +604,7 @@
     <div {@attach smoothHeight}><div class="resizing-content">
       <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
       <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
-      <MediaRow id="popular-shows" title="Popular shows" items={popularShows} onselect={item => openStremioDetail('series', item.id)} />
+      <MediaRow kind="series" id="popular-shows" title="Popular shows" items={popularShows} onselect={item => openStremioDetail('series', item.id)} />
     </div></div>
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} />
     <RecentlyPlayed items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} onremove={removeItem} onpreview={previewActivityItem} />
@@ -617,7 +619,7 @@
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
     <UpdateNotice {native} />
   </div>
-  {#if !playerOpen}<WidgetHost widgets={layoutConfig.widgets} onopen={openPlayer} />{/if}
+  {#if !playerOpen}<WidgetHost bind:this={widgetHost} widgets={layoutConfig.widgets} onposition={(id, position) => settings.widgets[id].position = position} onopen={openPlayer} />{/if}
   {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
   {/if}
 </main>

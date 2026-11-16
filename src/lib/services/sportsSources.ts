@@ -18,7 +18,7 @@ export function parseStreamEast(value: unknown): SportsEvent[] {
     const sources = [...new Set<string>((Array.isArray(match.streams) ? match.streams : []).map((stream: any) => streamEastUrl(stream.url)).filter(Boolean))].slice(0, 12);
     if (!sources.length) return [];
     const leagueId = String(match.api_id ?? '').match(/league-[a-z]+-(.+?)(?:-\d+)?$/)?.[1] ?? '';
-    const league = ({ nba: 'NBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL', 'college-football': 'CFB', 'mens-college-basketball': 'NCAA Men', 'womens-college-basketball': 'NCAA Women' } as Record<string, string>)[leagueId] || (/^NFL RedZone$/i.test(String(match.title)) ? 'NFL' : String(match.sport_name || 'Other'));
+    const league = ({ nba: 'NBA', wnba: 'WNBA', nfl: 'NFL', mlb: 'MLB', nhl: 'NHL', 'college-football': 'CFB', 'mens-college-basketball': 'NCAA Men', 'womens-college-basketball': 'NCAA Women' } as Record<string, string>)[leagueId] || (/^NFL RedZone$/i.test(String(match.title)) ? 'NFL' : String(match.sport_name || 'Other'));
     const teams = [match.home, match.away].filter(team => typeof team?.name === 'string' && team.name.trim()).map(team => ({ name: team.name.trim(), logo: typeof team.badge === 'string' && team.badge.startsWith('https://') ? team.badge : '' }));
     if (!teams.length && typeof match.title === 'string') teams.push({ name: match.title, logo: '' });
     if (!teams.length) return [];

@@ -10,7 +10,70 @@ pub struct Preferences {
 }
 
 #[derive(Default)]
-pub struct Tv(pub Mutex<Preferences>, Mutex<Option<String>>);
+pub struct Tv(pub Mutex<Preferences>, Mutex<Option<String>>, Mutex<Option<String>>);
+
+fn selected_display(app: &tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Tv>();
+    let current = state.2.lock().map_err(|e| e.to_string())?.clone();
+    if let Some(current) = current {
+        return Ok(current);
+    }
+    let display = state.0.lock().map_err(|e| e.to_string())?.display.clone();
+    Ok(display)
+}
+
+#[tauri::command]
+pub fn switch_display(app: tauri::AppHandle) -> Result<String, String> {
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    if monitors.len() < 2 {
+        return Err("Connect another display before switching screens.".into());
+    }
+    let selected = selected_display(&app)?;
+    let current = crate::viewing::selected(&app)
+        .and_then(|window| window.current_monitor().ok().flatten())
+        .or_else(|| app.get_webview_window("main").and_then(|window| window.current_monitor().ok().flatten()));
+    let index = current.as_ref().and_then(|current| monitors.iter().position(|monitor| monitor.position() == current.position()))
+        .or_else(|| monitors.iter().position(|monitor| monitor.name() == Some(&selected))).unwrap_or(0);
+    let target = &monitors[(index + 1) % monitors.len()];
+    let name = target.name().cloned().ok_or("This display has no identifier.")?;
+    *app.state::<Tv>().2.lock().map_err(|e| e.to_string())? = Some(name.clone());
+    for window in app.webview_windows().values().filter(|window| ["main", "youtube", "stremio", "sports"].contains(&window.label())) {
+        place(window)?;
+    }
+    crate::commands::session::place_current(&app)?;
+    crate::viewing::arrange(&app)?;
+    Ok(name)
+}
+
+#[cfg(windows)]
+pub fn shortcut(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        use windows::Win32::UI::{Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT}, WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY}};
+        unsafe {
+            if RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, b'M' as u32).is_err() {
+                report_audio(&app, Some("Ctrl+Alt+M is in use by another app. Use Switch display in Luma or the remote.".into()));
+                return;
+            }
+            let mut message = MSG::default();
+            while GetMessageW(&mut message, None, 0, 0).as_bool() {
+                if message.message == WM_HOTKEY {
+                    let handle = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        if let Err(error) = switch_display(handle.clone()) {
+                            use tauri::Emitter;
+                            let _ = handle.emit("tv-setup-error", error);
+                        }
+                    });
+                }
+            }
+            let _ = UnregisterHotKey(None, 1);
+        }
+    });
+}
+
+#[cfg(not(windows))]
+pub fn shortcut(_: &tauri::AppHandle) {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,14 +139,7 @@ pub async fn tv_setup(app: tauri::AppHandle) -> Result<Setup, String> {
 }
 
 pub fn place(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let selected = window
-        .app_handle()
-        .state::<Tv>()
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .display
-        .clone();
+    let selected = selected_display(window.app_handle())?;
     if selected.is_empty() {
         return Ok(());
     }
@@ -115,7 +171,7 @@ pub fn place(window: &tauri::WebviewWindow) -> Result<(), String> {
 }
 
 pub fn bounds(app: &tauri::AppHandle) -> Option<(i32, i32, u32, u32)> {
-    let selected = app.state::<Tv>().0.lock().ok()?.display.clone();
+    let selected = selected_display(app).ok()?;
     if selected.is_empty() {
         return None;
     }
@@ -156,6 +212,7 @@ pub async fn save_tv_setup(app: tauri::AppHandle, preferences: Preferences) -> R
     }
     report_audio(&app, None);
     *app.state::<Tv>().0.lock().map_err(|e| e.to_string())? = preferences;
+    *app.state::<Tv>().2.lock().map_err(|e| e.to_string())? = None;
     for window in app.webview_windows().values() {
         place(window)?;
     }

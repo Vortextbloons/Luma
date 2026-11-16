@@ -6,6 +6,13 @@ pub fn stop(app: &tauri::AppHandle) {
 }
 
 pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+    if let Some(window) = crate::viewing::selected(app) {
+        if window.label() == "sports" { return crate::commands::sports::control(app, action).await; }
+        if !matches!(action, "toggle" | "previous" | "next") { return Err("Unknown playback command.".into()); }
+        let script = include_str!("../../resources/playback.js");
+        let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
+        return window.eval(format!("({script})({action});")).map_err(|error| error.to_string());
+    }
     if app
         .get_webview_window("sports")
         .is_some_and(|window| window.is_visible().unwrap_or(false))
@@ -59,10 +66,8 @@ pub async fn timeline(
     app: &tauri::AppHandle,
     position: Option<f64>,
 ) -> Result<serde_json::Value, String> {
-    if app
-        .get_webview_window("sports")
-        .is_some_and(|window| window.is_visible().unwrap_or(false))
-    {
+    let selected = crate::viewing::selected(app);
+    if selected.as_ref().is_some_and(|window| window.label() == "sports") || (selected.is_none() && app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false))) {
         return crate::commands::sports::timeline(app, position).await;
     }
     let script = format!(
@@ -77,6 +82,7 @@ pub async fn timeline(
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
         })
         .collect();
+    if let Some(selected) = selected { windows.retain(|window| window.label() == selected.label()); }
     windows.sort_by_key(|window| !window.is_focused().unwrap_or(false));
     if let Some(window) = windows.first() {
         let (sender, receiver) = tokio::sync::oneshot::channel();

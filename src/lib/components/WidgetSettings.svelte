@@ -4,11 +4,12 @@
   let { settings }: { settings: Settings } = $props();
   let note = $state('');
   function reset() {
-    settings.widgets.spotify = { enabled: true, placement: 'bar' };
+    settings.widgets.spotify = { enabled: true, placement: 'bar', visibility: 'available', position: null };
     note = 'Widget settings reset. Home rows and theme were not changed.';
   }
   const placementLabel: Record<WidgetPlacement, string> = {
     bar: 'Bottom bar',
+    'top-left': 'Top left',
     'top-right': 'Top right',
     'bottom-right': 'Bottom right',
     'bottom-left': 'Bottom left',
@@ -17,7 +18,7 @@
 
 <section class="settings-group">
   <h3>Widgets</h3>
-  <p class="panel-description">Widgets stay in reach while you move around Luma. The bottom bar shows the full player; corner placements keep a small now-playing card tucked into empty space and expand when you focus or point at it.</p>
+  <p class="panel-description">Choose a preset or use Move on the widget to drag it or position it with your remote. Custom positions stay within the screen when its size changes.</p>
   <div class="widget-list">
     {#each widgetDefinitions as widget (widget.id)}
       {@const config = settings.widgets[widget.id]}
@@ -27,9 +28,17 @@
           <label class="widget-switch"><span>Show</span><input type="checkbox" bind:checked={config.enabled} onchange={() => note = ''} /></label>
         </div>
         {#if config.enabled}
+          <label class="widget-visibility">Show widget
+            <select bind:value={config.visibility} onchange={() => note = ''}>
+              <option value="always">Always</option>
+              <option value="available">When Spotify is available</option>
+              <option value="playing">Only during playback</option>
+            </select>
+          </label>
+          {#if config.position}<p class="panel-description">Custom position. Choose a preset below to reset it.</p>{/if}
           <div class="widget-placement" role="group" aria-label={`${widget.name} placement`}>
             {#each widget.placements as placement (placement)}
-              <button class={['placement-choice', { 'is-active': config.placement === placement }]} aria-pressed={config.placement === placement} onclick={() => { config.placement = placement; note = ''; }}>
+              <button class={['placement-choice', { 'is-active': config.placement === placement && !config.position }]} aria-pressed={config.placement === placement && !config.position} onclick={() => { config.placement = placement; config.position = null; note = ''; }}>
                 <span class={`placement-screen is-${placement}`} aria-hidden="true"><i></i></span>
                 <span>{placementLabel[placement]}</span>
               </button>
@@ -44,6 +53,8 @@
 </section>
 
 <style>
+  .widget-visibility { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; color: var(--text-dim); font-size: 14px; }
+  .widget-visibility select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text); }
   .widget-list { display: grid; gap: 12px; }
   .widget-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 45%, transparent); }
   .widget-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
@@ -61,6 +72,7 @@
   .placement-screen i { position: absolute; display: block; border-radius: 3px; background: var(--accent); }
   .placement-screen.is-bar i { left: 8%; right: 8%; bottom: 8%; height: 22%; border-radius: 4px; }
   .placement-screen.is-top-right i { top: 10%; right: 9%; width: 30%; height: 16%; border-radius: 4px; }
+  .placement-screen.is-top-left i { top: 10%; left: 9%; width: 30%; height: 16%; border-radius: 4px; }
   .placement-screen.is-bottom-right i { right: 9%; bottom: 10%; width: 30%; height: 16%; border-radius: 4px; }
   .placement-screen.is-bottom-left i { left: 9%; bottom: 10%; width: 30%; height: 16%; border-radius: 4px; }
   @media (max-width: 720px) { .widget-placement { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -23,3 +23,10 @@ test('source parser drops events without approved playback URLs', () => {
   assert.equal(primary()[0].league, 'NBA');
   assert.equal(parseStreamEast({ matches: [{ id: 1, title: 'Game', streams: [{ url: 'https://example.com/' }] }] }).length, 0);
 });
+
+test('source leagues preserve WNBA and college basketball categories', () => {
+  for (const [league, label] of [['wnba', 'WNBA'], ['mens-college-basketball', 'NCAA Men'], ['womens-college-basketball', 'NCAA Women']]) {
+    const events = parseStreamEast({ matches: [{ id: 1, api_id: `event-espn-league-basketball-${league}-123`, home: { name: 'Home' }, away: { name: 'Away' }, streams: [{ url: 'https://streamec.st/embed/ch73.php' }] }] });
+    assert.equal(events[0].league, label);
+  }
+});

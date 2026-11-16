@@ -574,6 +574,11 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
             }
         }
     }
+    if crate::viewing::navigate(app, command.as_str()) { return; }
+    if crate::viewing::browsing(app) {
+        let _ = app.emit_to("main", "remote-navigation", command);
+        return;
+    }
     if app
         .get_webview_window("sports")
         .is_some_and(|window| window.is_visible().unwrap_or(false))
@@ -703,6 +708,10 @@ impl Remote {
 }
 
 fn active_window(app: &tauri::AppHandle) -> Option<(&'static str, tauri::WebviewWindow)> {
+    if let Some(window) = crate::viewing::selected(app) {
+        let name = match window.label() { "youtube" => "YouTube", "stremio" => "Stremio", _ => "Sports" };
+        return Some((name, window));
+    }
     let windows: Vec<_> = [
         ("main", "Luma"),
         ("youtube", "YouTube"),

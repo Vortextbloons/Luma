@@ -11,16 +11,28 @@ const playbackTitle = document.querySelector("#playback-title");
 const playbackArtist = document.querySelector("#playback-artist");
 const playbackStateTag = document.querySelector("#playback-playstate");
 const playbackStatus = document.querySelector("#playback-status");
+const playbackControlStatus = document.querySelector("#playback-control-status");
+const previousButton = document.querySelector("#playback-previous");
+const toggleButton = document.querySelector("#playback-toggle");
+const nextButton = document.querySelector("#playback-next");
 const refreshButton = document.querySelector("#refresh");
 
 const show = (element, text) => {
   element.textContent = text;
 };
 
+const controlButtons = {
+  previous: previousButton,
+  toggle: toggleButton,
+  next: nextButton,
+};
+
 let playback = null;
 let playbackAt = null;
 let playbackError = null;
 let refreshing = false;
+let controlBusy = null;
+let controlFeedback = null;
 
 const time = (value) => value.toLocaleTimeString();
 
@@ -50,7 +62,20 @@ function describeStatus() {
   if (!playback) return "Read the current track with Refresh playback.";
   if (!playback.connected) return `${stamp} Spotify is not connected. Connect it in Luma Settings, then refresh.`;
   if (!playback.title) return `${stamp} Nothing is playing. Start playback in Luma, then refresh.`;
-  return `${stamp} Showing the last published host snapshot. Read-only.`;
+  return `${stamp} Showing the last published host snapshot.`;
+}
+
+const playable = () => Boolean(playback?.connected && playback.title);
+
+const controlLabel = (action) => {
+  if (action === "previous") return "Previous track";
+  if (action === "next") return "Next track";
+  return playback?.playing ? "Pause" : "Play";
+};
+
+function describeControlStatus() {
+  if (controlBusy) return `Sending ${controlBusy.name}…`;
+  return controlFeedback?.text ?? "";
 }
 
 function playbackCardState() {
@@ -71,16 +96,28 @@ function renderPlayback() {
   playbackStateTag.dataset.playing = String(Boolean(playback?.playing));
   show(playbackStateTag, playback?.playing ? "Playing" : "Paused");
   show(playbackStatus, describeStatus());
-  refreshButton.disabled = refreshing;
+  show(playbackControlStatus, describeControlStatus());
+  playbackControlStatus.dataset.tone = controlBusy
+    ? "pending"
+    : controlFeedback?.tone ?? "";
+  const locked = !playable() || refreshing || controlBusy !== null;
+  for (const [action, button] of Object.entries(controlButtons)) {
+    button.disabled = locked;
+    button.classList.toggle("is-loading", controlBusy?.action === action);
+    button.setAttribute("aria-busy", String(controlBusy?.action === action));
+  }
+  show(toggleButton, playback?.playing ? "Pause" : "Play");
+  refreshButton.disabled = refreshing || controlBusy !== null;
   refreshButton.classList.toggle("is-loading", refreshing);
   refreshButton.setAttribute("aria-busy", String(refreshing));
 }
 
 async function refreshPlayback() {
-  if (refreshing) return;
+  if (refreshing || controlBusy) return;
   const restoreFocus = document.activeElement === refreshButton;
   refreshing = true;
   playbackError = null;
+  controlFeedback = null;
   renderPlayback();
   try {
     const value = await host("playback");
@@ -98,6 +135,35 @@ async function refreshPlayback() {
     renderPlayback();
     if (restoreFocus && document.activeElement === document.body) {
       refreshButton.focus();
+    }
+  }
+}
+
+async function sendControl(action) {
+  if (controlBusy || refreshing || !playable()) return;
+  const button = controlButtons[action];
+  const name = controlLabel(action);
+  const restoreFocus = document.activeElement === button;
+  controlBusy = { action, name };
+  controlFeedback = null;
+  renderPlayback();
+  try {
+    const value = await host(`playback-${action}`);
+    if (value?.accepted !== true) throw "the host did not accept the command";
+    controlFeedback = {
+      tone: "success",
+      text: `${name} accepted. Refresh playback to see the updated snapshot.`,
+    };
+  } catch (error) {
+    controlFeedback = {
+      tone: "error",
+      text: `${name} failed: ${error}. The last read is still shown.`,
+    };
+  } finally {
+    controlBusy = null;
+    renderPlayback();
+    if (restoreFocus && document.activeElement === document.body) {
+      button.focus();
     }
   }
 }
@@ -147,6 +213,9 @@ function exit() {
 
 document.querySelector("#ping").addEventListener("click", ping);
 refreshButton.addEventListener("click", refreshPlayback);
+previousButton.addEventListener("click", () => sendControl("previous"));
+toggleButton.addEventListener("click", () => sendControl("toggle"));
+nextButton.addEventListener("click", () => sendControl("next"));
 document.querySelector("#probe").addEventListener("click", probe);
 document.querySelector("#close").addEventListener("click", exit);
 document.querySelector("#crash").addEventListener("click", () => {

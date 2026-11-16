@@ -7,6 +7,17 @@ const STEP_MINIMUM: i32 = 24;
 #[derive(Default)]
 pub struct Session(Mutex<Option<Launched>>);
 
+pub(crate) fn place_current(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<Session>();
+    let current = state.0.lock().map_err(|error| error.to_string())?;
+    if let Some(window) = current.as_ref().and_then(locate) {
+        if let Some(bounds) = crate::tv::bounds(app) {
+            platform::place(window, bounds);
+        }
+    }
+    Ok(())
+}
+
 struct Launched {
     name: String,
     pid: u32,

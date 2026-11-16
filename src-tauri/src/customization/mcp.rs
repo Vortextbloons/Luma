@@ -71,7 +71,7 @@ const APP_IDS: [&str; 16] = [
     "Peacock",
     "Custom",
 ];
-const PLACEMENTS: [&str; 4] = ["bar", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
 
 type BackendFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 

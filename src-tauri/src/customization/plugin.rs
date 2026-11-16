@@ -52,7 +52,7 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
-const PLACEMENTS: [&str; 4] = ["bar", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
 pub const FIELDS: [&str; 9] = [
     "theme",
     "density",

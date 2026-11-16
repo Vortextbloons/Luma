@@ -11,7 +11,7 @@ import {
 import type { PluginsState } from '../services/plugins';
 
 const executable = ['Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
-const placements: WidgetPlacement[] = ['bar', 'top-right', 'bottom-right', 'bottom-left'];
+const placements: WidgetPlacement[] = ['bar', 'top-left', 'top-right', 'bottom-right', 'bottom-left'];
 const appOrder: AppId[] = ['YouTube', 'Spotify', 'Stremio', 'Steam', 'NBA', 'NFL', 'MLB', 'NHL', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'];
 const legacyOrders: AppId[][] = [
   ['YouTube', 'Spotify', 'Stremio', 'Steam', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'NBA', 'NFL', 'MLB', 'NHL', 'Custom'],
@@ -33,7 +33,7 @@ function defaultSettings(): Settings {
     reducedMotion: false,
     home: defaultHomeRows(),
     homeColumns: 1,
-    widgets: { spotify: { enabled: true, placement: 'bar' } },
+    widgets: { spotify: { enabled: true, placement: 'bar', visibility: 'available', position: null } },
     paths: { Steam: '', Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
     order: [...appOrder],
   };
@@ -66,6 +66,8 @@ function readSettings() {
       if (spotify && typeof spotify === 'object') {
         if (typeof spotify.enabled === 'boolean') value.widgets.spotify.enabled = spotify.enabled;
         if (placements.includes(spotify.placement)) value.widgets.spotify.placement = spotify.placement;
+        if (['always', 'playing', 'available'].includes(spotify.visibility)) value.widgets.spotify.visibility = spotify.visibility;
+        if (spotify.position && Number.isInteger(spotify.position.x) && Number.isInteger(spotify.position.y) && spotify.position.x >= 0 && spotify.position.x <= 1000 && spotify.position.y >= 0 && spotify.position.y <= 1000) value.widgets.spotify.position = spotify.position;
       }
     }
   } catch { error = 'Saved preferences could not be read.'; }

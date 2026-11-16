@@ -88,6 +88,8 @@
         <Icon name={fullscreen ? "collapse" : "expand"} className="size-[17px]" />
         <span>{fullscreen ? "Exit PC fullscreen" : "Fullscreen PC"}</span>
       </button>
+      <button type="button" role="menuitem" class="more-item" onclick={() => run("switchdisplay")}><Icon name="expand" className="size-[17px]" /><span>Switch PC display</span></button>
+      <button type="button" role="menuitem" class="more-item" onclick={() => run("nextplayer")}><Icon name="expand" className="size-[17px]" /><span>Switch Multi Watch player</span></button>
       <button type="button" role="menuitem" class="more-item is-danger" onclick={() => run("stop")}>
         <Icon name="stop" className="size-[17px]" />
         <span>Stop Luma</span>

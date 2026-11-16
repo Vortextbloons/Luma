@@ -1294,6 +1294,8 @@ mod tests {
         config.widgets.spotify = document::Widget {
             enabled: false,
             placement: "bottom-left".into(),
+            visibility: "available".into(),
+            position: None,
         };
         config.order.swap(0, 1);
         let customized = store

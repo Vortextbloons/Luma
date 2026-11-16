@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::{
-    integrations::spotify::auth::Auth,
+    integrations::spotify::{auth::Auth, player},
     remote::server::{MusicState, Remote},
 };
 use serde::Deserialize;
@@ -31,6 +31,7 @@ const STYLE: &str = include_str!("extension_spike/page.css");
 
 static PONGS: AtomicU64 = AtomicU64::new(0);
 static STARTED: AtomicBool = AtomicBool::new(false);
+static CONTROL: AtomicBool = AtomicBool::new(false);
 
 fn enabled() -> bool {
     cfg!(debug_assertions) && matches!(std::env::var(ENV).as_deref(), Ok("1"))
@@ -213,7 +214,21 @@ enum Action {
     Identity,
     Ping,
     Playback,
+    PlaybackToggle,
+    PlaybackNext,
+    PlaybackPrevious,
     Close,
+}
+
+impl Action {
+    fn player_command(&self) -> Option<&'static str> {
+        match self {
+            Self::PlaybackToggle => Some("toggle"),
+            Self::PlaybackNext => Some("next"),
+            Self::PlaybackPrevious => Some("previous"),
+            _ => None,
+        }
+    }
 }
 
 fn bounded_text(value: Option<&str>) -> Option<String> {
@@ -261,7 +276,15 @@ fn perform(app: &AppHandle, action: Action) -> Result<Value, String> {
             destroy(app, true);
             Ok(json!({ "closed": true }))
         }
+        Action::PlaybackToggle | Action::PlaybackNext | Action::PlaybackPrevious => {
+            Err("Playback controls run asynchronously.".into())
+        }
     }
+}
+
+async fn apply_control(app: AppHandle, command: &'static str) -> Result<(), String> {
+    let auth = app.state::<Auth>();
+    player::control(&app, &auth, command, None).await
 }
 
 pub(crate) fn guard<F>(handler: F) -> impl Fn(Invoke) -> bool + Send + Sync + 'static
@@ -272,33 +295,52 @@ where
         if invoke.message.webview_ref().label() != LABEL {
             return handler(invoke);
         }
+        let Invoke {
+            message, resolver, ..
+        } = invoke;
         if !enabled()
-            || !invoke
-                .message
-                .webview_ref()
-                .url()
-                .is_ok_and(|url| permitted(&url))
-            || invoke.message.command() != ACTION
+            || !message.webview_ref().url().is_ok_and(|url| permitted(&url))
+            || message.command() != ACTION
         {
-            invoke.resolver.reject("Extension spike command denied.");
+            resolver.reject("Extension spike command denied.");
             return true;
         }
-        let app = invoke
-            .message
-            .webview_ref()
-            .window_ref()
-            .app_handle()
-            .clone();
-        let outcome = match invoke.message.payload() {
+        let app = message.webview_ref().window_ref().app_handle().clone();
+        let action = match message.payload() {
             InvokeBody::Json(payload) => serde_json::from_value::<ActionRequest>(payload.clone())
+                .map(|request| request.action)
                 .map_err(|_| "Invalid extension spike action.".to_string()),
             InvokeBody::Raw(_) => Err("Invalid extension spike action.".to_string()),
+        };
+        let action = match action {
+            Ok(action) => action,
+            Err(error) => {
+                resolver.reject(error);
+                return true;
+            }
+        };
+        let Some(command) = action.player_command() else {
+            match perform(&app, action) {
+                Ok(value) => resolver.resolve(value),
+                Err(error) => resolver.reject(error),
+            }
+            return true;
+        };
+        if CONTROL
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            resolver.reject("A playback control is already in flight. Try again once it finishes.");
+            return true;
         }
-        .and_then(|request| perform(&app, request.action));
-        match outcome {
-            Ok(value) => invoke.resolver.resolve(value),
-            Err(error) => invoke.resolver.reject(error),
-        }
+        tauri::async_runtime::spawn(async move {
+            let outcome = apply_control(app, command).await;
+            CONTROL.store(false, Ordering::Release);
+            match outcome {
+                Ok(()) => resolver.resolve(json!({ "accepted": true })),
+                Err(error) => resolver.reject(error),
+            }
+        });
         true
     }
 }
@@ -394,6 +436,18 @@ mod tests {
             parsed(serde_json::json!({ "action": "close" })),
             Ok(Action::Close)
         ));
+        assert!(matches!(
+            parsed(serde_json::json!({ "action": "playback-toggle" })),
+            Ok(Action::PlaybackToggle)
+        ));
+        assert!(matches!(
+            parsed(serde_json::json!({ "action": "playback-next" })),
+            Ok(Action::PlaybackNext)
+        ));
+        assert!(matches!(
+            parsed(serde_json::json!({ "action": "playback-previous" })),
+            Ok(Action::PlaybackPrevious)
+        ));
         assert!(parsed(serde_json::json!({ "action": "install" })).is_err());
         assert!(
             parsed(serde_json::json!({ "action": "identity", "package": "com.example" })).is_err()
@@ -402,8 +456,71 @@ mod tests {
             parsed(serde_json::json!({ "action": "playback", "device": "pc" })).is_err(),
             "playback actions must not carry arguments"
         );
+        assert!(
+            parsed(serde_json::json!({ "action": "playback-next", "value": "1" })).is_err(),
+            "playback controls must not carry arguments"
+        );
         assert!(parsed(serde_json::json!({ "action": true })).is_err());
         assert!(parsed(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn playback_controls_map_only_to_the_existing_player_commands() {
+        for (name, command) in [
+            ("playback-toggle", "toggle"),
+            ("playback-next", "next"),
+            ("playback-previous", "previous"),
+        ] {
+            let action = parsed(json!({ "action": name })).expect("control action parses");
+            assert_eq!(action.player_command(), Some(command));
+            for extra in [
+                json!({ "action": name, "command": "play" }),
+                json!({ "action": name, "value": "next" }),
+                json!({ "action": name, "device": "pc" }),
+                json!({ "action": name, "uri": "spotify:track:1" }),
+                json!({ "action": name, "args": {} }),
+            ] {
+                assert!(parsed(extra).is_err(), "{name} must not accept arguments");
+            }
+        }
+        for name in ["identity", "ping", "playback", "close"] {
+            let action = parsed(json!({ "action": name })).expect("local action parses");
+            assert_eq!(
+                action.player_command(),
+                None,
+                "{name} must not dispatch a player control"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_playback_actions_outside_the_bounded_control_set() {
+        for name in [
+            "playback-play",
+            "playback-pause",
+            "playback-seek",
+            "playback-shuffle",
+            "playback-repeat",
+            "playback-volume",
+            "playback-transfer",
+            "playback-play-uri",
+            "playback-device",
+            "playback-token",
+            "toggle",
+            "next",
+            "previous",
+            "spotify-control",
+            "spotify-connect",
+            "playback-toggle-now",
+            "playback_toggle",
+            "PlaybackToggle",
+            "",
+        ] {
+            assert!(
+                parsed(json!({ "action": name })).is_err(),
+                "{name} must stay outside the bounded control set"
+            );
+        }
     }
 
     #[test]

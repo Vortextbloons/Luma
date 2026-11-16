@@ -1,6 +1,7 @@
 import type { Component } from 'svelte';
-import type { WidgetId, WidgetPlacement } from '../types';
+import type { WidgetConfig, WidgetId, WidgetPlacement } from '../types';
 import MiniPlayer from '../components/spotify/MiniPlayer.svelte';
+import { spotify } from '../state/spotify.svelte';
 
 export interface WidgetDefinition {
   id: WidgetId;
@@ -8,6 +9,7 @@ export interface WidgetDefinition {
   description: string;
   component: Component<{ placement: WidgetPlacement; onopen: () => void }>;
   placements: WidgetPlacement[];
+  isVisible: (visibility: WidgetConfig['visibility']) => boolean;
 }
 
 export const widgetDefinitions: WidgetDefinition[] = [
@@ -16,7 +18,8 @@ export const widgetDefinitions: WidgetDefinition[] = [
     name: 'Spotify',
     description: 'Now playing with playback controls.',
     component: MiniPlayer,
-    placements: ['bar', 'top-right', 'bottom-right', 'bottom-left'],
+    placements: ['bar', 'top-left', 'top-right', 'bottom-right', 'bottom-left'],
+    isVisible: visibility => visibility === 'always' || (visibility === 'playing' ? spotify.playback.playing : spotify.playback.playerAvailable || Boolean(spotify.playback.title)),
   },
 ];
 

@@ -6,6 +6,7 @@
   import logo from '../../assets/luma.png';
   import BackgroundSettings from './BackgroundSettings.svelte';
   import UpdateSettings from './UpdateSettings.svelte';
+  import ViewingSettings from './ViewingSettings.svelte';
   import TvSettings from './TvSettings.svelte';
   import FramePairing from './FramePairing.svelte';
   import StremioIntegration from './StremioIntegration.svelte';
@@ -225,6 +226,7 @@
             </div>
             <SettingsChoices {settings} section="display" />
           </section>
+          <ViewingSettings {native} />
         {:else if activeSection.id === 'tv'}
           <TvSettings {native} />
         {:else if activeSection.id === 'sound'}

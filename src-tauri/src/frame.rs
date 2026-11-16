@@ -33,7 +33,7 @@ const WEB_ICON_192: &[u8] = include_bytes!("web/luma-192.png");
 const WEB_ICON_512: &[u8] = include_bytes!("web/luma-512.png");
 const WEB_ICON_MASKABLE: &[u8] = include_bytes!("web/luma-maskable-512.png");
 const WEB_ICON_APPLE: &[u8] = include_bytes!("web/apple-touch-icon.png");
-const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws: https://v3-cinemeta.strem.io; manifest-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const PHONE_CSP: &str = "default-src 'none'; connect-src 'self' ws: https://v3-cinemeta.strem.io https://api.tvmaze.com; manifest-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const DISPLAY_CREDENTIAL: &str = "display";
 const PHONE_CREDENTIAL: &str = "phone";
 
@@ -317,6 +317,12 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
     }
     if command == "fullscreen" {
         return Some(server::fullscreen(app));
+    }
+    if command == "switchdisplay" {
+        return Some(crate::tv::switch_display(app.clone()).map(|_| ()));
+    }
+    if command == "nextplayer" {
+        return Some(crate::viewing::next(app));
     }
     if let Ok(nav) = serde_json::from_value::<NavigationCommand>(serde_json::json!(command)) {
         server::navigate(app, nav);

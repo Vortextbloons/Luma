@@ -7,7 +7,6 @@
 
   let { onopen, placement }: { onopen: () => void; placement: WidgetPlacement } = $props();
   const playback = $derived(spotify.playback);
-  const visible = $derived(playback.playerAvailable || Boolean(playback.title));
   const duration = $derived(playback.durationMs ?? 0);
   function clock(ms: number) {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -15,14 +14,13 @@
   }
 </script>
 
-{#if visible}
-  <aside class="mini-player" class:is-docked={placement !== 'bar'} data-placement={placement} aria-label="Now playing">
+  <aside class={['mini-player', { 'is-docked': placement !== 'bar' }]} data-placement={placement} aria-label="Now playing">
     <div class="mini-player-brand" aria-hidden="true"><ProviderIcon provider="spotify" /><span>Spotify</span></div>
     <button class="mini-player-open" onclick={onopen} aria-label="Open now playing">
       <span class="mini-player-art">{#if playback.artworkUrl}<img src={playback.artworkUrl} alt="" decoding="async" />{:else}<span aria-hidden="true"><MusicIcon name="music" /></span>{/if}</span>
       <span class="mini-player-copy">
         <b>{playback.title ?? 'Spotify'}</b>
-        <small>{playback.artist ?? (playback.playerAvailable ? 'Ready to play' : 'Spotify')}</small>
+        <small>{playback.artist ?? (playback.playerAvailable ? 'Ready to play' : 'Open Spotify to connect')}</small>
       </span>
     </button>
     <PlaybackControls {playback} busy={spotify.busy} compact onaction={action => spotify.action(action)} />
@@ -33,4 +31,3 @@
     <span class={['mini-player-status', { playing: playback.playing }]} aria-hidden="true"></span>
   </aside>
   {#if placement === 'bar'}<div class="mini-player-spacer" aria-hidden="true"></div>{/if}
-{/if}
