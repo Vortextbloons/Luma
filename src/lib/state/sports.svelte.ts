@@ -33,7 +33,7 @@ class SportsStore {
   }
 
   games(league: string) {
-    return this.scores.filter(game => game.league === league && majorSportsLeagues.includes(league)).sort((a, b) => order(a) - order(b)).slice(0, 5);
+    return this.scores.filter(game => game.league === league && majorSportsLeagues.includes(league) && game.state !== 'post').sort((a, b) => order(a) - order(b)).slice(0, 5);
   }
 
   artworkFor(id: string) {
@@ -117,7 +117,7 @@ class SportsStore {
       const games = await loadSportsScores(league);
       if (request !== this.previewRequest) return;
       this.scores = mergeScores(this.scores, games, [league]);
-      const first = [...games].sort((a, b) => order(a) - order(b))[0];
+      const first = [...games].filter(game => game.state !== 'post').sort((a, b) => order(a) - order(b))[0];
       if (first && !this.artwork[first.id]) {
         const art = await loadSportsArtwork(league, first.id).catch(() => '');
         if (request === this.previewRequest) this.artwork[first.id] = art;

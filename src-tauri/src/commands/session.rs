@@ -48,6 +48,7 @@ fn track_with(
     keys: bool,
     title: Option<&'static str>,
 ) {
+    if !crate::viewing::enabled(app) { crate::viewing::restore_external(app); }
     if let Ok(mut current) = app.state::<Session>().0.lock() {
         *current = Some(Launched {
             name: name.into(),
@@ -57,7 +58,8 @@ fn track_with(
             title,
         });
     }
-    if let Some(bounds) = crate::tv::bounds(app) {
+    let bounds = crate::tv::bounds(app);
+    if bounds.is_some() || crate::viewing::enabled(app) {
         let handle = app.clone();
         let name = name.to_owned();
         let attempts = if title.is_some() { 150 } else { 50 };
@@ -73,14 +75,23 @@ fn track_with(
                             .as_ref()
                             .is_some_and(|session| session.pid == pid && session.name == name)
                     });
-                if !current {
+                if !current && !crate::viewing::enabled(&handle) {
                     return;
                 }
                 if let Some(window) = locate_window(pid, &name, title) {
-                    platform::place(window, bounds);
+                    if crate::viewing::enabled(&handle) {
+                        if let Err(error) = crate::viewing::attach_native(&handle, platform::id(window), &name) {
+                            use tauri::Emitter;
+                            let _ = handle.emit("viewing-error", error);
+                        }
+                    } else if let Some(bounds) = bounds { platform::place(window, bounds); }
                     return;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            if crate::viewing::enabled(&handle) {
+                use tauri::Emitter;
+                let _ = handle.emit("viewing-error", format!("{name} did not expose a window for Multi Watch. Open it in windowed mode, then use Add open window."));
             }
         });
     }
@@ -160,9 +171,12 @@ pub fn reuse(app: &AppHandle, name: &str) -> bool {
     let Some(window) = found else {
         return false;
     };
-    if let Some(bounds) = crate::tv::bounds(app) {
-        platform::place(window, bounds);
-    }
+    if crate::viewing::enabled(app) {
+        if let Err(error) = crate::viewing::attach_native(app, platform::id(window), name) {
+            use tauri::Emitter;
+            let _ = app.emit("viewing-error", error);
+        }
+    } else if let Some(bounds) = crate::tv::bounds(app) { platform::place(window, bounds); }
     platform::restore(window);
     if session.is_none() || session.is_some_and(|(pid, _, _, _)| pid == 0) {
         if let Some(pid) = platform::pid(window) {
@@ -203,6 +217,7 @@ fn action(luma_foreground: bool, found: bool, running: bool, command: &str, web:
 
 #[tauri::command]
 pub fn close_launched_app(app: AppHandle) {
+    if crate::viewing::enabled(&app) || crate::viewing::external_selected(&app) { return; }
     let state = app.state::<Session>();
     let Ok(mut current) = state.0.lock() else {
         return;
@@ -458,6 +473,9 @@ pub(crate) fn native_executable(app: &AppHandle) -> Option<String> {
 }
 
 pub(crate) fn web_current(app: &AppHandle, name: &str) -> bool {
+    if crate::viewing::enabled(app) || crate::viewing::external_selected(app) {
+        return !crate::viewing::browsing(app) && crate::viewing::external_source(app).as_deref() == Some(name);
+    }
     app.state::<Session>().0.lock().ok().is_some_and(|current| {
         current
             .as_ref()
@@ -523,6 +541,20 @@ pub(crate) fn restore_window(id: isize) {
     if let Some(window) = platform::from_id(id) {
         platform::restore(window);
     }
+}
+
+pub(crate) fn focus_window(id: isize) {
+    if window_alive(id) {
+        if let Some(window) = platform::from_id(id) { platform::focus(window); }
+    }
+}
+
+pub(crate) fn press_window(id: isize, command: &str) -> Result<(), String> {
+    if !window_alive(id) { return Err("That window has closed.".into()); }
+    let window = platform::from_id(id).ok_or("That window has closed.")?;
+    if command == "back" && !window_browser(id) { platform::escape(window); }
+    else { platform::press(window, command); }
+    Ok(())
 }
 
 fn stepped(cursor: (i32, i32), rect: (i32, i32, i32, i32), dx: i32, dy: i32) -> (i32, i32) {
@@ -820,7 +852,7 @@ mod platform {
             .map(|_| String::from_utf16_lossy(&buffer[..length as usize]))
     }
 
-    fn focus(window: Window) {
+    pub fn focus(window: Window) {
         unsafe {
             let foreground = GetForegroundWindow();
             if foreground == window {
@@ -947,6 +979,7 @@ mod platform {
 #[cfg(not(windows))]
 mod platform {
     pub type Window = ();
+    pub fn focus(_: Window) {}
     pub fn place(_: Window, _: (i32, i32, u32, u32)) {}
 
     pub fn id(_: Window) -> isize {

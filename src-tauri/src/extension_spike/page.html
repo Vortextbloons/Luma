@@ -11,7 +11,7 @@
       <header class="panel__header">
         <p class="eyebrow">Isolated runtime spike</p>
         <h1>Host boundary probe</h1>
-        <p class="hint">Development only. The host supplies playback data and a few narrow commands to this separate origin. Esc or Back returns to Luma.</p>
+        <p class="hint">Development only. The host supplies playback data and a few narrow commands to this separate origin. The weather probe only runs when you press Load weather. Esc or Back returns to Luma.</p>
       </header>
 
       <section class="now-playing" id="now-playing" data-state="idle" aria-labelledby="now-playing-label">
@@ -32,6 +32,48 @@
           <span class="tag" id="playback-playstate" data-playing="false" hidden></span>
         </div>
         <p class="status" id="playback-status" role="status">Read the current track with Refresh playback.</p>
+      </section>
+
+      <section class="weather" id="weather" data-state="idle" aria-labelledby="weather-label">
+        <div class="weather__head">
+          <h2 id="weather-label">Weather</h2>
+          <p class="connection"><span class="dot" aria-hidden="true"></span><span id="weather-state">Not loaded</span></p>
+        </div>
+        <div class="weather__form">
+          <div class="field">
+            <label for="weather-location">Location</label>
+            <select id="weather-location">
+              <option value="seattle" selected>Seattle</option>
+              <option value="los-angeles">Los Angeles</option>
+              <option value="chicago">Chicago</option>
+              <option value="new-york">New York</option>
+              <option value="toronto">Toronto</option>
+              <option value="london">London</option>
+              <option value="paris">Paris</option>
+              <option value="berlin">Berlin</option>
+              <option value="tokyo">Tokyo</option>
+              <option value="sydney">Sydney</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="weather-units">Units</label>
+            <select id="weather-units">
+              <option value="c" selected>Celsius</option>
+              <option value="f">Fahrenheit</option>
+            </select>
+          </div>
+          <button type="button" id="weather-load" class="primary">Load weather</button>
+        </div>
+        <div class="weather__reading" id="weather-reading" hidden>
+          <p class="weather__place" id="weather-place"></p>
+          <p class="weather__figures">
+            <span class="weather__temperature" id="weather-temperature"></span>
+            <span class="weather__condition" id="weather-condition"></span>
+          </p>
+          <p class="weather__observed" id="weather-observed"></p>
+        </div>
+        <p class="weather__status" id="weather-status" role="status">Choose a city and press Load weather.</p>
+        <p class="weather__credit">Weather data by Open-Meteo.com<br /><span class="weather__url">https://open-meteo.com/</span></p>
       </section>
 
       <section class="card" aria-labelledby="identity-label">

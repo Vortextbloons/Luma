@@ -95,6 +95,10 @@ fn service(id: &str) -> Option<&'static Service> {
     SERVICES.iter().find(|service| service.id == id)
 }
 
+pub(crate) fn video_sources() -> Vec<&'static str> {
+    std::iter::once("YouTube").chain(SERVICES.iter().filter(|service| !matches!(service.id, "Spotify" | "Steam")).map(|service| service.id)).chain(super::sports::shortcuts().into_iter().map(|entry| entry.name)).collect()
+}
+
 pub(crate) struct CatalogEntry {
     pub command: String,
     pub name: &'static str,
@@ -481,6 +485,7 @@ pub async fn launch_app(
         return Ok(());
     }
     let service = service(&name).ok_or("This app is not set up in Luma yet.")?;
+    if !matches!(name.as_str(), "Spotify" | "Steam" | "Stremio") { crate::viewing::check_capacity(&app, &name)?; }
     if name == "Spotify" {
         crate::remote::server::open_music(&app)?;
         crate::activity::record_launch(&app, &name);
@@ -494,7 +499,7 @@ pub async fn launch_app(
     if name == "Steam" {
         crate::commands::steam::launch(&app)?;
         crate::activity::record_launch(&app, &name);
-        if let Some(window) = app.get_webview_window("main") {
+        if let Some(window) = app.get_webview_window("main").filter(|_| !crate::viewing::enabled(&app)) {
             window.minimize().map_err(|e| e.to_string())?;
             crate::background::publish_visibility(&window, false);
         }
@@ -509,7 +514,7 @@ pub async fn launch_app(
         .unwrap_or_default();
     if let Some(url) = service.url {
         if crate::commands::services::reuse(&app, service.id, url) {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_webview_window("main").filter(|_| !crate::viewing::enabled(&app)) {
                 window.minimize().map_err(|e| e.to_string())?;
                 crate::background::publish_visibility(&window, false);
             }
@@ -518,7 +523,7 @@ pub async fn launch_app(
         }
     }
     if crate::commands::session::reuse(&app, &name) {
-        if let Some(window) = app.get_webview_window("main") {
+        if let Some(window) = app.get_webview_window("main").filter(|_| !crate::viewing::enabled(&app)) {
             window.minimize().map_err(|e| e.to_string())?;
             crate::background::publish_visibility(&window, false);
         }
@@ -548,7 +553,7 @@ pub async fn launch_app(
         .map_err(|e| format!("Could not start {name}: {e}"))?;
     crate::commands::session::track(&app, &name, child.id());
     crate::activity::record_launch(&app, &name);
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window("main").filter(|_| !crate::viewing::enabled(&app)) {
         window.minimize().map_err(|e| e.to_string())?;
         crate::background::publish_visibility(&window, false);
     }

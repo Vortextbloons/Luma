@@ -104,6 +104,9 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::Focused(true)) {
                 viewing::focus(window.app_handle(), window.label());
             }
+            if matches!(event, tauri::WindowEvent::Focused(false)) {
+                viewing::refresh_external_focus(window.app_handle());
+            }
             if matches!(event, tauri::WindowEvent::Destroyed) && ["youtube", "stremio", "sports"].contains(&window.label()) {
                 viewing::release(window.app_handle(), window.label());
             }
@@ -148,6 +151,10 @@ pub fn run() {
             tv::tv_setup,
             tv::switch_display,
             viewing::viewing_state,
+            viewing::viewing_windows,
+            viewing::viewing_add_window,
+            viewing::viewing_sources,
+            viewing::viewing_open_source,
             viewing::viewing_configure,
             viewing::viewing_remove,
             tv::tv_setup_warning,
@@ -236,6 +243,7 @@ pub fn run() {
         }
         if matches!(event, tauri::RunEvent::Exit) {
             commands::session::close_steam(app);
+            viewing::restore_external(app);
             tv::stop_shortcut(app);
             media::stop(app);
             stremio::shutdown(app);

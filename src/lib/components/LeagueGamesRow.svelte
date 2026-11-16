@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { GameScore } from '../services/sportsScores';
 
-  let { league, games, loading = false, watch }: {
+  let { league, games, loading = false, watch, onpreview }: {
     league: string;
     games: GameScore[];
     loading?: boolean;
     watch: (game: GameScore) => void;
+    onpreview?: (game: GameScore | null) => void;
   } = $props();
 
   const live = $derived(games.filter(game => game.state === 'in').length);
@@ -28,7 +29,7 @@
   {#if games.length}
     <div class="activity-track is-cinematic">
       {#each games as game (game.id)}
-        <button data-focus-key={`league:${league}:${game.id}`} class="league-game" style:--team-color={game.teams[0]?.color || '#39374f'} onclick={() => watch(game)} aria-label={label(game)}>
+        <button data-focus-key={`league:${league}:${game.id}`} class="league-game" style:--team-color={game.teams[0]?.color || '#39374f'} onclick={() => watch(game)} aria-label={label(game)} onmouseenter={() => onpreview?.(game)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(game)} onblur={() => onpreview?.(null)}>
           <span class="league-game-art">
             {#each game.teams as team (team.name)}
               <span class="league-team">

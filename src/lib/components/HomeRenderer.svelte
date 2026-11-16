@@ -39,6 +39,7 @@
     launch: (id: AppId) => void;
     preview: (id: AppId) => void;
     watchLeagueGame: (game: GameScore) => void;
+    previewLeagueGame: (game: GameScore | null) => void;
     openYouTubeItem: (id: string) => void;
     previewVideo: (item: YouTubeFeedItem | null) => void;
     playMusic: (item: MusicCardItem) => void;
@@ -85,7 +86,9 @@
 
 {#snippet continuing()}
   {#if data.previewLeague}
-    <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} watch={actions.watchLeagueGame} />
+    {#key data.previewLeague}
+      <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} watch={actions.watchLeagueGame} onpreview={actions.previewLeagueGame} />
+    {/key}
   {:else if data.previewApp === 'Stremio'}
     <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={data.stremioRecent.slice(0, 4)} open={actions.openStremio} connected={data.stremio?.connected ?? false} connect={actions.openStremioPairing} onpreview={actions.previewStremio} cinematic /></div>
   {:else if data.previewApp === 'Steam' && data.steamGames.length}

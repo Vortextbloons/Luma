@@ -172,6 +172,7 @@ pub fn quit_app(app: tauri::AppHandle) {
 
 #[tauri::command]
 pub fn hide_to_tray(app: tauri::AppHandle) {
+    crate::viewing::restore_external(&app);
     crate::commands::session::close_steam(&app);
     crate::extension_spike::dismiss(&app);
     unload(&app, "main");

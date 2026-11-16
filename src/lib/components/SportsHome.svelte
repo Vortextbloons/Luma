@@ -28,6 +28,7 @@
   let teamsError = $state('');
   let teamRequest = 0;
   let selected = $state<SportsEvent | null>(null);
+  let hovered = $state.raw<SportsEvent | null>(null);
   let detailError = $state('');
   let favorites = $state<SportsFavorite[]>(readSportsFavorites());
   let hideScores = $state(sportsScoresHidden());
@@ -42,7 +43,11 @@
   const liveEvents = $derived(visible.filter(event => live(event)));
   const upcoming = $derived(visible.filter(event => !live(event) && game(event)?.state !== 'post'));
   const finished = $derived(visible.filter(event => game(event)?.state === 'post'));
-  const featured = $derived(liveEvents.find(event => eventFavorite(event)) ?? liveEvents.find(event => game(event)) ?? liveEvents[0] ?? upcoming.find(event => game(event)) ?? upcoming[0] ?? visible[0]);
+  const featured = $derived.by(() => {
+    const preview = hovered;
+    if (preview && visible.some(event => event.id === preview.id)) return preview;
+    return liveEvents.find(event => eventFavorite(event)) ?? liveEvents.find(event => game(event)) ?? liveEvents[0] ?? upcoming.find(event => game(event)) ?? upcoming[0];
+  });
   const featuredGame = $derived(featured ? game(featured) : undefined);
   const selectedGame = $derived(selected ? game(selected) : undefined);
   const artwork = $derived(featuredGame ? sports.artworkFor(featuredGame.id) : '');
@@ -88,6 +93,7 @@
   export async function showLeague(league: string) {
     closeDetail();
     filter = filters.includes(league) ? league : 'All';
+    hovered = null;
     await tick();
     document.querySelector<HTMLElement>('.sports-filters button[aria-pressed="true"]')?.focus({ preventScroll: true });
   }
@@ -163,7 +169,8 @@
       if (managingTeams && !origin?.isConnected) document.querySelector<HTMLElement>('.team-leagues button[aria-pressed="true"]')?.focus({ preventScroll: true });
     });
   }
-  function setFilter(name: string) { if (filter === name) return; filter = name; }
+  function setFilter(name: string) { if (filter === name) return; filter = name; hovered = null; }
+  function previewEvent(event: SportsEvent | null) { hovered = event; }
   function toggleScores() {
     hideScores = !hideScores;
     try { localStorage.setItem('luma-sports-hide-scores', String(hideScores)); } catch {}
@@ -219,7 +226,11 @@
       {/key}
     </section>
   {:else}
-    <header class="sports-heading"><span class="eyebrow">GAME DAY, TOGETHER</span><h1>Sports</h1><p>Your teams. Every matchup. One place.</p></header>
+    <header class="sports-heading">
+      <span class="eyebrow">{filter === 'All' || filter === 'Your teams' ? 'GAME DAY, TOGETHER' : filter}</span>
+      <h1>{filter === 'Your teams' ? 'Your teams play here' : filter === 'All' ? 'Sports' : `No ${filter} games right now`}</h1>
+      <p>{filter === 'Your teams' ? (favorites.length ? 'None of your teams have a live or upcoming game right now.' : 'Choose your teams to find their matchups here.') : filter === 'All' ? 'Your teams. Every matchup. One place.' : 'There are no live or upcoming games listed for this league.'}</p>
+    </header>
   {/if}
 
   <div class="sports-toolbar">
@@ -257,7 +268,7 @@
             <div class="sports-grid">
               {#each section.events as event (event.id)}
                 {@const matched = game(event)}
-                <SportsEventCard {event} {matched} {hideScores} favorite={eventFavorite(event)} time={gameTime(event)} live={live(event)} onselect={origin => selectEvent(event, origin)} />
+                <SportsEventCard {event} {matched} {hideScores} favorite={eventFavorite(event)} time={gameTime(event)} live={live(event)} onselect={origin => selectEvent(event, origin)} onpreview={previewEvent} />
               {/each}
             </div>
           </section>

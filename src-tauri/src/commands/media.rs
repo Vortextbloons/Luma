@@ -6,6 +6,18 @@ pub fn stop(app: &tauri::AppHandle) {
 }
 
 pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+    crate::viewing::refresh_external_focus(app);
+    if crate::viewing::external_selected(app) {
+        if !matches!(action, "toggle" | "previous" | "next") { return Err("Unknown playback command.".into()); }
+        if let Some(source) = crate::viewing::external_source(app) {
+            let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
+            let script = include_str!("../../resources/playback.js");
+            let script = format!("(() => {{ if (!document.querySelector('video')) return null; ({script})({action}); return true; }})()");
+            let result = crate::commands::services::evaluate(app, &source, &script).await?;
+            if !result.is_null() { return Ok(()); }
+        }
+        return Err("Use this window's own playback controls.".into());
+    }
     if let Some(window) = crate::viewing::selected(app) {
         if window.label() == "sports" { return crate::commands::sports::control(app, action).await; }
         if !matches!(action, "toggle" | "previous" | "next") { return Err("Unknown playback command.".into()); }
@@ -48,7 +60,7 @@ fn visible_player(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
 }
 
 pub fn has_video(app: &tauri::AppHandle) -> bool {
-    visible_player(app).is_some()
+    crate::viewing::external_selected(app) || visible_player(app).is_some()
         || app
             .get_webview_window("sports")
             .is_some_and(|window| window.is_visible().unwrap_or(false))
@@ -66,6 +78,14 @@ pub async fn timeline(
     app: &tauri::AppHandle,
     position: Option<f64>,
 ) -> Result<serde_json::Value, String> {
+    crate::viewing::refresh_external_focus(app);
+    if crate::viewing::external_selected(app) {
+        if let Some(source) = crate::viewing::external_source(app) {
+            let script = format!("({})({})", include_str!("../../resources/timeline.js"), serde_json::to_string(&position).map_err(|error| error.to_string())?);
+            return crate::commands::services::evaluate(app, &source, &script).await;
+        }
+        return if position.is_some() { Err("Use this window's own timeline controls.".into()) } else { Ok(serde_json::Value::Null) };
+    }
     let selected = crate::viewing::selected(app);
     if selected.as_ref().is_some_and(|window| window.label() == "sports") || (selected.is_none() && app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false))) {
         return crate::commands::sports::timeline(app, position).await;

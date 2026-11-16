@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::{collections::HashMap, sync::Mutex};
+mod windows;
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -17,18 +18,201 @@ pub struct Layout {
     mode: Mode,
     selected: Option<String>,
     players: Vec<String>,
+    names: HashMap<String, String>,
+    external: Vec<String>,
+    #[serde(skip)]
+    windows: HashMap<String, windows::Window>,
 }
 
 #[derive(Default)]
 pub struct Viewing(Mutex<Layout>);
 
+impl Layout {
+    fn can_add(&self, name: &str) -> bool {
+        self.mode == Mode::Single
+            || self.players.len() < 2
+            || self.players.iter().any(|label| {
+                label == name || self.names.get(label).is_some_and(|value| value == name)
+            })
+    }
+}
+
+pub fn enabled(app: &tauri::AppHandle) -> bool {
+    app.state::<Viewing>()
+        .0
+        .lock()
+        .is_ok_and(|layout| layout.mode != Mode::Single)
+}
+
+pub fn active_selection(app: &tauri::AppHandle) -> Option<String> {
+    let layout = live(app).ok()?;
+    let external = layout
+        .selected
+        .as_ref()
+        .is_some_and(|label| layout.windows.contains_key(label));
+    (layout.mode != Mode::Single || external)
+        .then_some(layout.selected)
+        .flatten()
+}
+
+pub fn external_selected(app: &tauri::AppHandle) -> bool {
+    live(app).is_ok_and(|layout| {
+        layout
+            .selected
+            .as_ref()
+            .is_some_and(|label| layout.windows.contains_key(label))
+    })
+}
+
+pub fn external_source(app: &tauri::AppHandle) -> Option<String> {
+    let layout = live(app).ok()?;
+    let window = layout.windows.get(layout.selected.as_ref()?)?;
+    crate::commands::services::window_source(app, window.id)
+}
+
+pub fn refresh_external_focus(app: &tauri::AppHandle) {
+    let Ok(layout) = live(app) else {
+        return;
+    };
+    if let Some((label, _)) = layout
+        .windows
+        .iter()
+        .find(|(label, window)| layout.selected.as_ref() != Some(label) && window.focused())
+    {
+        focus(app, label);
+    }
+}
+
+pub fn external_name(app: &tauri::AppHandle) -> Option<String> {
+    let layout = live(app).ok()?;
+    let key = layout.selected.as_ref()?;
+    layout.windows.get(key)?;
+    layout.names.get(key).cloned()
+}
+
+pub fn check_capacity(app: &tauri::AppHandle, name: &str) -> Result<(), String> {
+    let layout = live(app)?;
+    if !layout.can_add(name) {
+        return Err(
+            "Two players are already open. Remove one in Multi Watch before adding another.".into(),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn viewing_windows() -> Result<Vec<windows::Choice>, String> {
+    windows::list()
+}
+
+#[tauri::command]
+pub fn viewing_sources() -> Vec<windows::Choice> {
+    crate::commands::apps::video_sources()
+        .into_iter()
+        .map(|name| windows::Choice {
+            id: name.into(),
+            name: name.into(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn viewing_open_source(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    if !crate::commands::apps::video_sources().contains(&id.as_str()) {
+        return Err("Unknown video source.".into());
+    }
+    if id == "YouTube" {
+        return crate::commands::youtube::open_youtube(app, true).await;
+    }
+    crate::commands::apps::launch_app(id, app.state::<crate::commands::apps::Apps>(), app.clone())
+        .await
+}
+
+#[tauri::command]
+pub fn viewing_add_window(app: tauri::AppHandle, id: String) -> Result<Layout, String> {
+    let choice = windows::list()?
+        .into_iter()
+        .find(|choice| choice.id == id)
+        .ok_or("That window has closed. Refresh the list.")?;
+    let handle = choice
+        .id
+        .rsplit(':')
+        .next()
+        .and_then(|id| id.parse().ok())
+        .ok_or("Invalid window.")?;
+    if windows::capture(handle)?.key() != choice.id {
+        return Err("That window has changed. Refresh the list.".into());
+    }
+    attach_native(&app, handle, &choice.name)?;
+    live(&app)
+}
+
+pub fn attach_native(app: &tauri::AppHandle, id: isize, name: &str) -> Result<(), String> {
+    let mut layout = live(app)?;
+    if layout.mode == Mode::Single {
+        return Err("Choose a Multi Watch layout before adding a window.".into());
+    }
+    let window = windows::capture(id)?;
+    let key = window.key();
+    if !layout.players.contains(&key) {
+        check_capacity(app, &key)?;
+        layout.players.push(key.clone());
+        layout.windows.insert(key.clone(), window.clone());
+    }
+    layout.names.insert(key.clone(), name.into());
+    layout.selected = Some(key.clone());
+    *app.state::<Viewing>()
+        .0
+        .lock()
+        .map_err(|error| error.to_string())? = layout;
+    if let Err(error) = arrange(app).and_then(|_| window.focus()) {
+        let _ = viewing_remove(app.clone(), key);
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.set_focus();
+        }
+        return Err(error);
+    }
+    publish(app);
+    Ok(())
+}
+
+pub fn restore_external(app: &tauri::AppHandle) {
+    let Ok(mut layout) = live(app) else {
+        return;
+    };
+    for window in layout.windows.values() {
+        let _ = window.restore();
+    }
+    layout
+        .players
+        .retain(|label| !layout.windows.contains_key(label));
+    layout.windows.clear();
+    if let Ok(mut current) = app.state::<Viewing>().0.lock() {
+        *current = layout;
+    }
+    publish(app);
+}
+
 fn live(app: &tauri::AppHandle) -> Result<Layout, String> {
     let state = app.state::<Viewing>();
     let mut layout = state.0.lock().map_err(|error| error.to_string())?;
+    let previous_selection = layout.selected.clone();
+    let external: Vec<String> = layout
+        .windows
+        .iter()
+        .filter(|(_, window)| window.alive())
+        .map(|(key, _)| key.clone())
+        .collect();
     layout.players.retain(|label| {
-        app.get_webview_window(label)
-            .is_some_and(|window| window.is_visible().unwrap_or(false))
+        external.contains(label)
+            || app
+                .get_webview_window(label)
+                .is_some_and(|window| window.is_visible().unwrap_or(false))
     });
+    let players = layout.players.clone();
+    layout.windows.retain(|label, _| players.contains(label));
+    layout.names.retain(|label, _| players.contains(label));
+    layout.external = external;
     if !layout
         .selected
         .as_ref()
@@ -36,11 +220,18 @@ fn live(app: &tauri::AppHandle) -> Result<Layout, String> {
     {
         layout.selected = layout.players.first().cloned();
     }
-    Ok(layout.clone())
+    let changed = previous_selection != layout.selected;
+    let result = layout.clone();
+    drop(layout);
+    if changed {
+        let _ = audio(app);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn viewing_state(app: tauri::AppHandle) -> Result<Layout, String> {
+    refresh_external_focus(&app);
     live(&app)
 }
 
@@ -66,6 +257,15 @@ pub fn focus(app: &tauri::AppHandle, label: &str) {
         }
     }
     let _ = audio(app);
+    if label == "main" {
+        if let Ok(layout) = live(app) {
+            if layout.mode == Mode::Floating {
+                for window in layout.windows.values() {
+                    window.raise();
+                }
+            }
+        }
+    }
     publish(app);
 }
 
@@ -135,7 +335,10 @@ pub fn next(app: &tauri::AppHandle) -> Result<(), String> {
         .and_then(|label| layout.players.iter().position(|player| player == label))
         .unwrap_or(0);
     let label = &layout.players[(index + 1) % layout.players.len()];
-    if let Some(window) = app.get_webview_window(label) {
+    if let Some(window) = layout.windows.get(label) {
+        window.focus()?;
+        focus(app, label);
+    } else if let Some(window) = app.get_webview_window(label) {
         window.set_focus().map_err(|error| error.to_string())?;
         focus(app, label);
     }
@@ -203,9 +406,6 @@ pub fn arrange(app: &tauri::AppHandle) -> Result<(), String> {
         return Err("Connect two displays or choose Side by side.".into());
     }
     for (index, label) in layout.players.iter().enumerate() {
-        let Some(window) = app.get_webview_window(label) else {
-            continue;
-        };
         let display = if layout.mode == Mode::Displays {
             &displays[index % displays.len()]
         } else {
@@ -222,6 +422,13 @@ pub fn arrange(app: &tauri::AppHandle) -> Result<(), String> {
                 display.size().height,
             ),
         );
+        if let Some(window) = layout.windows.get(label) {
+            window.place(bounds, layout.mode == Mode::Floating)?;
+            continue;
+        }
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
         window
             .set_fullscreen(false)
             .map_err(|error| error.to_string())?;
@@ -263,6 +470,7 @@ pub fn viewing_configure(
         return Err("Connect two displays or choose Side by side.".into());
     }
     let mut layout = live(&app)?;
+    let previous = layout.clone();
     let changing_selection = selected.is_some();
     if let Some(label) = selected {
         if !layout.players.contains(&label) {
@@ -289,6 +497,13 @@ pub fn viewing_configure(
         .map_err(|error| error.to_string())? = layout.clone();
     if mode == Mode::Single {
         for label in &layout.players {
+            if let Some(window) = layout.windows.get(label) {
+                window.restore()?;
+                if Some(label) == layout.selected.as_ref() {
+                    window.maximize()?;
+                }
+                continue;
+            }
             if let Some(window) = app.get_webview_window(label) {
                 if let Some(main) = app.get_webview_window("main") {
                     floating(&window, &main, false)?;
@@ -309,8 +524,34 @@ pub fn viewing_configure(
             }
         }
     } else {
-        arrange(&app)?;
+        if let Err(error) = arrange(&app) {
+            *app.state::<Viewing>()
+                .0
+                .lock()
+                .map_err(|cause| cause.to_string())? = previous.clone();
+            if previous.mode == Mode::Single {
+                for window in previous.windows.values() {
+                    let _ = window.restore();
+                }
+                for label in &previous.players {
+                    if let Some(window) = app.get_webview_window(label) {
+                        let _ = window.set_fullscreen(true);
+                    }
+                }
+            } else {
+                let _ = arrange(&app);
+            }
+            publish(&app);
+            return Err(error);
+        }
         if changing_selection {
+            if let Some(label) = layout
+                .selected
+                .as_ref()
+                .and_then(|label| layout.windows.get(label))
+            {
+                label.focus()?;
+            }
             if let Some(window) = self::selected(&app) {
                 window.set_focus().map_err(|error| error.to_string())?;
             }
@@ -324,6 +565,9 @@ pub fn present(window: &WebviewWindow) -> Result<bool, String> {
     let app = window.app_handle();
     let mut layout = live(app)?;
     if layout.mode == Mode::Single {
+        if window.label() != "main" {
+            restore_external(app);
+        }
         return Ok(false);
     }
     if !["main", "youtube", "stremio", "sports"].contains(&window.label()) {
@@ -331,7 +575,7 @@ pub fn present(window: &WebviewWindow) -> Result<bool, String> {
     }
     if window.label() != "main" {
         if !layout.players.iter().any(|label| label == window.label()) {
-            if layout.players.len() == 2 {
+            if !layout.can_add(window.label()) {
                 crate::background::dismiss(app, window.label());
                 return Err("Two players are already open. Remove one in Multi Watch before opening another service.".into());
             }
@@ -344,10 +588,11 @@ pub fn present(window: &WebviewWindow) -> Result<bool, String> {
     *app.state::<Viewing>()
         .0
         .lock()
-        .map_err(|error| error.to_string())? = layout;
+        .map_err(|error| error.to_string())? = layout.clone();
     if window.label() != "main" {
         arrange(app)?;
     }
+
     window.set_focus().map_err(|error| error.to_string())?;
     crate::background::publish_visibility(window, true);
     publish(app);
@@ -360,7 +605,7 @@ fn floating(window: &WebviewWindow, main: &WebviewWindow, enabled: bool) -> Resu
         .map_err(|error| error.to_string())?;
     #[cfg(windows)]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GWLP_HWNDPARENT};
+        use ::windows::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GWLP_HWNDPARENT};
         let handle = window.hwnd().map_err(|error| error.to_string())?;
         let owner = if enabled {
             main.hwnd().map_err(|error| error.to_string())?.0 as isize
@@ -369,7 +614,7 @@ fn floating(window: &WebviewWindow, main: &WebviewWindow, enabled: bool) -> Resu
         };
         unsafe {
             SetWindowLongPtrW(
-                windows::Win32::Foundation::HWND(handle.0),
+                ::windows::Win32::Foundation::HWND(handle.0),
                 GWLP_HWNDPARENT,
                 owner,
             );
@@ -387,8 +632,20 @@ fn floating(window: &WebviewWindow, main: &WebviewWindow, enabled: bool) -> Resu
 
 #[tauri::command]
 pub fn viewing_remove(app: tauri::AppHandle, label: String) -> Result<Layout, String> {
-    if !["youtube", "stremio", "sports"].contains(&label.as_str()) {
-        return Err("Unknown player.".into());
+    let mut layout = live(&app)?;
+    if !layout.players.contains(&label) {
+        return Err("That player has closed.".into());
+    }
+    if let Some(window) = layout.windows.remove(&label) {
+        window.restore()?;
+        layout.players.retain(|player| player != &label);
+        *app.state::<Viewing>()
+            .0
+            .lock()
+            .map_err(|error| error.to_string())? = layout;
+        arrange(&app)?;
+        publish(&app);
+        return live(&app);
     }
     if let Some(window) = app.get_webview_window(&label) {
         window
@@ -406,14 +663,14 @@ pub fn viewing_remove(app: tauri::AppHandle, label: String) -> Result<Layout, St
 }
 
 pub fn browsing(app: &tauri::AppHandle) -> bool {
-    selected(app).is_some()
+    active_selection(app).is_some()
         && app
             .get_webview_window("main")
             .is_some_and(|main| main.is_focused().unwrap_or(false))
 }
 
 pub fn return_home(app: &tauri::AppHandle) -> bool {
-    if !live(app).is_ok_and(|layout| layout.mode != Mode::Single) {
+    if !enabled(app) && !external_selected(app) {
         return false;
     }
     crate::background::show(app);
@@ -422,7 +679,7 @@ pub fn return_home(app: &tauri::AppHandle) -> bool {
 }
 
 pub fn navigate(app: &tauri::AppHandle, command: &str) -> bool {
-    let Some(window) = selected(app) else {
+    let Some(label) = active_selection(app) else {
         return false;
     };
     if command == "home" {
@@ -432,8 +689,20 @@ pub fn navigate(app: &tauri::AppHandle, command: &str) -> bool {
         .is_some_and(|main| main.is_focused().unwrap_or(false))
     {
         return false;
+    } else if let Some(window) = live(app)
+        .ok()
+        .and_then(|layout| layout.windows.get(&label).cloned())
+    {
+        if !window.alive() {
+            return false;
+        }
+        if let Some(name) = crate::commands::services::window_source(app, window.id) {
+            crate::commands::services::forward(app, &name, command);
+        } else if let Err(error) = crate::commands::session::press_window(window.id, command) {
+            let _ = app.emit("viewing-error", error);
+        }
     } else {
-        match window.label() {
+        match label.as_str() {
             "sports" => crate::commands::sports::forward(app, command),
             "stremio" => crate::commands::stremio::forward(app, command),
             _ => crate::commands::youtube::forward(app, command),
@@ -445,6 +714,25 @@ pub fn navigate(app: &tauri::AppHandle, command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_sources_share_capacity_and_can_reselect_existing_players() {
+        let mut layout = Layout {
+            mode: Mode::Split,
+            players: vec!["youtube".into(), "window:100:200".into()],
+            ..Default::default()
+        };
+        layout
+            .names
+            .insert("window:100:200".into(), "Netflix".into());
+        assert!(layout.can_add("youtube"));
+        assert!(layout.can_add("window:100:200"));
+        assert!(layout.can_add("Netflix"));
+        assert!(!layout.can_add("stremio"));
+        assert!(!layout.can_add("window:101:300"));
+        layout.players.pop();
+        assert!(layout.can_add("stremio"));
+    }
 
     #[test]
     fn floating_players_fit_a_wide_display() {

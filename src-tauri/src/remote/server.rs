@@ -473,6 +473,7 @@ pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::viewing::restore_external(app);
     crate::commands::session::close_steam(app);
     crate::extension_spike::dismiss(app);
     crate::remote::pointer::stop_all(app);
@@ -743,7 +744,8 @@ pub(crate) fn snapshot(app: &tauri::AppHandle) -> Result<AppState, String> {
 }
 
 pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> {
-    let window = active_window(app).map(|(name, window)| (name, window.is_fullscreen().ok()));
+    crate::viewing::refresh_external_focus(app);
+    let window = crate::viewing::external_name(app).map(|name| (name, None)).or_else(|| active_window(app).map(|(name, window)| (name.into(), window.is_fullscreen().ok())));
     let remote = app.state::<Remote>();
     let mut state = remote.state.lock().map_err(|e| e.to_string())?;
     if let Some((name, fullscreen)) = window {
@@ -780,8 +782,8 @@ pub(crate) fn sync_music(
 
 pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
     if !crate::viewing::browsing(app) {
-        if let Some(window) = crate::viewing::selected(app) {
-            return crate::viewing::viewing_configure(app.clone(), crate::viewing::Mode::Single, Some(window.label().into())).map(|_| ());
+        if let Some(label) = crate::viewing::active_selection(app) {
+            return crate::viewing::viewing_configure(app.clone(), crate::viewing::Mode::Single, Some(label)).map(|_| ());
         }
     }
     if let Some(result) = crate::commands::session::fullscreen(app) {

@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { SportsEvent } from '../services/sports';
   import { scoreTeam, type GameScore } from '../services/sportsScores';
-  let { event, matched, hideScores = true, favorite = false, time = event.time || 'Upcoming', live = event.live, disabled = false, onselect }: {
-    event: SportsEvent; matched?: GameScore; hideScores?: boolean; favorite?: boolean; time?: string; live?: boolean; disabled?: boolean; onselect: (origin: HTMLButtonElement) => void;
+  let { event, matched, hideScores = true, favorite = false, time = event.time || 'Upcoming', live = event.live, disabled = false, onselect, onpreview }: {
+    event: SportsEvent; matched?: GameScore; hideScores?: boolean; favorite?: boolean; time?: string; live?: boolean; disabled?: boolean; onselect: (origin: HTMLButtonElement) => void; onpreview?: (event: SportsEvent | null) => void;
   } = $props();
   function logo(name: string) { return scoreTeam(matched, name)?.logo || event.teams.find(team => team.name === name)?.logo || ''; }
 </script>
-                <button class="sports-card" data-focus-key={event.id} data-sports-event={event.id} style:--team-color={scoreTeam(matched, event.teams[0]?.name)?.color || '#39374f'} disabled={disabled} onclick={(click) => onselect(click.currentTarget)} aria-label={`${event.title}, ${event.league}, ${time}`}>
+                <button class="sports-card" data-focus-key={event.id} data-sports-event={event.id} style:--team-color={scoreTeam(matched, event.teams[0]?.name)?.color || '#39374f'} disabled={disabled} onclick={(click) => onselect(click.currentTarget)} aria-label={`${event.title}, ${event.league}, ${time}`} onmouseenter={() => onpreview?.(event)} onmouseleave={() => onpreview?.(null)} onfocus={() => onpreview?.(event)} onblur={() => onpreview?.(null)}>
                   {#if logo(event.teams[0]?.name)}<img class="card-watermark" src={logo(event.teams[0].name)} alt="" loading="lazy" />{/if}
                   <span class="game-tags"><span class="league">{event.league}</span>{#if live}<span class="live-badge">● LIVE</span>{/if}{#if favorite}<span class="favorite-mark" aria-label="Favorite team">★</span>{/if}</span>
                   <span class="card-matchup">

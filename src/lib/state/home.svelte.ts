@@ -49,6 +49,7 @@ export function createHome(options: {
   let error = $state('');
   let previewApp = $state<AppId | null>(null);
   let heroPick = $state<HeroSlide | null>(null);
+  let hoveredGame = $state.raw<GameScore | null>(null);
 
   const rowVisible = (id: HomeRowId) => layout().home.some(row => row.component === id && row.visible);
   const previewLeague = $derived<AppId | null>(previewApp && majorSportsLeagues.includes(previewApp) ? previewApp : null);
@@ -70,10 +71,13 @@ export function createHome(options: {
   const leagueGames = $derived(previewLeague ? sports.games(previewLeague) : []);
   const leagueGamesLoading = $derived(sports.previewLoading);
   const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
-  const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : previewApp && (previewLeague || appHeroItems.length || spotifyHero.length || stremioHero.length || steamHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
+  const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : hoveredGame && previewLeague ? `pick:league:${previewLeague}:${hoveredGame.id}` : previewApp && (previewLeague || appHeroItems.length || spotifyHero.length || stremioHero.length || steamHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
   const heroSlides = $derived.by<HeroSlide[]>(() => {
     if (heroPick) return [heroPick];
-    if (previewLeague) return leagueGames.length ? leagueGames.map(game => leagueSlide(previewLeague, game)) : [leagueSlide(previewLeague)];
+    if (previewLeague) {
+      if (hoveredGame && hoveredGame.league === previewLeague) return [leagueSlide(previewLeague, hoveredGame)];
+      return leagueGames.length ? leagueGames.map(game => leagueSlide(previewLeague, game)) : [leagueSlide(previewLeague)];
+    }
     if (previewApp) {
       const eyebrow = `FROM ${providerName(appProviders[previewApp]).toUpperCase()}`;
       if (appHeroItems.length) return appHeroItems.slice(0, 5).map(item => activitySlide(item, eyebrow));
@@ -104,6 +108,7 @@ export function createHome(options: {
     previewApp = id;
     if (changed) {
       heroPick = null;
+      hoveredGame = null;
       sports.endPreview();
     }
     if (id === 'Spotify') void spotify.loadHome();
@@ -115,6 +120,7 @@ export function createHome(options: {
   function clearPreview() {
     previewApp = null;
     heroPick = null;
+    hoveredGame = null;
     sports.endPreview();
   }
 
@@ -248,12 +254,13 @@ export function createHome(options: {
 
   function leagueSlide(league: string, game?: GameScore): HeroSlide {
     const art = game ? sports.artworkFor(game.id) : '';
+    const loading = !game && leagueGamesLoading;
     return {
-      key: game ? `league:${league}:${game.id}` : `league:${league}`,
+      key: game ? `league:${league}:${game.id}` : `league:${league}:${loading ? 'loading' : 'empty'}`,
       eyebrow: `FROM ${league}`,
-      title: game ? game.teams.map(team => team.name).join(' vs ') : league,
-      chips: [{ label: league }, ...(game ? [{ label: game.status }] : [])],
-      description: game?.venue || 'Live and upcoming games',
+      title: game ? game.teams.map(team => team.name).join(' vs ') : loading ? league : `No ${league} games right now`,
+      chips: [{ label: league }, ...(game ? [{ label: game.status }] : loading ? [{ label: 'Loading' }] : [{ label: 'No games' }])],
+      description: game?.venue || (loading ? 'Looking up live and upcoming games.' : 'There are no live or upcoming games listed for this league.'),
       art: art || game?.leagueLogo || leagueCovers[league],
       artShape: art ? undefined : 'square',
       primaryLabel: game ? game.state === 'post' && !sportsScoresHidden() ? 'Final score' : 'Game details' : `Open ${league}`,
@@ -282,6 +289,10 @@ export function createHome(options: {
     preview,
     clearPreview,
     previewActivityItem(item: ActivityItem | null) { heroPick = item ? activitySlide(item, activityEyebrow(item)) : null; },
+    previewLeagueGame(game: GameScore | null) {
+      hoveredGame = game && previewLeague && game.league === previewLeague ? game : null;
+      if (hoveredGame) void sports.loadArtwork(hoveredGame.league, hoveredGame.id);
+    },
     previewMovie(item: MediaItem | null, eyebrow?: string) { heroPick = item ? movieSlide(item, eyebrow) : null; },
     previewStremio(item: StremioItem | null) { heroPick = item ? stremioSlide(item) : null; },
     previewSteamGame(item: SteamGame | null) { heroPick = item ? steamSlide(item) : null; },

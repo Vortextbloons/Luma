@@ -37,7 +37,7 @@ function fixture() {
     order: ['YouTube', 'Spotify', 'Custom'], launching: null, catalogVisible: true, youTubeFeed: [], previewMusic: [], steamRecommendations: [], steamRecommendationSource: null,
     previewActivity: [], musicLoading: false, popular: [], featured: [], previewLeague: null, leagueGames: [], leagueGamesLoading: false,
   };
-  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'watchLeagueGame', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
+  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'watchLeagueGame', 'previewLeagueGame', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
   return { rows: defaultHomeRows(), data, actions };
 }
 
@@ -98,6 +98,11 @@ test('sports app previews show the league games instead of unrelated Continue Wa
   props.data.leagueGames = [];
   props.data.leagueGamesLoading = true;
   assert.match(render(HomeRenderer, { props }).body, /Looking up NBA games/);
+  props.data.previewApp = 'MLB';
+  props.data.previewLeague = 'MLB';
+  props.data.leagueGamesLoading = false;
+  assert.match(render(HomeRenderer, { props }).body, /No MLB games listed right now/);
+  assert.doesNotMatch(render(HomeRenderer, { props }).body, /Boston Celtics|Nothing in progress/);
 });
 
 test('hidden sections and unavailable hero content do not leave interactive copies', () => {

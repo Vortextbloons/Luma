@@ -1,3 +1,5 @@
+mod weather;
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::{
@@ -204,6 +206,20 @@ pub(crate) fn autostart(app: AppHandle) {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WeatherRequest {
+    action: WeatherAction,
+    location: String,
+    units: String,
+}
+
+#[derive(Deserialize)]
+enum WeatherAction {
+    #[serde(rename = "weather-read")]
+    Read,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ActionRequest {
     action: Action,
 }
@@ -305,6 +321,34 @@ where
             resolver.reject("Extension spike command denied.");
             return true;
         }
+        if let InvokeBody::Json(payload) = message.payload() {
+            if payload.get("action").and_then(Value::as_str) == Some("weather-read") {
+                let request = serde_json::from_value::<WeatherRequest>(payload.clone());
+                let request = match request {
+                    Ok(WeatherRequest {
+                        action: WeatherAction::Read,
+                        location,
+                        units,
+                    }) => weather::Request::new(&location, &units),
+                    Err(_) => {
+                        resolver.reject(json!({ "code": "invalid", "message": "Choose a supported city and temperature unit." }));
+                        return true;
+                    }
+                };
+                match request {
+                    Ok(request) => {
+                        tauri::async_runtime::spawn(async move {
+                            match weather::read(request).await {
+                                Ok(reading) => resolver.resolve(reading),
+                                Err(error) => resolver.reject(error),
+                            }
+                        });
+                    }
+                    Err(error) => resolver.reject(error),
+                }
+                return true;
+            }
+        }
         let app = message.webview_ref().window_ref().app_handle().clone();
         let action = match message.payload() {
             InvokeBody::Json(payload) => serde_json::from_value::<ActionRequest>(payload.clone())
@@ -371,6 +415,25 @@ mod tests {
             can_skip_next: true,
             can_skip_previous: true,
         }
+    }
+
+    #[test]
+    fn weather_requests_reject_extra_authority_and_missing_selection() {
+        let valid = json!({ "action": "weather-read", "location": "seattle", "units": "c" });
+        assert!(serde_json::from_value::<super::WeatherRequest>(valid.clone()).is_ok());
+        for field in ["url", "latitude", "headers", "package", "token"] {
+            let mut payload = valid.clone();
+            payload[field] = json!("untrusted");
+            assert!(serde_json::from_value::<super::WeatherRequest>(payload).is_err());
+        }
+        assert!(serde_json::from_value::<super::WeatherRequest>(
+            json!({ "action": "weather-read" })
+        )
+        .is_err());
+        assert!(serde_json::from_value::<super::WeatherRequest>(
+            json!({ "action": "playback", "location": "seattle", "units": "c" })
+        )
+        .is_err());
     }
 
     #[test]

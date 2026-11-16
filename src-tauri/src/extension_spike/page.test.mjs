@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('./page.js', import.meta.url), 'utf8');
+const markup = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 
 const ids = [
   'identity',
@@ -22,22 +23,55 @@ const ids = [
   'playback-next',
   'playback-control-status',
   'refresh',
+  'weather',
+  'weather-state',
+  'weather-location',
+  'weather-units',
+  'weather-load',
+  'weather-reading',
+  'weather-place',
+  'weather-temperature',
+  'weather-condition',
+  'weather-observed',
+  'weather-status',
   'ping',
   'probe',
   'crash',
   'close',
 ];
 
-const buttons = [
+const focusOrder = [
   'playback-previous',
   'playback-toggle',
   'playback-next',
   'refresh',
+  'weather-location',
+  'weather-units',
+  'weather-load',
   'ping',
   'probe',
   'crash',
   'close',
 ];
+
+const selectOptions = {
+  'weather-location': [
+    ['seattle', 'Seattle'],
+    ['los-angeles', 'Los Angeles'],
+    ['chicago', 'Chicago'],
+    ['new-york', 'New York'],
+    ['toronto', 'Toronto'],
+    ['london', 'London'],
+    ['paris', 'Paris'],
+    ['berlin', 'Berlin'],
+    ['tokyo', 'Tokyo'],
+    ['sydney', 'Sydney'],
+  ],
+  'weather-units': [
+    ['c', 'Celsius'],
+    ['f', 'Fahrenheit'],
+  ],
+};
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -66,13 +100,27 @@ function createPage() {
       setAttribute(name, value) { node.attributes[name] = value; },
       focus() { node.focusCount++; document.activeElement = node; },
     };
+    if (selectOptions[id]) {
+      node.options = selectOptions[id].map(([value, textContent]) => ({ value, textContent }));
+      node.selectedIndex = 0;
+      Object.defineProperty(node, 'value', {
+        get: () => node.options[node.selectedIndex]?.value ?? '',
+        set(value) {
+          const index = node.options.findIndex(option => option.value === value);
+          if (index !== -1) node.selectedIndex = index;
+        },
+      });
+      Object.defineProperty(node, 'selectedOptions', {
+        get: () => [node.options[node.selectedIndex]],
+      });
+    }
     nodes.set(id, node);
   }
 
   document.querySelector = selector => nodes.get(selector.slice(1)) ?? null;
   document.querySelectorAll = selector => {
-    assert.equal(selector, 'button:not(:disabled)');
-    return buttons.map(id => nodes.get(id)).filter(node => !node.disabled);
+    assert.equal(selector, 'select:not(:disabled), button:not(:disabled)');
+    return focusOrder.map(id => nodes.get(id)).filter(node => !node.disabled);
   };
 
   const calls = [];
@@ -107,6 +155,11 @@ function createPage() {
     pending,
     callsFor: action => calls.filter(call => call.args.action === action),
     click: id => nodes.get(id).listeners.get('click')(),
+    select: (id, value) => {
+      const node = nodes.get(id);
+      node.value = value;
+      node.listeners.get('change')();
+    },
     press,
   };
 }
@@ -505,4 +558,311 @@ test('refresh cannot overlap an in-flight playback control', async () => {
   page.pending.shift().resolve({ connected: true, title: 'Next track', playing: true });
   await flush();
   assert.equal(page.node('playback-title').textContent, 'Next track');
+});
+
+const cities = [
+  'seattle',
+  'los-angeles',
+  'chicago',
+  'new-york',
+  'toronto',
+  'london',
+  'paris',
+  'berlin',
+  'tokyo',
+  'sydney',
+];
+
+const reading = (temperature = 11.4, units = 'c', weatherCode = 61) => ({
+  temperature,
+  units,
+  weatherCode,
+  observedAt: 1700000000,
+});
+
+async function settled() {
+  const page = createPage();
+  page.pending.shift().resolve({ connected: false });
+  await flush();
+  return page;
+}
+
+function weatherSection() {
+  const match = markup.match(/<section class="weather"[\s\S]*?<\/section>/);
+  assert.ok(match, 'the page markup contains a weather section');
+  return match[0];
+}
+
+test('the weather location select offers exactly the contract cities', () => {
+  const match = weatherSection().match(/<select id="weather-location">([\s\S]*?)<\/select>/);
+  assert.ok(match, 'the weather section contains the location select');
+  const values = [...match[1].matchAll(/value="([^"]+)"/g)].map(entry => entry[1]);
+  assert.deepEqual(values, cities);
+
+  const units = weatherSection().match(/<select id="weather-units">([\s\S]*?)<\/select>/);
+  assert.ok(units, 'the weather section contains the units select');
+  assert.deepEqual(
+    [...units[1].matchAll(/value="([^"]+)"/g)].map(entry => entry[1]),
+    ['c', 'f'],
+  );
+});
+
+test('the weather attribution is plain text with the fixed URL', () => {
+  const section = weatherSection();
+  assert.match(section, /Weather data by Open-Meteo\.com/);
+  assert.match(section, /https:\/\/open-meteo\.com\//);
+  assert.doesNotMatch(section, /<a[\s>]/i);
+});
+
+test('opening the page never requests weather by itself', async () => {
+  const page = await settled();
+  assert.deepEqual(page.callsFor('weather-read'), []);
+  assert.equal(page.node('weather').dataset.state, 'idle');
+  assert.equal(page.node('weather-state').textContent, 'Not loaded');
+  assert.equal(page.node('weather-reading').hidden, true);
+  assert.equal(page.node('weather-load').textContent, 'Load weather');
+  assert.match(page.node('weather-status').textContent, /press Load weather\.$/);
+});
+
+test('changing the location or units never requests weather', async () => {
+  const page = await settled();
+  page.select('weather-location', 'tokyo');
+  page.select('weather-units', 'f');
+  assert.deepEqual(page.callsFor('weather-read'), []);
+  assert.equal(page.node('weather').dataset.state, 'idle');
+  assert.equal(page.node('weather-location').value, 'tokyo');
+  assert.equal(page.node('weather-units').value, 'f');
+});
+
+test('Load sends exactly the selected city and units to the host bridge', async () => {
+  const page = await settled();
+  page.select('weather-location', 'tokyo');
+  page.select('weather-units', 'f');
+  page.click('weather-load');
+
+  assert.deepEqual(page.callsFor('weather-read'), [
+    {
+      command: 'extension_spike_action',
+      args: { action: 'weather-read', location: 'tokyo', units: 'f' },
+    },
+  ]);
+  assert.equal(page.node('weather').dataset.state, 'loading');
+  assert.equal(page.node('weather-state').textContent, 'Loading');
+  assert.equal(page.node('weather-status').textContent, 'Loading weather for Tokyo in Fahrenheit…');
+  assert.equal(page.node('weather-load').attributes['aria-disabled'], 'true');
+  assert.equal(page.node('weather-load').attributes['aria-busy'], 'true');
+  assert.equal(page.node('weather-load').classList.contains('is-loading'), true);
+});
+
+test('a reading shows the city, temperature, condition, and observed time it was loaded for', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.pending.shift().resolve(reading());
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'ready');
+  assert.equal(page.node('weather-state').textContent, 'Loaded');
+  assert.equal(page.node('weather-reading').hidden, false);
+  assert.equal(page.node('weather-place').textContent, 'Seattle');
+  assert.equal(page.node('weather-temperature').textContent, '11°C');
+  assert.equal(page.node('weather-condition').textContent, 'Rain');
+  assert.match(page.node('weather-observed').textContent, /^Observed /);
+  assert.equal(
+    page.node('weather-status').textContent,
+    'Showing the result for Seattle. Press Refresh weather to check again.',
+  );
+  assert.equal(page.node('weather-load').textContent, 'Refresh weather');
+});
+
+test('a failed refresh keeps the last reading and labels it as the last result', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.pending.shift().resolve(reading());
+  await flush();
+
+  page.click('weather-load');
+  assert.equal(page.node('weather-load').textContent, 'Refreshing weather…');
+  page.pending.shift().reject({ code: 'unavailable', message: 'Weather is unavailable. Check your connection.' });
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'stale');
+  assert.equal(page.node('weather-state').textContent, 'Last result');
+  assert.equal(page.node('weather-reading').hidden, false);
+  assert.equal(page.node('weather-place').textContent, 'Seattle');
+  assert.equal(page.node('weather-temperature').textContent, '11°C');
+  assert.match(page.node('weather-status').textContent, /^Could not load weather for Seattle in Celsius: Weather is unavailable\. Check your connection\. Showing the last result for Seattle\.$/);
+});
+
+test('an initial failure reports the sanitized message and recovers through Refresh', async () => {
+  const page = await settled();
+  page.select('weather-location', 'berlin');
+  page.select('weather-units', 'f');
+  page.click('weather-load');
+  page.pending.shift().reject({ code: 'timeout', message: 'Weather took too long to load.' });
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'error');
+  assert.equal(page.node('weather-state').textContent, 'Failed');
+  assert.equal(page.node('weather-reading').hidden, true);
+  assert.equal(
+    page.node('weather-status').textContent,
+    'Could not load weather for Berlin in Fahrenheit: Weather took too long to load.',
+  );
+  assert.doesNotMatch(page.node('weather-status').textContent, /object Object/);
+  assert.equal(page.node('weather-location').value, 'berlin');
+  assert.equal(page.node('weather-units').value, 'f');
+  assert.equal(page.node('weather-load').textContent, 'Load weather');
+
+  page.click('weather-load');
+  assert.deepEqual(page.callsFor('weather-read')[1].args, {
+    action: 'weather-read',
+    location: 'berlin',
+    units: 'f',
+  });
+  page.pending.shift().resolve(reading(4.6, 'f', 3));
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'ready');
+  assert.equal(page.node('weather-place').textContent, 'Berlin');
+  assert.equal(page.node('weather-temperature').textContent, '5°F');
+  assert.equal(page.node('weather-condition').textContent, 'Overcast');
+  assert.doesNotMatch(page.node('weather-status').textContent, /too long/);
+});
+
+test('weather keeps one request in flight and ignores repeated activation', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.click('weather-load');
+  page.click('weather-load');
+  assert.equal(page.callsFor('weather-read').length, 1);
+
+  page.select('weather-location', 'tokyo');
+  page.click('weather-load');
+  assert.equal(page.callsFor('weather-read').length, 1);
+
+  page.pending.shift().resolve(reading());
+  await flush();
+  page.click('weather-load');
+  assert.equal(page.callsFor('weather-read').length, 2);
+});
+
+test('a slow result keeps the city and units it was requested for', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.select('weather-location', 'tokyo');
+  page.select('weather-units', 'f');
+
+  assert.equal(page.node('weather-status').textContent, 'Loading weather for Seattle in Celsius…');
+
+  page.pending.shift().resolve(reading(16, 'c', 3));
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'stale');
+  assert.equal(page.node('weather-state').textContent, 'Last result');
+  assert.equal(page.node('weather-place').textContent, 'Seattle');
+  assert.equal(page.node('weather-temperature').textContent, '16°C');
+  assert.equal(page.node('weather-condition').textContent, 'Overcast');
+  assert.equal(
+    page.node('weather-status').textContent,
+    'Showing the last result for Seattle in Celsius. Press Refresh weather for Tokyo in Fahrenheit.',
+  );
+});
+
+test('changing the selection after a load marks the reading as the last result', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.pending.shift().resolve(reading(11.4, 'c'));
+  await flush();
+  assert.equal(page.node('weather').dataset.state, 'ready');
+
+  page.select('weather-units', 'f');
+
+  assert.equal(page.node('weather').dataset.state, 'stale');
+  assert.equal(page.node('weather-state').textContent, 'Last result');
+  assert.equal(page.node('weather-place').textContent, 'Seattle');
+  assert.equal(page.node('weather-temperature').textContent, '11°C');
+  assert.match(page.node('weather-status').textContent, /^Showing the last result for Seattle in Celsius\./);
+  assert.equal(page.callsFor('weather-read').length, 1);
+});
+
+test('an unreadable reading is reported instead of a fabricated temperature', async () => {
+  const page = await settled();
+  page.click('weather-load');
+  page.pending.shift().resolve({ temperature: 'warm', units: 'c', weatherCode: 3, observedAt: 1700000000 });
+  await flush();
+
+  assert.equal(page.node('weather').dataset.state, 'error');
+  assert.equal(page.node('weather-reading').hidden, true);
+  assert.equal(page.node('weather-temperature').textContent, '');
+  assert.match(page.node('weather-status').textContent, /^Could not load weather for Seattle in Celsius: The host returned an unreadable reading\.$/);
+});
+
+test('arrow keys reach the weather controls and change a focused select without a request', async () => {
+  const page = await settled();
+  assert.equal(page.document.activeElement, page.node('close'));
+
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('refresh'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('weather-location'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('weather-units'));
+  page.press('ArrowRight');
+  assert.equal(page.document.activeElement, page.node('weather-load'));
+  page.press('ArrowLeft');
+  assert.equal(page.document.activeElement, page.node('weather-units'));
+
+  page.node('weather-location').focus();
+  const location = page.node('weather-location');
+  const up = page.press('ArrowUp');
+  assert.equal(up.defaultPrevented, true);
+  assert.equal(location.value, 'seattle');
+  assert.equal(page.document.activeElement, location);
+
+  page.press('ArrowDown');
+  assert.equal(location.value, 'los-angeles');
+  assert.equal(page.document.activeElement, location);
+  page.press('ArrowUp');
+  assert.equal(location.value, 'seattle');
+
+  page.select('weather-location', 'sydney');
+  page.press('ArrowDown');
+  assert.equal(location.value, 'sydney');
+
+  page.node('weather-units').focus();
+  const units = page.node('weather-units');
+  page.press('ArrowDown');
+  assert.equal(units.value, 'f');
+  page.press('ArrowDown');
+  assert.equal(units.value, 'f');
+  page.press('ArrowUp');
+  assert.equal(units.value, 'c');
+
+  assert.deepEqual(page.callsFor('weather-read'), []);
+});
+
+test('Load keeps focus through loading and restores it only when the control dropped it', async () => {
+  const page = await settled();
+  const load = page.node('weather-load');
+  load.focus();
+  page.click('weather-load');
+  assert.equal(page.document.activeElement, load);
+
+  page.pending.shift().resolve(reading());
+  await flush();
+  assert.equal(page.document.activeElement, load);
+
+  page.click('weather-load');
+  page.document.activeElement = page.document.body;
+  page.pending.shift().resolve(reading(12, 'c'));
+  await flush();
+  assert.equal(page.document.activeElement, load);
+
+  page.click('weather-load');
+  page.node('close').focus();
+  const focused = load.focusCount;
+  page.pending.shift().reject({ code: 'unavailable', message: 'Weather is unavailable.' });
+  await flush();
+  assert.equal(page.document.activeElement, page.node('close'));
+  assert.equal(load.focusCount, focused);
 });

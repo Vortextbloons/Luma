@@ -4,6 +4,12 @@ Status: **planning contract only; no code changes, no build, no test run, no Lum
 
 Read against commit `000aad9` plus uncommitted changes already present in the working tree. Those changes add free widget positioning, `top-left`, `visibility`, and drag controls to `WidgetHost.svelte`, `WidgetSettings.svelte`, `widgets.ts`, `types/index.ts`, `settings.svelte.ts`, and the native customization document. The tree is **not clean** and another agent may still be editing it. Re-read every cited symbol before implementing; line numbers and shapes will drift.
 
+## Accepted product scope
+
+Weather is an example executable plugin, not a built-in Luma weather feature. It must ultimately install, configure, enable, disable, export, update, and remove through the same public package lifecycle as an outside author's plugin. Location and units belong to that plugin's declared settings. Do not add a core `widgets.weather` field, a core weather Settings section, or a weather-specific Home renderer branch for this example.
+
+The current embedded panel and fixed host weather client are development probes only. They do not satisfy the example-plugin milestone. Before calling the example complete, move its UI/assets into an actual package, resolve identity and grants from that installed package, and expose host-mediated network access through a bounded public extension contract. The example must not require private weather-only host hooks. The core-widget integration proposals later in this historical contract are superseded by this scope clarification.
+
 ## 1. Evidence labels
 
 | Label | Meaning |

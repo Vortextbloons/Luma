@@ -212,6 +212,20 @@ fn tracked(app: &AppHandle, name: &str) -> Option<ServiceWindow> {
         .and_then(|inner| inner.windows.get(name).cloned())
 }
 
+pub(crate) fn window_source(app: &AppHandle, id: isize) -> Option<String> {
+    app.state::<Services>().inner.lock().ok()?.windows.iter().find(|(_, window)| window.id == id).map(|(name, _)| name.clone())
+}
+
+pub(crate) async fn evaluate(app: &AppHandle, name: &str, script: &str) -> Result<Value, String> {
+    let url = tracked(app, name).ok_or("That service has closed.")?.url;
+    ensure(app, name, &url).await?;
+    let state = app.state::<Services>();
+    let mut connections = state.connections.lock().await;
+    let result = connections.get_mut(name).ok_or("Player unavailable")?.timeline(script).await;
+    if result.is_err() { connections.remove(name); }
+    result
+}
+
 pub(crate) fn reuse(app: &AppHandle, name: &str, url: &str) -> bool {
     let id = tracked(app, name)
         .map(|window| window.id)
@@ -240,6 +254,7 @@ pub(crate) fn reuse(app: &AppHandle, name: &str, url: &str) -> bool {
 }
 
 pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String> {
+    crate::viewing::check_capacity(app, name)?;
     if reuse(app, name, url) {
         crate::activity::record_launch(app, name);
         return minimize_main(app);
@@ -254,7 +269,7 @@ pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String
     let fullscreen = app
         .get_webview_window("main")
         .and_then(|window| window.is_fullscreen().ok())
-        .unwrap_or(false);
+        .unwrap_or(false) && !crate::viewing::enabled(app);
     let mut command = std::process::Command::new(&browser);
     if let Some(parent) = browser.parent() {
         command.current_dir(parent);
@@ -285,6 +300,7 @@ pub async fn launch(app: &AppHandle, name: &str, url: &str) -> Result<(), String
 }
 
 fn minimize_main(app: &AppHandle) -> Result<(), String> {
+    if crate::viewing::enabled(app) { return Ok(()); }
     if let Some(window) = app.get_webview_window("main") {
         window.minimize().map_err(|error| error.to_string())?;
         crate::background::publish_visibility(&window, false);
@@ -322,9 +338,13 @@ pub(crate) fn forward(app: &AppHandle, name: &str, command: &str) -> bool {
     let command = command.to_string();
     tauri::async_runtime::spawn(async move {
         match dispatch(&app, &name, &command).await {
-            Ok(Outcome::Return) => crate::commands::session::finish(&app, &name),
+            Ok(Outcome::Return) => { if !crate::viewing::return_home(&app) { crate::commands::session::finish(&app, &name); } },
             Ok(Outcome::Handled) => {}
-            Err(_) => crate::commands::session::press(&app, &name, &command),
+            Err(_) => {
+                if crate::viewing::external_selected(&app) {
+                    if let Some(window) = tracked(&app, &name) { let _ = crate::commands::session::press_window(window.id, &command); }
+                } else { crate::commands::session::press(&app, &name, &command); }
+            },
         }
     });
     true
