@@ -172,6 +172,7 @@ pub fn attach_native(app: &tauri::AppHandle, id: isize, name: &str) -> Result<()
         }
         return Err(error);
     }
+    crate::commands::session::detach_window(app, id);
     publish(app);
     Ok(())
 }
@@ -381,7 +382,12 @@ fn geometry(
 
 pub fn arrange(app: &tauri::AppHandle) -> Result<(), String> {
     let layout = live(app)?;
-    if layout.mode == Mode::Single {
+    if layout.mode == Mode::Single
+        && !layout
+            .selected
+            .as_ref()
+            .is_some_and(|label| layout.windows.contains_key(label))
+    {
         return Ok(());
     }
     let main = app
@@ -406,6 +412,9 @@ pub fn arrange(app: &tauri::AppHandle) -> Result<(), String> {
         return Err("Connect two displays or choose Side by side.".into());
     }
     for (index, label) in layout.players.iter().enumerate() {
+        if layout.mode == Mode::Single && Some(label) != layout.selected.as_ref() {
+            continue;
+        }
         let display = if layout.mode == Mode::Displays {
             &displays[index % displays.len()]
         } else {
@@ -423,7 +432,10 @@ pub fn arrange(app: &tauri::AppHandle) -> Result<(), String> {
             ),
         );
         if let Some(window) = layout.windows.get(label) {
-            window.place(bounds, layout.mode == Mode::Floating)?;
+            window.place(bounds, matches!(layout.mode, Mode::Floating | Mode::Single))?;
+            if layout.mode == Mode::Single {
+                window.maximize()?;
+            }
             continue;
         }
         let Some(window) = app.get_webview_window(label) else {
@@ -498,9 +510,8 @@ pub fn viewing_configure(
     if mode == Mode::Single {
         for label in &layout.players {
             if let Some(window) = layout.windows.get(label) {
-                window.restore()?;
-                if Some(label) == layout.selected.as_ref() {
-                    window.maximize()?;
+                if Some(label) != layout.selected.as_ref() {
+                    window.restore()?;
                 }
                 continue;
             }
@@ -522,6 +533,9 @@ pub fn viewing_configure(
                     window.set_focus().map_err(|error| error.to_string())?;
                 }
             }
+        }
+        if external_selected(&app) {
+            arrange(&app)?;
         }
     } else {
         if let Err(error) = arrange(&app) {

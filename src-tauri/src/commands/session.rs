@@ -543,6 +543,14 @@ pub(crate) fn restore_window(id: isize) {
     }
 }
 
+pub(crate) fn detach_window(app: &AppHandle, id: isize) {
+    if let Ok(mut current) = app.state::<Session>().0.lock() {
+        if current.as_ref().and_then(locate).is_some_and(|window| platform::id(window) == id) {
+            *current = None;
+        }
+    }
+}
+
 pub(crate) fn focus_window(id: isize) {
     if window_alive(id) {
         if let Some(window) = platform::from_id(id) { platform::focus(window); }
