@@ -2,7 +2,7 @@ import type { ActivityItem, AppId, HomeRowId, MediaItem, SteamGame, StremioItem,
 import type { MusicCardItem } from '../types/spotify';
 import type { HeroSlide } from '../components/MovieHero.svelte';
 import type { CustomizationConfig } from '../services/customization';
-import { loadCatalog } from '../services/catalog';
+import { loadCatalog, loadPopularShows } from '../services/catalog';
 import { actionLabel, appProviders, isContinueWatching, progressLabel, providerName, sortRecent, typeLabel } from '../services/activity';
 import { majorSportsLeagues, sportsScoresHidden } from '../services/sports';
 import type { GameScore } from '../services/sportsScores';
@@ -46,8 +46,13 @@ export function createHome(options: {
   let popular = $state.raw<MediaItem[]>([]);
   let featured = $state.raw<MediaItem[]>([]);
   let popularShows = $state.raw<MediaItem[]>([]);
-  let error = $state('');
+  let unavailable = $state.raw<string[]>([]);
+  let showsUnavailable = $state.raw<string[]>([]);
+  const unavailableNames = $derived([...unavailable, ...showsUnavailable]);
+  const error = $derived(unavailableNames.length ? `Could not refresh: ${unavailableNames.join(', ')}. Check your internet connection and retry.` : '');
   let loading = $state(false);
+  let showsLoaded = false;
+  let showsLoading = $state(false);
   let previewApp = $state<AppId | null>(null);
   let heroPick = $state<HeroSlide | null>(null);
   let hoveredGame = $state.raw<GameScore | null>(null);
@@ -96,13 +101,27 @@ export function createHome(options: {
     if (loading) return;
     loading = true;
     try {
-      const data = await loadCatalog();
-      if (data.popular) popular = data.popular;
-      if (data.featured) featured = data.featured;
-      if (data.shows) popularShows = data.shows;
-      error = data.unavailable.length ? `Could not refresh: ${data.unavailable.join(', ')}. Check your internet connection and retry.` : '';
+      const data = await loadCatalog(update => {
+        if (update.popular) popular = update.popular;
+        if (update.featured) featured = update.featured;
+      });
+      unavailable = data.unavailable;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadShows(force = false) {
+    if (showsLoading || (showsLoaded && !force)) return;
+    showsLoading = true;
+    try {
+      popularShows = await loadPopularShows();
+      showsLoaded = true;
+      showsUnavailable = [];
+    } catch {
+      showsUnavailable = ['Popular shows'];
+    } finally {
+      showsLoading = false;
     }
   }
 
@@ -278,7 +297,8 @@ export function createHome(options: {
     get featured() { return featured; },
     get popularShows() { return popularShows; },
     get error() { return error; },
-    get loading() { return loading; },
+    get loading() { return loading || showsLoading; },
+    get showsLoading() { return showsLoading; },
     get previewApp() { return previewApp; },
     get heroSlides() { return heroSlides; },
     get heroSource() { return heroSource; },
@@ -290,6 +310,7 @@ export function createHome(options: {
     get previewMusic() { return previewMusic; },
     get catalogVisible() { return catalogVisible; },
     start,
+    loadShows,
     preview,
     clearPreview,
     previewActivityItem(item: ActivityItem | null) { heroPick = item ? activitySlide(item, activityEyebrow(item)) : null; },

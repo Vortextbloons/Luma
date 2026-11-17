@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listen } from '@tauri-apps/api/event';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { initializeUpdates } from './lib/state/updates.svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
@@ -172,7 +172,7 @@
   async function retryCatalog(event: MouseEvent) {
     const control = event.currentTarget as HTMLElement;
     const focused = document.activeElement === control;
-    await homeState.start();
+    await Promise.all([homeState.start(), ...(tab === 'Search' ? [homeState.loadShows(true)] : [])]);
     await tick();
     if (focused && (document.activeElement === control || document.activeElement === document.body)) {
       navigation.focus(control.isConnected ? control : document.querySelector<HTMLElement>(tab === 'Search' ? '#movie-search' : '#home-button') ?? undefined);
@@ -208,6 +208,9 @@
     details = null;
     playerOpen = false;
     homeState.clearPreview();
+  });
+  $effect(() => {
+    if (tab === 'Search' && !submittedQuery) untrack(() => { void homeState.loadShows(); });
   });
   $effect(() => {
     if (native) invoke('update_app_state', { view: panel ? 'Settings' : details ? 'Details' : tab, fullscreen: settings.fullscreen, sound: settings.interfaceSounds }).catch(error => message = String(error));
@@ -622,6 +625,7 @@
     <div {@attach smoothHeight}><div class="resizing-content">
       <MediaRow id="popular" title="Popular movies" items={popular} onselect={select} />
       <MediaRow id="featured" title="Top-rated movies" items={featured} onselect={select} />
+      {#if homeState.showsLoading && !popularShows.length}<p role="status">Loading popular shows...</p>{/if}
       <MediaRow kind="series" id="popular-shows" title="Popular shows" items={popularShows} onselect={item => openStremioDetail('series', item.id)} />
     </div></div>
     <ContinueWatching items={activityItems} trackingEnabled={activity.trackingEnabled} onopen={openItem} />

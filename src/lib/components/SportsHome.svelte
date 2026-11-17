@@ -4,6 +4,7 @@
   import { SvelteMap } from 'svelte/reactivity';
   import { loadSportsTeams, isSportsFavorite, majorSportsLeagues, readSportsFavorites, sportsScoresHidden, toggleSportsFavorite, writeSportsFavorites, type SportsTeam, type SportsEvent, type SportsFavorite } from '../services/sports';
   import { matchEvent, matchScore, scoreTeam } from '../services/sportsScores';
+  import { appVisible } from '../services/visibility';
   import type { SportsState } from '../state/sports.svelte';
   import nbaIcon from '../../../src-tauri/resources/icons/sports-nba.png';
   import nflIcon from '../../../src-tauri/resources/icons/sports-nfl.png';
@@ -181,7 +182,7 @@
     active = true;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => { timer = setTimeout(() => {
-      if (document.visibilityState === 'visible' || sports.watching) void refreshScores().finally(() => { if (active) schedule(); });
+      if (appVisible() || sports.watching) void refreshScores().finally(() => { if (active) schedule(); });
       else schedule();
     }, sports.watching || events.some(event => live(event)) ? 30000 : 120000); };
     if (native) {

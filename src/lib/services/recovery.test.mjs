@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { compileModule } from 'svelte/compiler';
 import ts from 'typescript';
-import { loadCatalog } from './catalog.ts';
+import { loadCatalog, loadPopularShows } from './catalog.ts';
 import { request } from '../../../remote/src/lib/api.ts';
 
 let sequence = 0;
@@ -26,20 +26,49 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test('catalog keeps successful sources and recovers on retry', async () => {
+test('catalog keeps home rows, loads shows on demand, and recovers on retry', async () => {
   const original = globalThis.fetch;
   let failing = true;
-  globalThis.fetch = async url => ({ ok: !(failing && url.includes('imdbRating')), status: 503, json: async () => ({ metas: [{ id: 'tt1', name: 'Movie' }] }) });
+  const requested = [];
+  globalThis.fetch = async url => {
+    requested.push(String(url));
+    return { ok: !(failing && String(url).includes('imdbRating')), status: 503, json: async () => ({ metas: [{ id: 'tt1', name: 'Movie' }] }) };
+  };
   try {
     const partial = await loadCatalog();
     assert.equal(partial.popular.length, 1);
-    assert.equal(partial.shows.length, 1);
     assert.equal(partial.featured, undefined);
     assert.deepEqual(partial.unavailable, ['Top-rated movies']);
+    assert.equal(requested.some(url => url.includes('series/top')), false);
+    assert.equal((await loadPopularShows()).length, 1);
     failing = false;
     const recovered = await loadCatalog();
     assert.equal(recovered.featured.length, 1);
     assert.deepEqual(recovered.unavailable, []);
+  } finally { globalThis.fetch = original; }
+});
+
+test('catalog publishes each home row as soon as it settles', async () => {
+  const original = globalThis.fetch;
+  const requests = new Map();
+  globalThis.fetch = url => new Promise(resolve => requests.set(String(url), resolve));
+  const updates = [];
+  const response = name => ({ ok: true, status: 200, json: async () => ({ metas: [{ id: 'tt1', name }] }) });
+  const request = pattern => [...requests.entries()].find(([url]) => url.includes(pattern))[1];
+  try {
+    const pending = loadCatalog(update => updates.push(update));
+    assert.equal(requests.size, 2);
+    request('movie/top.json')(response('Popular'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(updates.map(update => Object.keys(update)[0]), ['popular']);
+    let finished = false;
+    void pending.then(() => { finished = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(finished, false);
+    request('imdbRating')(response('Featured'));
+    const result = await pending;
+    assert.equal(updates.length, 2);
+    assert.equal(result.featured[0].title, 'Featured');
   } finally { globalThis.fetch = original; }
 });
 

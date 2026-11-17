@@ -23,16 +23,20 @@ async function load(id: string, kind = 'movie'): Promise<MediaItem[]> {
   }));
 }
 
-export async function loadCatalog() {
-  const results = await Promise.allSettled([load('top'), load('imdbRating'), load('top', 'series')]);
-  const names = ['Popular movies', 'Top-rated movies', 'Popular shows'];
+export async function loadCatalog(onUpdate?: (update: { popular?: MediaItem[]; featured?: MediaItem[] }) => void) {
+  const results = await Promise.allSettled([
+    load('top').then(value => { onUpdate?.({ popular: value }); return value; }),
+    load('imdbRating').then(value => { onUpdate?.({ featured: value }); return value; }),
+  ]);
+  const names = ['Popular movies', 'Top-rated movies'];
   return {
     popular: results[0].status === 'fulfilled' ? results[0].value : undefined,
     featured: results[1].status === 'fulfilled' ? results[1].value : undefined,
-    shows: results[2].status === 'fulfilled' ? results[2].value : undefined,
     unavailable: results.flatMap((result, index) => result.status === 'rejected' ? [names[index]] : []),
   };
 }
+
+export const loadPopularShows = () => load('top', 'series');
 
 export const searchMovies = (query: string) => load(`top/search=${encodeURIComponent(query.trim())}`);
 

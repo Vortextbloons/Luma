@@ -2,6 +2,7 @@
   import { showPoster } from '../services/artwork';
   let { src, imdb = '', show = false }: { src: string; imdb?: string; show?: boolean } = $props();
   let image = $state('');
+  const sourceSet = $derived(src.includes('/poster/medium/') ? `${src.replace('/poster/medium/', '/poster/small/')} 300w, ${src} 500w` : '');
   function observe(node: HTMLElement) {
     image = '';
     let alive = true;
@@ -20,7 +21,7 @@
 {#key src + imdb + show}
   <span class="poster-image" {@attach observe}>
     <span class="missing-art" aria-hidden="true">Artwork unavailable</span>
-    {#if image}<img src={image} alt="" loading="lazy" decoding="async" onerror={event => { const target = event.currentTarget as HTMLImageElement; if (image !== src && src) image = src; else target.style.display = 'none'; }} />{/if}
+    {#if image}<img src={image} srcset={image === src ? sourceSet : undefined} sizes={image === src ? '214px' : undefined} alt="" loading="lazy" decoding="async" onerror={event => { const target = event.currentTarget as HTMLImageElement; if (image !== src && src) image = src; else target.style.display = 'none'; }} />{/if}
   </span>
 {/key}
 <style>
