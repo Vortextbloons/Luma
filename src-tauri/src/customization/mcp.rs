@@ -158,6 +158,9 @@ impl Backend for AppBackend {
             tauri::async_runtime::spawn_blocking(move || {
                 let store = app.state::<super::Store>();
                 let outcome = plugin::stage_submission(&store, &submission, "mcp")?;
+                if !outcome.already_installed {
+                    crate::extension_spike::invalidate(&app, &outcome.plugin.id);
+                }
                 if let Ok(Some(snapshot)) = store.snapshot() {
                     super::publish(&app, &snapshot.document);
                 }
@@ -1635,7 +1638,7 @@ fn tool_list() -> Value {
             tool(
                 "luma_plugins_list",
                 "List installed Luma plugins",
-                "Return installed declarative plugins, their enabled state, declared controls, settings schema, current setting values, unsupported runtime state, and the effective configuration. No machine paths or credentials are returned.",
+                "Return installed plugins, their enabled state, declared controls, settings schema, current setting values, runtime permissions, unsupported runtime state, and the effective configuration. No machine paths or credentials are returned.",
                 empty_schema(),
                 true
             ),
@@ -1904,17 +1907,26 @@ fn capabilities() -> Value {
                 "supported": true,
                 "declarative": true,
                 "executable": false,
-                "reason": "Declarative plugins that contribute appearance, Home layout, and settings are supported. Executable runtimes are not implemented; such packages install disabled and cannot be enabled."
+                "reason": "Declarative plugins that contribute appearance, Home layout, and settings are supported. Isolated-ui packages validate and install disabled with declared permissions, but cannot be enabled or executed in production."
             },
             "plugins": {
                 "supported": true,
                 "manifest": "luma-extension.json",
                 "fields": plugin::FIELDS,
                 "settingTypes": ["boolean", "enum", "number", "string"],
+                "apiVersions": {
+                    "declarative": plugin::API_VERSION,
+                    "isolatedUi": plugin::EXECUTABLE_API_VERSION
+                },
                 "runtimes": {
                     "supported": ["declarative"],
                     "installedDisabled": ["isolated-ui", "background", "main-page"]
                 },
+                "executablePermissions": plugin::PERMISSIONS
+                    .iter()
+                    .map(|permission| permission.label())
+                    .collect::<Vec<_>>(),
+                "executableNetwork": "An isolated-ui package may declare network.get with up to eight public HTTPS origins. Luma never enables executable packages in production.",
                 "importFormats": ["luma-extension.zip", "manifest plus text/base64 files"],
                 "limits": plugin::limits(),
                 "review": "MCP installs plugins disabled. Only the user can preview and enable a plugin and press Keep. Settings staged by MCP also require user Keep."
@@ -2087,7 +2099,7 @@ Read the current document. Reorder `config.order` so every app appears exactly o
 - Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.\n\
 - Revoking or rotating access stops the next request and cancels this grant's pending preview.\n\
 - Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.\n\
-- Executable plugin runtimes are not supported. Packages may include source for future use, but they are installed disabled and cannot be enabled.\n\
+- Executable plugin runtimes are not supported in production. An `isolated-ui` package uses `apiVersion: 2` and declares exact `permissions` plus, for `network.get`, a `network.allow` list. It still installs disabled, cannot be enabled, and is never executed by Luma. A development-only harness may load an installed package when explicitly enabled outside MCP.\n\
 - Do not ask for or print tokens, passwords, pairing codes, or account credentials. Luma never returns them through these tools.\n"
 }
 

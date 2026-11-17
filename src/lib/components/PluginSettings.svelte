@@ -98,6 +98,16 @@
     busy = '';
   }
 
+  async function openSurface(record: PluginRecord) {
+    if (!native || busy || !record.surfaceOpenable) return;
+    busy = record.id;
+    await run('', async () => {
+      await invoke('customization_plugin_open_surface', { pluginId: record.id });
+      note = `Opened the development surface for ${record.name}. Close it to return to Luma.`;
+    });
+    busy = '';
+  }
+
   async function disablePlugin(record: PluginRecord) {
     if (!native || busy) return;
     busy = record.id;
@@ -237,6 +247,7 @@
                 {/if}
                 <button class="panel-secondary" disabled={!!busy} onclick={() => disablePlugin(record)}>{busy === record.id ? 'Working…' : 'Disable'}</button>
               {:else}
+                {#if record.surfaceOpenable}<button class="panel-secondary" disabled={!!busy} onclick={() => openSurface(record)}>{busy === record.id ? 'Opening…' : 'Open development surface'}</button>{/if}
                 <button class="panel-secondary is-primary" disabled={!!busy || !record.canEnable} onclick={() => previewPlugin(record)}>{busy === record.id ? 'Opening…' : 'Preview and enable'}</button>
               {/if}
               <button class="panel-secondary" disabled={!!busy} onclick={() => exportPlugin(record)}>Export</button>
@@ -282,6 +293,11 @@
             <details class="plugin-details">
               <summary>Package details</summary>
               <p>{record.id} · API {record.apiVersion} · {bytesLabel(record.sizeBytes)} · {record.assets.length + record.sourceFiles.length} declared files</p>
+              {#if record.executable}
+                <p>Runtime entry: {record.entry ?? 'Not declared'}</p>
+                <p>Declared permissions: {record.permissions.length ? record.permissions.join(', ') : 'None'}</p>
+                {#if record.network.length}<p>Declared network: {record.network.join(', ')}</p>{/if}
+              {/if}
               {#if record.author}<p>By {record.author}</p>{/if}
               <p class="plugin-hash">{record.contentHash.slice(0, 16)}…</p>
             </details>

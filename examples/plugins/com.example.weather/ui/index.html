@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weather</title>
+    <link rel="stylesheet" href="./page.css" />
+  </head>
+  <body>
+    <main class="surface" id="surface" data-state="loading">
+      <header class="masthead">
+        <div>
+          <p class="package">Weather package</p>
+          <h1 id="place">Reading settings…</h1>
+        </div>
+        <p class="connection"><span class="dot" aria-hidden="true"></span><span id="state">Starting</span></p>
+      </header>
+
+      <section class="reading" aria-live="polite">
+        <p class="temperature" id="temperature">--</p>
+        <div class="details">
+          <p class="condition" id="condition">Waiting for the first reading</p>
+          <p class="observed" id="observed"></p>
+        </div>
+      </section>
+
+      <p class="status" id="status" role="status">Preparing this package surface.</p>
+
+      <div class="actions">
+        <button type="button" id="refresh" class="primary">Refresh</button>
+        <button type="button" id="close">Close</button>
+      </div>
+
+      <footer class="footer">
+        <p class="attribution">Weather data by Open-Meteo.com<br /><span>https://open-meteo.com/</span></p>
+        <p class="identity" id="identity"></p>
+      </footer>
+    </main>
+    <script src="./page.js"></script>
+  </body>
+</html>

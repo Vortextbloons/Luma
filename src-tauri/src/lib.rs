@@ -138,6 +138,7 @@ pub fn run() {
             customization::customization_reset_appearance,
             customization::customization_plugins_read,
             customization::customization_plugin_import,
+            customization::customization_plugin_open_surface,
             customization::customization_plugin_export,
             customization::customization_plugin_preview,
             customization::customization_plugin_disable,

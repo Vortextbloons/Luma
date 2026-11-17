@@ -948,9 +948,16 @@ pub async fn customization_plugins_read(app: tauri::AppHandle) -> Result<plugin:
 pub async fn customization_plugin_import(
     app: tauri::AppHandle,
 ) -> Result<Option<plugin::ImportResult>, Error> {
-    tauri::async_runtime::spawn_blocking(move || plugin::command_import(app))
-        .await
-        .map_err(|error| Error::new("storage", error))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let notify = app.clone();
+        let outcome = plugin::command_import(app)?;
+        if let Some(result) = &outcome {
+            crate::extension_spike::invalidate(&notify, &result.plugin.id);
+        }
+        Ok(outcome)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
 }
 
 #[tauri::command]
@@ -961,6 +968,15 @@ pub async fn customization_plugin_export(
     tauri::async_runtime::spawn_blocking(move || plugin::command_export(app, plugin_id))
         .await
         .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_open_surface(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<(), Error> {
+    crate::extension_spike::open(&app, &plugin_id)
+        .map_err(|message| Error::new("plugin_surface", message))
 }
 
 #[tauri::command]
@@ -1006,7 +1022,9 @@ pub async fn customization_plugin_disable(
     expected_revision: u64,
 ) -> Result<plugin::PluginsState, Error> {
     tauri::async_runtime::spawn_blocking(move || {
+        let notify = app.clone();
         plugin::command_disable(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        crate::extension_spike::invalidate(&notify, &plugin_id);
         if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
             publish(&app, &snapshot.document);
         }
@@ -1023,7 +1041,9 @@ pub async fn customization_plugin_remove(
     expected_revision: u64,
 ) -> Result<plugin::PluginsState, Error> {
     tauri::async_runtime::spawn_blocking(move || {
+        let notify = app.clone();
         plugin::command_remove(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        crate::extension_spike::invalidate(&notify, &plugin_id);
         if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
             publish(&app, &snapshot.document);
         }

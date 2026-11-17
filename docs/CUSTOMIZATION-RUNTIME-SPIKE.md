@@ -1,6 +1,6 @@
 # Stage 6 executable UI runtime: spike contract and acceptance record
 
-Status: **development spike implemented, no production runtime selected, no live checks performed** (2026-11-15). Declarative plugins remain the only enableable plugin runtime. This document records the contract a future executable UI runtime must satisfy, the static evidence that constrains it, and the acceptance checks that have **not** been run. It is not a decision record and not evidence that executable plugins work.
+Status: **development spike implemented, no production runtime selected, no live checks performed** (2026-11-16). Declarative plugins remain the only enableable plugin runtime. A development-only package-driven surface now exists (§20); it does not make executable packages production-ready. This document records the contract a future executable UI runtime must satisfy, the static evidence that constrains it, and the acceptance checks that have **not** been run. It is not a decision record and not evidence that executable plugins work.
 
 Assessed against the working tree at commit `e862e17` with concurrent sports/remote edits present. Re-read the cited symbols before implementing; line numbers will drift.
 
@@ -35,7 +35,7 @@ Current decision status:
 | Executable UI shipped | **No.** |
 | Any executable package enableable | **No.** `runtime.kind` other than `declarative` installs disabled and cannot be enabled (`docs/PLUGINS.md`, "Future executable runtime"). |
 | Live acceptance evidence | **None.** §10 lists every required check as Not run. |
-| Representative cases ready to run | **No.** The weather widget does not exist; the music screen is a proposed use of existing playback, not an extension surface. |
+| Representative cases ready to run | **Partly.** The installed weather example package exists and loads through a development-only package runtime (§20). The music screen is still a proposed use of existing playback, not a package surface. |
 | Resource budget | **Not agreed.** The plan supplies a provisional idle-CPU envelope only; memory and interaction budgets require a measured baseline. |
 
 Passing this record is necessary, not sufficient, for a general package loader. Package signing (G4), background services (G3/Stage 7), and executable remote panels (G5) are outside this record.
@@ -562,6 +562,8 @@ Official Tauri 2 documentation (primary):
 
 `src-tauri/src/extension_spike.rs` implements candidate A as an opt-in boundary probe. Run a debug build with `$env:LUMA_EXTENSION_SPIKE="1"; npm run tauri dev`. It opens a separate incognito window on `http://luma-extension-spike.localhost`, serves three embedded assets under a restrictive response CSP, denies navigation off that origin and new windows, and supplies identity/ping/close actions. Release builds cannot open or serve the probe. Installed packages are never loaded or enabled by this harness.
 
+Superseded by §20: the embedded assets and fixed identity were replaced by an installed-package surface. This paragraph records the earlier checkpoint.
+
 This checkpoint uses a native invoke-handler guard rather than the proposed application command manifest. For the fixed spike label, the guard requires the debug opt-in and the expected current page origin, rejects every other application command explicitly, and deserializes only the three host-owned actions. The capability grants zero core/plugin permissions. Other existing windows retain their existing dispatch behavior. This is a spike-specific boundary, not a general executable-package grant system; AppManifest command registration remains the proposed production contract. Live IPC reachability and denial must still be proved.
 
 The page tests command attempts and an uncaught JavaScript exception. That exception is not a renderer-process crash test. Closing returns native focus to main; destroying main dismisses the probe. DOM focus restoration, phone remote routing, hidden-window lifecycle, crash containment, and resource measurements remain unverified. The weather widget and playback integration are not implemented. All live acceptance rows above remain Not run; Stage 6 is not complete.
@@ -611,3 +613,49 @@ Parent reviewed UI behavior, added a returned-unit consistency check, and ran al
 Weather host review checkpoint: the fixed-origin client is wired to the guarded development relay with strict selection parsing, a 5-second request timeout, no redirects, a 64-KiB response cap, one in-flight request, bounded display projection, and sanitized errors. Parent replaced HTTP-client initialization panic with a recoverable unavailable error. The page keeps all direct provider access outside its CSP. An attribution URL is displayed but a host-opened clickable attribution link remains an integration gap. Requests already sent can continue for up to the timeout after surface close; cancellation remains a lifecycle gate. Retried native compilation is still blocked by two concurrent `viewing.rs` Windows import errors, so integrated native checks have not passed. These changes do not complete Stage 6 or enable executable packages.
 
 Product clarification: weather is the example executable plugin for proving public package APIs and lifecycle, not a built-in feature. The current hardcoded development probe does not meet that milestone. Its eventual UI, settings, assets, and identity must come from an installed package using the same bounded public bridge available to third-party plugins. Do not add core weather widget/settings/schema fields to complete the example.
+
+
+## 20. Package-driven development runtime checkpoint (2026-11-16)
+
+The embedded fixed weather page, fixed package identity, and `weather-read` host branch are gone. The development harness now loads one installed `isolated-ui` package: its HTML entry, assets, declared settings values, name, id, version, permissions, and network allowlist all come from the installed package record at `<app-data>/plugins/<id>/<version>`. The weather surface is [examples/plugins/com.example.weather](../examples/plugins/com.example.weather); the host contains no weather provider endpoint, city coordinates, WMO mapping, or weather reading schema.
+
+### 20.1 Public package contract
+
+| Area | Implemented contract |
+| --- | --- |
+| Manifest | `apiVersion: 2`, `runtime.kind: "isolated-ui"`, package-relative HTML `runtime.entry`, exact `permissions`, optional `network.allow`, settings, assets. Version 1 remains declarative-only. |
+| Permissions | `settings.read`, `network.get`, `playback.read`, `playback.control`. Unknown, duplicate, or unapproved-on-v1 names are rejected. |
+| Network | `network.get` requires 1–8 HTTPS origins. Origins reject paths, ports, credentials, IP literals, loopback, and private-network-style names. The host constructs the URL from an allowed origin, relative path, and bounded query pairs. No URL, header, cookie, token, or redirect passthrough. |
+| Bridge | `extension_bridge` accepts a strict `{ op, args }` envelope. Exact ops: `identity`, `settings.read`, `net.get`, `playback.read`, `playback.toggle`, `playback.next`, `playback.previous`, `surface.ready`, `surface.close`. Unknown ops, extra fields, and arguments on argument-free ops are rejected. |
+| Identity | Returned from the installed record: id, name, version, API version, runtime, surface, and host origin. |
+| Settings | Host-rendered and host-stored using the existing plugin settings table. The package reads resolved values only, including defaults and invalid-value fallback. |
+| Assets | Served only from the installed package directory after path validation and canonical containment. Response CSP keeps scripts/styles/images/fonts self-only and IPC the only connect source. |
+| Lifecycle | The package window opens in its loading state; the host focuses it and marks it active only after `surface.ready`. A 5-second watchdog closes an unready surface and restores launcher focus with a customization notice. Close, phone Back, remote stop, hide-to-tray, main destruction, package disable, remove, and update end the surface. |
+| Authority | Package id and version never come from the page. Calling a bridge op the package did not declare returns `denied`. If the active package disappears, bridge calls return `revoked`. |
+
+### 20.2 Development gate
+
+The harness remains debug-only and requires `LUMA_EXTENSION_SPIKE=1`. It discovers exactly one installed `isolated-ui` package, or uses `LUMA_EXTENSION_PLUGIN=<id>` when several are installed. It opens the package after the launcher is presented. While the gate is active, the installed package card also shows **Open development surface**, providing a repeatable entry without restarting Luma. Production builds cannot open or serve the harness. Executable packages still install disabled, remain labeled unsupported, and cannot be enabled through Settings or MCP. The manifest's permissions are declarations, not a recorded user grant approval; there is no grant-review UI yet.
+
+The example package import procedure and the bridge contract are documented in [PLUGINS.md](PLUGINS.md), "Future executable runtime".
+
+### 20.3 Verification run
+
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib extension_spike`: 14 passed. Covers origin confinement, content types, exact bridge ops, permission mapping, argument rejection, network origin/path/query bounds, playback projection, and navigation keys.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib customization::plugin`: 23 passed. Includes the weather example install, v2 grant validation, disabled activation, asset reads, traversal rejection, and existing plugin lifecycle tests.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib customization::mcp`: 13 passed.
+- `node --check examples/plugins/com.example.weather/ui/page.js` and `node --test examples/plugins/com.example.weather.test.mjs`: 12 passed. Covers package identity/settings/ready order, structured network request, empty/loading/ready/stale/error states, single in-flight request, focus movement, and close/Back.
+
+These are unit and VM checks. No Luma process, TV, phone, tray, WebView2, CSP header capture, crash, or resource measurement was performed.
+
+### 20.4 Remaining live and integration gates
+
+- No live proof that the package origin receives the intended CSP, that Tauri IPC is reachable only through the bridge, or that native commands are denied.
+- No live focus entry/return, phone remote parity, tray cleanup, package crash, WebView2 renderer termination, or unresponsive-surface recovery check.
+- No production grant-review step: users see declared permissions in package details but do not approve them, and the Settings enable path remains blocked.
+- The watchdog covers a package that never reports ready. It does not distinguish a slow machine from a crashed renderer and does not offer an in-surface Retry.
+- Executable settings are part of the existing plugin snapshot, so saved-version history and MCP plugin listings include them. Per-setting privacy is not implemented; the example stores a city id and units, not coordinates or credentials.
+- Direct network denial, redirect refusal at the provider, malformed/oversized response handling through the real bridge, and the actual Open-Meteo request from Luma's `reqwest` client are still unverified.
+- Network allowlists reject private-looking host names and IP literals, but the host does not resolve the name and reject a public name that resolves to a private address. DNS-based SSRF remains a residual risk for a future production grant.
+- The package attribution is a visible text credit with a fixed URL, not a host-opened link. CC BY link behavior remains an integration gap.
+- Package signing, publisher identity, background execution, and a general multi-package loader remain outside this checkpoint.

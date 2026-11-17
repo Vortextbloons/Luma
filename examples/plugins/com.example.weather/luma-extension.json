@@ -1,0 +1,57 @@
+{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "description": "A package-owned weather surface for a fixed city, backed by the host network bridge.",
+  "author": "Luma examples",
+  "runtime": {
+    "kind": "isolated-ui",
+    "entry": "ui/index.html"
+  },
+  "permissions": [
+    "settings.read",
+    "network.get"
+  ],
+  "network": {
+    "allow": [
+      "https://api.open-meteo.com"
+    ]
+  },
+  "settings": [
+    {
+      "key": "location",
+      "label": "Location",
+      "description": "City used by this weather package.",
+      "type": "enum",
+      "default": "seattle",
+      "options": [
+        { "value": "seattle", "label": "Seattle" },
+        { "value": "los-angeles", "label": "Los Angeles" },
+        { "value": "chicago", "label": "Chicago" },
+        { "value": "new-york", "label": "New York" },
+        { "value": "toronto", "label": "Toronto" },
+        { "value": "london", "label": "London" },
+        { "value": "paris", "label": "Paris" },
+        { "value": "berlin", "label": "Berlin" },
+        { "value": "tokyo", "label": "Tokyo" },
+        { "value": "sydney", "label": "Sydney" }
+      ]
+    },
+    {
+      "key": "units",
+      "label": "Temperature units",
+      "description": "Unit used for the reading.",
+      "type": "enum",
+      "default": "c",
+      "options": [
+        { "value": "c", "label": "Celsius" },
+        { "value": "f", "label": "Fahrenheit" }
+      ]
+    }
+  ],
+  "assets": [
+    "ui/page.js",
+    "ui/page.css"
+  ]
+}

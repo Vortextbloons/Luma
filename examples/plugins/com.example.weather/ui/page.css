@@ -1,0 +1,264 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  background: #0d141d;
+  color: #e8eef5;
+  scroll-padding: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 88% 4%, rgba(199, 154, 82, 0.16), transparent 38%),
+    linear-gradient(165deg, #172333 0%, #0b1119 72%);
+}
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 28px 30px 24px;
+}
+
+.masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(170, 190, 212, 0.2);
+}
+
+.package {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: #91a4ba;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(26px, 4.6vw, 38px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #9db0c4;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: #7d90a5;
+}
+
+.surface[data-state="ready"] .dot {
+  background: #8fd6b4;
+}
+
+.surface[data-state="loading"] .dot {
+  background: #86a9e6;
+}
+
+.surface[data-state="stale"] .dot {
+  background: #d9ae6b;
+}
+
+.surface[data-state="error"] .dot,
+.surface[data-state="empty"] .dot {
+  background: #e09a91;
+}
+
+.reading {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 4px 0 8px;
+}
+
+.temperature {
+  margin: 0;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: clamp(84px, 18vw, 148px);
+  font-weight: 300;
+  line-height: 0.82;
+  letter-spacing: -0.055em;
+  font-variant-numeric: tabular-nums;
+  color: #f4f0e7;
+}
+
+.details {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 8px;
+}
+
+.condition {
+  margin: 0;
+  font-size: clamp(18px, 2.6vw, 24px);
+  font-weight: 550;
+  line-height: 1.2;
+  color: #e7d8bd;
+}
+
+.observed {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  color: #91a4ba;
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  margin: 0;
+  min-height: 42px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #b8c6d4;
+  overflow-wrap: anywhere;
+}
+
+.surface[data-state="stale"] .status {
+  color: #e0bc84;
+}
+
+.surface[data-state="error"] .status,
+.surface[data-state="empty"] .status {
+  color: #e8b0a8;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button {
+  font: inherit;
+  font-size: 14px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid rgba(170, 190, 212, 0.32);
+  border-radius: 10px;
+  background: #182332;
+  color: #e8eef5;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: rgba(205, 219, 234, 0.58);
+}
+
+button:focus-visible {
+  outline: 3px solid #d9ae6b;
+  outline-offset: 3px;
+}
+
+button.primary {
+  border-color: transparent;
+  background: #c79a52;
+  color: #1a140b;
+  font-weight: 650;
+}
+
+button.primary:hover {
+  background: #d7ad69;
+}
+
+button[aria-disabled="true"] {
+  opacity: 0.62;
+  cursor: default;
+}
+
+button.is-loading::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 9px;
+  vertical-align: 1px;
+  border: 2px solid rgba(26, 20, 11, 0.28);
+  border-top-color: #1a140b;
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(170, 190, 212, 0.2);
+}
+
+.attribution,
+.identity {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8397ac;
+  overflow-wrap: anywhere;
+}
+
+.attribution span {
+  color: #a5b6c8;
+}
+
+.identity {
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .surface {
+    padding: 22px 20px 18px;
+  }
+
+  .reading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .details {
+    padding-bottom: 0;
+  }
+
+  .footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .identity {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.is-loading::after {
+    animation: none;
+  }
+}

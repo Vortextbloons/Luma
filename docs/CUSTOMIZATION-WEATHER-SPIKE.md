@@ -2,6 +2,8 @@
 
 Status: **planning contract only; no code changes, no build, no test run, no Luma launch** (2026-11-15 local / 2026-11-16 UTC). This is preparation for the next representative Stage 6 case, not a decision to ship weather and not permission to enable executable packages. Declarative plugins remain the only enableable runtime.
 
+Implementation update (2026-11-16): the accepted product scope below is now realized as an installed `isolated-ui` example package using a generic host bridge. The fixed native weather command, provider projection, core widget proposals, and local `Settings.weather` fields in this document are superseded by [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md), §20.
+
 Read against commit `000aad9` plus uncommitted changes already present in the working tree. Those changes add free widget positioning, `top-left`, `visibility`, and drag controls to `WidgetHost.svelte`, `WidgetSettings.svelte`, `widgets.ts`, `types/index.ts`, `settings.svelte.ts`, and the native customization document. The tree is **not clean** and another agent may still be editing it. Re-read every cited symbol before implementing; line numbers and shapes will drift.
 
 ## Accepted product scope

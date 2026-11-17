@@ -18,6 +18,7 @@ use tauri::{Emitter, Manager};
 mod archive;
 
 pub const API_VERSION: u32 = 1;
+pub const EXECUTABLE_API_VERSION: u32 = 2;
 pub const SCHEMA_RESOURCE: &str = "luma://plugins/schema";
 pub const EXAMPLE_RESOURCE: &str = "luma://plugins/example";
 const MAX_ARCHIVE_BYTES: u64 = 8 * 1024 * 1024;
@@ -32,6 +33,9 @@ const MAX_SETTING_OPTIONS: usize = 20;
 const MAX_SOURCE_FILES: usize = 64;
 const MAX_PATH_BYTES: usize = 120;
 const MAX_MCP_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_PERMISSIONS: usize = 8;
+const MAX_NETWORK_ORIGINS: usize = 8;
+const MAX_ORIGIN_BYTES: usize = 128;
 const BUILTIN_THEMES: [&str; 6] = [
     "violet-night",
     "sapphire",
@@ -83,9 +87,50 @@ pub struct Manifest {
     #[serde(default)]
     pub runtime: Runtime,
     #[serde(default)]
+    pub permissions: Vec<Permission>,
+    #[serde(default)]
+    pub network: Option<NetworkGrants>,
+    #[serde(default)]
     pub assets: Vec<String>,
     #[serde(default)]
     pub source: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Permission {
+    #[serde(rename = "settings.read")]
+    SettingsRead,
+    #[serde(rename = "network.get")]
+    NetworkGet,
+    #[serde(rename = "playback.read")]
+    PlaybackRead,
+    #[serde(rename = "playback.control")]
+    PlaybackControl,
+}
+
+pub const PERMISSIONS: [Permission; 4] = [
+    Permission::SettingsRead,
+    Permission::NetworkGet,
+    Permission::PlaybackRead,
+    Permission::PlaybackControl,
+];
+
+impl Permission {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::SettingsRead => "settings.read",
+            Self::NetworkGet => "network.get",
+            Self::PlaybackRead => "playback.read",
+            Self::PlaybackControl => "playback.control",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NetworkGrants {
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -300,6 +345,10 @@ pub struct PluginRecord {
     pub runtime: String,
     pub executable: bool,
     pub execution_reason: Option<String>,
+    pub permissions: Vec<String>,
+    pub network: Vec<String>,
+    pub entry: Option<String>,
+    pub surface_openable: bool,
     pub controls: Vec<String>,
     pub declared_controls: Vec<String>,
     pub detached_fields: Vec<String>,
@@ -443,6 +492,115 @@ impl StoredPlugin {
             .cloned()
             .unwrap_or_else(|| definition.default.clone())
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RuntimePackage {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub api_version: u32,
+    pub entry: String,
+    pub permissions: BTreeSet<Permission>,
+    pub network: Vec<String>,
+    pub settings: BTreeMap<String, Value>,
+    root: PathBuf,
+}
+
+impl RuntimePackage {
+    pub(crate) fn allows(&self, permission: Permission) -> bool {
+        self.permissions.contains(&permission)
+    }
+
+    pub(crate) fn read(&self, path: &str) -> Result<Vec<u8>, Error> {
+        let relative = if path.is_empty() {
+            self.entry.as_str()
+        } else {
+            path
+        };
+        validate_relative_path(relative)?;
+        let root = fs::canonicalize(&self.root).map_err(|error| Error::new("plugin_missing", error))?;
+        let target = fs::canonicalize(
+            root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)),
+        )
+        .map_err(|error| Error::new("plugin_missing", error))?;
+        if !target.starts_with(&root) || !target.is_file() {
+            return Err(Error::new(
+                "plugin_missing",
+                "That file is not part of the installed package.",
+            ));
+        }
+        fs::read(target).map_err(|error| Error::new("plugin_missing", error))
+    }
+}
+
+pub(crate) fn runtime_package(
+    store: &Store,
+    plugin_id: &str,
+) -> Result<RuntimePackage, Error> {
+    let connection = store.connection()?;
+    let plugins = load_plugins(&connection)?;
+    let (_, plugin) = plugins
+        .iter()
+        .find(|(id, _)| id == plugin_id)
+        .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    if plugin.manifest.runtime.kind != RuntimeKind::IsolatedUi
+        || plugin.manifest.api_version != EXECUTABLE_API_VERSION
+    {
+        return Err(Error::new(
+            "plugin_unsupported",
+            "That plugin does not provide an executable UI surface.",
+        ));
+    }
+    let entry = plugin
+        .manifest
+        .runtime
+        .entry
+        .clone()
+        .ok_or_else(|| Error::new("plugin_invalid", "The package does not declare a runtime entry."))?;
+    let root = install_root(store)?
+        .join(&plugin.manifest.id)
+        .join(&plugin.manifest.version);
+    if !root.is_dir() {
+        return Err(Error::new(
+            "plugin_missing",
+            "The installed package files are missing. Reinstall the plugin.",
+        ));
+    }
+    Ok(RuntimePackage {
+        id: plugin.manifest.id.clone(),
+        name: plugin.manifest.name.clone(),
+        version: plugin.manifest.version.clone(),
+        api_version: plugin.manifest.api_version,
+        entry,
+        permissions: plugin.manifest.permissions.iter().copied().collect(),
+        network: plugin
+            .manifest
+            .network
+            .as_ref()
+            .map(|network| network.allow.clone())
+            .unwrap_or_default(),
+        settings: plugin
+            .manifest
+            .settings
+            .iter()
+            .map(|definition| (definition.key.clone(), plugin.setting_value(definition)))
+            .collect(),
+        root,
+    })
+}
+
+pub(crate) fn executable_package_ids(store: &Store) -> Result<Vec<String>, Error> {
+    let connection = store.connection()?;
+    let plugins = load_plugins(&connection)?;
+    Ok(plugins
+        .into_iter()
+        .filter(|(_, plugin)| {
+            plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
+                && plugin.manifest.api_version == EXECUTABLE_API_VERSION
+        })
+        .map(|(id, _)| id)
+        .collect())
 }
 
 pub(super) fn create(connection: &Connection) -> Result<(), Error> {
@@ -708,6 +866,21 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             runtime: plugin.manifest.runtime.kind.label().into(),
             executable: !plugin.manifest.runtime.kind.is_declarative(),
             execution_reason,
+            permissions: plugin
+                .manifest
+                .permissions
+                .iter()
+                .map(|permission| permission.label().to_string())
+                .collect(),
+            network: plugin
+                .manifest
+                .network
+                .as_ref()
+                .map(|network| network.allow.clone())
+                .unwrap_or_default(),
+            entry: plugin.manifest.runtime.entry.clone(),
+            surface_openable: plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
+                && crate::extension_spike::development_enabled(),
             controls: active.iter().map(|field| (*field).into()).collect(),
             declared_controls: declared.iter().map(|field| (*field).into()).collect(),
             detached_fields: plugin.detached.iter().cloned().collect(),
@@ -1510,11 +1683,11 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         ));
     }
     validate_version(&manifest.version)?;
-    if manifest.api_version != API_VERSION {
+    if !matches!(manifest.api_version, API_VERSION | EXECUTABLE_API_VERSION) {
         return Err(Error::new(
             "incompatible",
             format!(
-                "This plugin targets Luma plugin API {}, but this Luma version supports API {API_VERSION}.",
+                "This plugin targets Luma plugin API {}, but this Luma version supports API {API_VERSION} and {EXECUTABLE_API_VERSION}.",
                 manifest.api_version
             ),
         ));
@@ -1544,34 +1717,172 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             ));
         }
     }
-    if !manifest.runtime.kind.is_declarative() {
-        let Some(entry) = &manifest.runtime.entry else {
-            return Err(Error::new(
-                "validation",
-                "A non-declarative runtime must declare runtime.entry.",
-            ));
-        };
-        validate_relative_path(entry)?;
-    } else if manifest.runtime.entry.is_some() {
-        return Err(Error::new(
-            "validation",
-            "A declarative plugin cannot declare runtime.entry.",
-        ));
-    }
-    for path in manifest.assets.iter().chain(manifest.source.iter()) {
-        validate_relative_path(path)?;
-    }
     if manifest.assets.len() > MAX_SOURCE_FILES || manifest.source.len() > MAX_SOURCE_FILES {
         return Err(Error::new(
             "validation",
             format!("A plugin can declare at most {MAX_SOURCE_FILES} assets and source files."),
         ));
     }
-    validate_contributions(manifest)?;
-    if manifest.runtime.kind.is_declarative() && manifest.contributes.is_empty() {
+    for path in manifest.assets.iter().chain(manifest.source.iter()) {
+        validate_relative_path(path)?;
+    }
+    if manifest.api_version == EXECUTABLE_API_VERSION {
+        validate_executable_manifest(manifest)?;
+    } else {
+        if !manifest.runtime.kind.is_declarative() {
+            return Err(Error::new(
+                "incompatible",
+                "An executable UI plugin must use API version 2.",
+            ));
+        }
+        if !manifest.permissions.is_empty() || manifest.network.is_some() {
+            return Err(Error::new(
+                "validation",
+                "API version 1 plugins cannot declare runtime permissions or network access.",
+            ));
+        }
+        if manifest.runtime.entry.is_some() {
+            return Err(Error::new(
+                "validation",
+                "A declarative plugin cannot declare runtime.entry.",
+            ));
+        }
+        validate_contributions(manifest)?;
+        if manifest.contributes.is_empty() {
+            return Err(Error::new(
+                "validation",
+                "A declarative plugin must contribute at least one supported appearance or Home field.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
+    if manifest.runtime.kind != RuntimeKind::IsolatedUi {
+        return Err(Error::new(
+            "incompatible",
+            "API version 2 is reserved for the isolated-ui runtime.",
+        ));
+    }
+    if !manifest.contributes.is_empty() {
         return Err(Error::new(
             "validation",
-            "A declarative plugin must contribute at least one supported appearance or Home field.",
+            "An isolated-ui plugin cannot declare appearance or Home contributions.",
+        ));
+    }
+    let Some(entry) = &manifest.runtime.entry else {
+        return Err(Error::new(
+            "validation",
+            "An isolated-ui plugin must declare runtime.entry.",
+        ));
+    };
+    validate_relative_path(entry)?;
+    if !entry.to_ascii_lowercase().ends_with(".html") {
+        return Err(Error::new(
+            "validation",
+            "An isolated-ui runtime entry must be an HTML file.",
+        ));
+    }
+    if manifest.permissions.len() > MAX_PERMISSIONS {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin can declare at most {MAX_PERMISSIONS} runtime permissions."),
+        ));
+    }
+    let mut permissions = HashSet::new();
+    for permission in &manifest.permissions {
+        if !permissions.insert(*permission) {
+            return Err(Error::new(
+                "validation",
+                format!("Duplicate runtime permission: {}.", permission.label()),
+            ));
+        }
+    }
+    let network = manifest.network.as_ref();
+    if !permissions.contains(&Permission::NetworkGet) {
+        if network.is_some() {
+            return Err(Error::new(
+                "validation",
+                "A network allowlist requires the network.get permission.",
+            ));
+        }
+        return Ok(());
+    }
+    let Some(network) = network else {
+        return Err(Error::new(
+            "validation",
+            "The network.get permission requires a network.allow list.",
+        ));
+    };
+    if network.allow.is_empty() || network.allow.len() > MAX_NETWORK_ORIGINS {
+        return Err(Error::new(
+            "validation",
+            format!("network.allow must contain 1 to {MAX_NETWORK_ORIGINS} HTTPS origins."),
+        ));
+    }
+    let mut origins = HashSet::new();
+    for origin in &network.allow {
+        validate_network_origin(origin)?;
+        if !origins.insert(origin) {
+            return Err(Error::new(
+                "validation",
+                format!("Duplicate network origin: {origin}."),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_network_origin(origin: &str) -> Result<(), Error> {
+    if origin.is_empty() || origin.len() > MAX_ORIGIN_BYTES {
+        return Err(Error::new(
+            "validation",
+            format!("A network origin must be 1 to {MAX_ORIGIN_BYTES} characters."),
+        ));
+    }
+    let url = url::Url::parse(origin).map_err(|_| {
+        Error::new(
+            "validation",
+            format!("Network origin must be an HTTPS origin: {origin}."),
+        )
+    })?;
+    if url.scheme() != "https"
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || !matches!(url.path(), "" | "/")
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(Error::new(
+            "validation",
+            format!("Network origin must be an HTTPS origin without a path or credentials: {origin}."),
+        ));
+    }
+    let Some(host) = url.host_str() else {
+        return Err(Error::new(
+            "validation",
+            format!("Network origin has no host: {origin}."),
+        ));
+    };
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return Err(Error::new(
+            "validation",
+            "Network origins cannot be IP addresses.",
+        ));
+    }
+    let host = host.to_ascii_lowercase();
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host.ends_with(".home.arpa")
+        || !host.contains('.')
+    {
+        return Err(Error::new(
+            "validation",
+            format!("Network origin must be a public host name: {origin}."),
         ));
     }
     Ok(())
@@ -2394,7 +2705,7 @@ pub(super) fn state_for_app(app: &tauri::AppHandle) -> Result<PluginsState, Erro
     state(&connection, &document.config)
 }
 
-pub(super) fn notice(app: &tauri::AppHandle, message: impl ToString) {
+pub(crate) fn notice(app: &tauri::AppHandle, message: impl ToString) {
     let _ = app.emit_to("main", "customization-notice", message.to_string());
 }
 
@@ -2404,6 +2715,7 @@ pub fn schema_document() -> Value {
         "schemaVersion": 1,
         "manifestFile": "luma-extension.json",
         "apiVersion": API_VERSION,
+        "executableApiVersion": EXECUTABLE_API_VERSION,
         "id": {
             "pattern": "lowercase vendor-qualified segments such as com.example.pack",
             "maxLength": 96
@@ -2445,7 +2757,15 @@ pub fn schema_document() -> Value {
         "runtime": {
             "kinds": ["declarative", "isolated-ui", "background", "main-page"],
             "supported": ["declarative"],
-            "unsupportedBehavior": "Other runtimes install disabled and cannot be enabled. Their files are packaged but never executed."
+            "executable": {
+                "apiVersion": EXECUTABLE_API_VERSION,
+                "kinds": ["isolated-ui"],
+                "entry": "HTML file inside the package",
+                "permissions": PERMISSIONS.iter().map(|permission| permission.label()).collect::<Vec<_>>(),
+                "network": "network.get requires network.allow with 1 to 8 public HTTPS origins",
+                "behavior": "Executable packages install disabled and cannot be enabled in this Luma version. A development-only host can load an installed package when its environment gate is enabled."
+            },
+            "unsupportedBehavior": "Other runtimes install disabled and cannot be enabled. Their files are packaged but never executed by production."
         },
         "limits": limits(),
         "example": example
@@ -2465,6 +2785,7 @@ pub(crate) fn limits() -> Value {
         "settings": MAX_SETTINGS,
         "settingOptions": MAX_SETTING_OPTIONS,
         "sourceFiles": MAX_SOURCE_FILES,
+        "networkOrigins": MAX_NETWORK_ORIGINS,
         "pathBytes": MAX_PATH_BYTES
     })
 }
@@ -2924,12 +3245,18 @@ mod tests {
     fn unsupported_runtime_packages_install_disabled_and_cannot_enable() {
         let (store, _root) = store();
         let mut code = manifest("com.example.code", "1.0.0");
-        code["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "source/main.js" });
+        code["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        code["contributes"] = serde_json::json!({});
+        code["permissions"] = serde_json::json!(["settings.read"]);
+        code["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
         let outcome = stage_submission(
             &store,
             &serde_json::json!({
                 "manifest": code,
-                "files": [{ "path": "source/main.js", "text": "console.log('not run')" }]
+                "files": [
+                    { "path": "ui/index.html", "text": "<!doctype html><title>Not run</title>" },
+                    { "path": "ui/main.js", "text": "console.log('not run')" }
+                ]
             }),
             "mcp",
         )
@@ -2937,10 +3264,134 @@ mod tests {
         assert!(!outcome.plugin.enabled);
         assert!(outcome.plugin.executable);
         assert!(!outcome.plugin.can_enable);
+        assert_eq!(outcome.plugin.permissions, ["settings.read"]);
+        assert_eq!(outcome.plugin.entry.as_deref(), Some("ui/index.html"));
         assert!(outcome.plugin.execution_reason.as_deref().unwrap().contains("cannot be enabled"));
         let revision = store.read().unwrap().unwrap().revision;
         let error = store.preview_plugin("com.example.code", revision).unwrap_err();
         assert_eq!(error.code, "plugin_unsupported");
+    }
+
+    #[test]
+    fn executable_manifests_require_a_versioned_bounded_grant() {
+        let (store, _root) = store();
+        let runtime = |manifest: &mut Value| {
+            manifest["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+            manifest["contributes"] = serde_json::json!({});
+            manifest["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        };
+        let files = serde_json::json!([{ "path": "ui/index.html", "text": "<!doctype html>" }]);
+        let stage_with = |manifest: Value| {
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": manifest, "files": files }),
+                "mcp",
+            )
+        };
+
+        let mut undeclared_network = manifest("com.example.network", "1.0.0");
+        runtime(&mut undeclared_network);
+        undeclared_network["network"] = serde_json::json!({ "allow": ["https://api.open-meteo.com"] });
+        assert_eq!(stage_with(undeclared_network).unwrap_err().code, "validation");
+
+        let mut missing_network = manifest("com.example.missing-network", "1.0.0");
+        runtime(&mut missing_network);
+        missing_network["permissions"] = serde_json::json!(["network.get"]);
+        assert_eq!(stage_with(missing_network).unwrap_err().code, "validation");
+
+        for origin in [
+            "http://api.open-meteo.com",
+            "https://127.0.0.1",
+            "https://localhost",
+            "https://printer.local",
+            "https://api.open-meteo.com:8443",
+            "https://api.open-meteo.com/path",
+        ] {
+            let mut insecure = manifest("com.example.origin", "1.0.0");
+            runtime(&mut insecure);
+            insecure["permissions"] = serde_json::json!(["network.get"]);
+            insecure["network"] = serde_json::json!({ "allow": [origin] });
+            assert_eq!(
+                stage_with(insecure).unwrap_err().code,
+                "validation",
+                "{origin} must not be an allowed network origin"
+            );
+        }
+
+        let mut unknown_permission = manifest("com.example.permission", "1.0.0");
+        runtime(&mut unknown_permission);
+        unknown_permission["permissions"] = serde_json::json!(["network.any"]);
+        assert_eq!(stage_with(unknown_permission).unwrap_err().code, "validation");
+
+        let mut playback = manifest("com.example.playback", "1.0.0");
+        runtime(&mut playback);
+        playback["permissions"] = serde_json::json!(["playback.read", "playback.control"]);
+        assert!(stage_with(playback).is_ok());
+        let package = runtime_package(&store, "com.example.playback").unwrap();
+        assert!(package.allows(Permission::PlaybackRead));
+        assert!(package.allows(Permission::PlaybackControl));
+        assert!(!package.allows(Permission::NetworkGet));
+        assert!(package.network.is_empty());
+
+        let mut v1_grants = manifest("com.example.v1", "1.0.0");
+        v1_grants["permissions"] = serde_json::json!(["settings.read"]);
+        assert_eq!(stage_with(v1_grants).unwrap_err().code, "validation");
+    }
+
+    #[test]
+    fn the_weather_example_installs_as_a_runtime_package_with_public_grants() {
+        let (store, _root) = store();
+        let submission = serde_json::json!({
+            "manifest": serde_json::from_str::<Value>(include_str!(
+                "../../../examples/plugins/com.example.weather/luma-extension.json"
+            ))
+            .unwrap(),
+            "files": [
+                {
+                    "path": "ui/index.html",
+                    "text": include_str!("../../../examples/plugins/com.example.weather/ui/index.html")
+                },
+                {
+                    "path": "ui/page.js",
+                    "text": include_str!("../../../examples/plugins/com.example.weather/ui/page.js")
+                },
+                {
+                    "path": "ui/page.css",
+                    "text": include_str!("../../../examples/plugins/com.example.weather/ui/page.css")
+                }
+            ]
+        });
+        let outcome = stage_submission(&store, &submission, "import").unwrap();
+        assert_eq!(outcome.plugin.id, "com.example.weather");
+        assert_eq!(outcome.plugin.api_version, EXECUTABLE_API_VERSION);
+        assert_eq!(outcome.plugin.runtime, "isolated-ui");
+        assert!(!outcome.plugin.enabled);
+        assert!(outcome.plugin.executable);
+        assert!(!outcome.plugin.can_enable);
+        assert_eq!(
+            outcome.plugin.permissions,
+            ["settings.read", "network.get"]
+        );
+        assert_eq!(outcome.plugin.network, ["https://api.open-meteo.com"]);
+        assert_eq!(executable_package_ids(&store).unwrap(), ["com.example.weather"]);
+
+        let package = runtime_package(&store, "com.example.weather").unwrap();
+        assert_eq!(package.api_version, EXECUTABLE_API_VERSION);
+        assert_eq!(package.entry, "ui/index.html");
+        assert!(package.allows(Permission::SettingsRead));
+        assert!(package.allows(Permission::NetworkGet));
+        assert!(!package.allows(Permission::PlaybackRead));
+        assert_eq!(package.network, ["https://api.open-meteo.com"]);
+        assert_eq!(package.settings.get("location"), Some(&serde_json::json!("seattle")));
+        assert_eq!(package.settings.get("units"), Some(&serde_json::json!("c")));
+        assert!(String::from_utf8(package.read("").unwrap())
+            .unwrap()
+            .starts_with("<!doctype html>"));
+        assert!(String::from_utf8(package.read("ui/page.js").unwrap())
+            .unwrap()
+            .contains("extension_bridge"));
+        assert_eq!(package.read("../luma-extension.json").unwrap_err().code, "validation");
+        assert_eq!(package.read("ui/missing.js").unwrap_err().code, "plugin_missing");
     }
 
     #[test]

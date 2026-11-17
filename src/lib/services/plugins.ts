@@ -35,6 +35,10 @@ export interface PluginRecord {
   runtime: string;
   executable: boolean;
   executionReason: string | null;
+  permissions: string[];
+  network: string[];
+  entry: string | null;
+  surfaceOpenable: boolean;
   controls: string[];
   declaredControls: string[];
   detachedFields: string[];
