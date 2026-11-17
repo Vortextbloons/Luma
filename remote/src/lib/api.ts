@@ -2,6 +2,9 @@ import type { ActivityItem, YouTubeFeedItem } from '../../../src/lib/types';
 import type {
   AppsResponse,
   CommandResponse,
+  PanelAction,
+  PanelActionResponse,
+  PanelsResponse,
   PlaybackResponse,
   StateResponse,
 } from "./types";
@@ -50,6 +53,9 @@ export const api = {
   pair: (code: string) => request<{ pcName?: string }>("/phone/pair", post({ code })),
   command: (command: string) => request<CommandResponse>("/phone/command", post({ command })),
   apps: () => request<AppsResponse>("/apps"),
+  panels: () => request<PanelsResponse>("/phone/panels"),
+  panelAction: (id: string, action: PanelAction) =>
+    request<PanelActionResponse>("/phone/panels/action", post({ id, action })),
   settings: (key: string, value: string) =>
     request<{ accepted?: boolean }>("/phone/settings", post({ key, value })),
   layout: (order: string[]) => request<CommandResponse>("/phone/layout", post({ order })),

@@ -75,6 +75,7 @@
   });
   let tab = $state('Home');
   let panel = $state(false);
+  let settingsPanel = $state<{ consumeBack: () => boolean }>();
   let remotePairing = $state(false);
   let exitRequested = $state(false);
   let settingsCategory = $state('Display');
@@ -324,6 +325,7 @@
     if (exitRequested) { void playSound('back'); cancelExit(); return; }
     if (remotePairing) { void playSound('back'); closeRemotePairing(); return; }
     if (stremioPairing) { void playSound('back'); closeStremioPairing(); return; }
+    if (panel && settingsPanel?.consumeBack()) { void playSound('back'); return; }
     if (panel) { void playSound('back'); panel = false; void refreshStremio(); }
     else if (details) { void playSound('back'); details = null; }
     else if (playerOpen) { void playSound('back'); if (!player?.closeOverlay()) closePlayer(); return; }
@@ -557,7 +559,7 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
+  {#if panel}<SettingsPanel bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
   {:else}
   <TopNav viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>

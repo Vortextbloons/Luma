@@ -1,6 +1,6 @@
 # Stage 6 executable UI runtime: spike contract and acceptance record
 
-Status: **development spike implemented, no production runtime selected, no live checks performed** (2026-11-16). Declarative plugins remain the only enableable plugin runtime. A development-only package-driven surface now exists (§20); it does not make executable packages production-ready. This document records the contract a future executable UI runtime must satisfy, the static evidence that constrains it, and the acceptance checks that have **not** been run. It is not a decision record and not evidence that executable plugins work.
+Status (2026-11-16): the Stage 6/7 package runtime, explicit grants, background supervisor, desktop controls, and declarative remote panels are implemented. Review and live acceptance are in progress. Historical development-only checkpoints below describe their recorded versions; they do not describe the current activation path. No unrecorded live or performance gate is claimed passed.
 
 Assessed against the working tree at commit `e862e17` with concurrent sports/remote edits present. Re-read the cited symbols before implementing; line numbers will drift.
 
@@ -659,3 +659,56 @@ These are unit and VM checks. No Luma process, TV, phone, tray, WebView2, CSP he
 - Network allowlists reject private-looking host names and IP literals, but the host does not resolve the name and reject a public name that resolves to a private address. DNS-based SSRF remains a residual risk for a future production grant.
 - The package attribution is a visible text credit with a fixed URL, not a host-opened link. CC BY link behavior remains an integration gap.
 - Package signing, publisher identity, background execution, and a general multi-package loader remain outside this checkpoint.
+
+## 21. Stage 7 implementation and live acceptance checkpoint (2026-11-16 local)
+
+The reusable runtime, background supervisor, explicit permission review, tray actions, declarative remote panels, and uninstall retention choice are implemented. This supersedes the development-only activation descriptions in earlier checkpoints. Stage 7 implementation is complete; full release acceptance still has the interactive and resource gates below.
+
+### Current runtime and lifecycle
+
+- API v2 isolated UI and background packages require a persisted user grant. Import and MCP staging remain disabled-only. Native enable validates revision, permissions, network origins and trigger in one transaction. Disable revokes access; saved-version restore does not restore executable grants.
+- Each active runtime uses one of 16 registered protocol slots (`luma-extension.s0` through `luma-extension.s15`) with its own host, a fresh session token/path, label and generation. Protocol and invoke guards check both slot and token. Slots can be reused after teardown; a fresh token URL is not a promise of a globally new browser origin on every restart.
+- The initially proposed per-token subdomain was rejected by Tauri before the invoke guard in a real run. The fixed registered protocol slots are the tested implementation. Package WebViews run incognito; WebView cookies/localStorage/IndexedDB are not durable plugin storage. Durable package settings remain in SQLite.
+- Launcher-open runtimes stop when the launcher hides. Startup/always background services survive launcher destruction and stop on disable, removal or exit. Explicit UI close tears down its runtime; reopening creates a fresh session.
+- Startup readiness has a five-second timeout. WebView2 process-failure/unresponsive events feed bounded restart handling. Three restarts within ten minutes are allowed, then the package is disabled with a persisted reason and its grant cleared.
+- The tray keeps Open/Exit and adds at most one host-owned action per enabled executable plugin: Open for UI packages, Disable for background services. The web remote renders declared playback panels itself; no extension code or pairing cookie is passed to a plugin. Display Box has no panel projection in its existing protocol.
+- Removal keeps settings/profile data by default. Selecting delete-data removes settings and awaits runtime teardown before profile deletion. A locked profile produces an explicit cleanup error. Package export excludes user settings/profile data.
+
+### Review fixes and regression evidence
+
+Live bounded-failure testing found `disable_on_crash` holding the Store connection mutex across `store.snapshot()`, which tried to lock the same mutex. The transaction now drops its connection guard before snapshot/publish. A complete live failure cycle subsequently reached auto-disable and further Store reads, covering the reported deadlock. Related plugin lock/publish scopes were inspected.
+
+Other reviewed fixes cover disabled-package loading through a retained grant, remote Back priority for inline consent/removal, post-close session cancellation, full DNS/request/body deadlines, public-address pinning without a proxy, failed-start visibility, renderer failure monitoring, and freeing protocol slots after failed windows are gone.
+
+### Verification actually run by root
+
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib`: **221 passed**.
+- `cargo check --manifest-path src-tauri/Cargo.toml --release --lib`: passed; the acceptance harness is excluded from release builds.
+- `npm test`: **149 passed**.
+- `npm run check`: **0 errors, 0 warnings**.
+- `npm run build`: desktop and remote builds passed; generated `phone.html` rebuilt.
+- Svelte MCP autofixer on modified desktop controls: no issues. Existing App/SettingsPanel suggestions outside the changed behavior were not refactored.
+- `cargo build --manifest-path src-tauri/Cargo.toml --example plugin_runtime` and `src-tauri/target/debug/examples/plugin_runtime.exe`: **live acceptance passed**, exit code 0.
+- The root rerun used a new temporary Store and `com.luma.acceptance.p16876`, never the user's database or credentials. Both generated data directories were absent after teardown. The harness cleans only paths owned by its run.
+
+The live executable staged three real packages and approved grants through native code, without a main window. It verified background readiness and ongoing execution, UI bridge identity/settings/readiness, rejection of core and ungranted playback commands, CSP network denial with a security-policy violation and zero accepted TCP connections, old-session navigation denial, launcher-hide behavior, disable/revoke, retention on removal, three restarts followed by auto-disable, explicit data deletion, and terminal shutdown cleanup.
+
+### Measured cost
+
+Windows 11 Home 10.0.26300, debug build. Baseline and idle samples each lasted approximately 5.4 seconds; startup sampling lasted 1.1 seconds. CPU percentages are CPU-seconds divided by elapsed wall time (one logical core), not normalized across the machine. The background fixture has a one-second heartbeat to demonstrate ongoing execution.
+
+| Phase | Host CPU | Host private | WebView2 CPU | WebView2 private | WebView2 processes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| No package runtime | 0.00% | 4.0 MiB | 0.00% | 0 MiB | 0 |
+| Background startup | 1.38% | 6.4 MiB | 85.30% | 164.1 MiB | 6 |
+| Background idle | 0.00% | 6.4 MiB | 2.02% | 158.5 MiB | 6 |
+
+Background ready was **301 ms**; UI ready was **281 ms**, both below the five-second readiness deadline. These short samples establish cost, not long-duration stability or acceptable performance. No CPU/private-memory budget has been agreed, so no resource gate is claimed passed. A hidden WebView2 renderer is the available implementation primitive, not a separate native process sandbox or a lightweight worker guarantee.
+
+### Remaining release acceptance
+
+- Real TV/phone directional navigation, activation, Back/Home/Escape and focus return; 1080p/4K, fullscreen and multi-monitor behavior.
+- Real tray menu interactions and the full launcher boot/destroy/reopen path, rather than direct harness lifecycle calls.
+- Renderer-process termination/unresponsive events, native close-button flow, OS suspend/resume, and release-build runtime behavior. The live failure fixture exercises readiness failures; ProcessFailed is wired and has classification tests but was not induced live.
+- Long-duration/repeated-cycle memory growth, all 16 concurrent slots, allowed host-mediated HTTPS traffic, real weather/provider behavior, and paired-phone endpoint behavior.
+- Agree a startup/idle CPU and memory budget using the measured cost before marking the Stage 7 resource gate complete. Full Stage 6/7 acceptance remains open until these required checks are resolved.

@@ -19,6 +19,11 @@ use tauri::Manager;
 
 pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=67108864";
 
+#[cfg(all(debug_assertions, windows))]
+pub fn run_plugin_runtime_acceptance() -> i32 {
+    customization::runtime_acceptance::run()
+}
+
 #[tauri::command]
 fn updates_enabled(app: tauri::AppHandle) -> bool {
     app.config().plugins.0.get("updater").is_some_and(|config| {
@@ -35,7 +40,11 @@ fn updates_enabled(app: tauri::AppHandle) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    for scheme in extension_spike::schemes() {
+        builder = builder.register_uri_scheme_protocol(scheme, extension_spike::protocol);
+    }
+    let app = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == "--background") {
@@ -49,7 +58,6 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .register_uri_scheme_protocol(extension_spike::SCHEME, extension_spike::protocol)
         .manage(tv::Tv::default())
         .manage(viewing::Viewing::default())
         .manage(apps::Apps::default())
@@ -63,6 +71,7 @@ pub fn run() {
         .manage(spotify::player::Player::default())
         .manage(spotify::windows_media::Media::default())
         .manage(customization::mcp::McpAccess::default())
+        .manage(extension_spike::Supervisor::default())
         .setup(|app| {
             app.manage(customization::Store::open(app.handle()));
             if let Ok(Some(document)) = app.state::<customization::Store>().read() {
@@ -91,6 +100,7 @@ pub fn run() {
             );
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             stremio::load(app.handle());
+            extension_spike::autostart(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = frame::initialize(handle.clone()).await {
@@ -115,7 +125,7 @@ pub fn run() {
                     if let Some(store) = window.app_handle().try_state::<customization::Store>() {
                         store.clear_preview();
                     }
-                    extension_spike::dismiss(window.app_handle());
+                    extension_spike::launcher_hidden(window.app_handle());
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -138,6 +148,7 @@ pub fn run() {
             customization::customization_reset_appearance,
             customization::customization_plugins_read,
             customization::customization_plugin_import,
+            customization::customization_plugin_enable_runtime,
             customization::customization_plugin_open_surface,
             customization::customization_plugin_export,
             customization::customization_plugin_preview,
@@ -243,6 +254,7 @@ pub fn run() {
             api.prevent_exit();
         }
         if matches!(event, tauri::RunEvent::Exit) {
+            extension_spike::shutdown(app);
             commands::session::close_steam(app);
             viewing::restore_external(app);
             tv::stop_shortcut(app);

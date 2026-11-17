@@ -1,12 +1,12 @@
-# Luma declarative plugins
+# Luma plugins
 
-Status: declarative plugins shipped 2026-11-15. A development-only package runtime harness now loads an installed `isolated-ui` package through the public bridge, but executable packages remain disabled and cannot be enabled in production. This document supersedes the declarative-only parts of [the layer plan](CUSTOMIZATION-LAYERS.md), [the distribution plan](CUSTOMIZATION-DISTRIBUTION.md), and the plugin sections of [the MCP plan](CUSTOMIZATION-MCP-PLAN.md). Executable plugin runtimes remain future work.
+Status (2026-11-16): declarative packages, explicit executable grants, isolated UI and background supervision, and host-rendered web remote panels are implemented. The real WebView2 harness verifies core lifecycle, command denial, CSP denial and cleanup; interactive TV/phone/tray and resource-budget acceptance remain open. This file owns the implemented package/API contract; [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md) owns validation evidence and remaining limits.
 
 ## What ships
 
-Luma installs, validates, enables, previews, disables, exports, and removes declarative plugin packages. A plugin can contribute appearance and Home layout, and can declare bounded settings that control those contributions.
+Luma installs, validates, enables, disables, exports, and removes plugin packages. Declarative packages use Preview and Keep; executable packages require a separate access review. A plugin can contribute appearance and Home layout, and can declare bounded settings that control those contributions.
 
-A plugin never runs scripts, HTML, native code, or install hooks in production. Packages may contain an `isolated-ui` surface for the development runtime harness, but a package that declares a non-declarative runtime installs disabled and cannot be enabled in this version.
+Import never runs code or install hooks. API v2 `isolated-ui` and `background` packages can run packaged HTML/JavaScript only after the user approves their declared access in Settings. Native code and the `main-page` runtime remain unsupported.
 
 Luma's own Theme, Home layout, and widgets are built into the app under **Settings → Appearance & Home**. They are not a plugin: they cannot be removed, and they stay usable when another plugin is disabled or broken. The old `Theme`, `Layout`, `Home layout`, and `Widgets` entry points resolve to those sections.
 
@@ -73,11 +73,11 @@ Export writes the installed package files and manifest to a new ZIP through a na
 }
 ```
 
-Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A declarative v1 plugin also requires `contributes`; an isolated-ui v2 plugin requires `runtime.entry`. `description`, `author`, `settings`, `assets`, `source`, and `runtime.kind` default to empty/declarative. Unknown fields are rejected.
+Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A declarative v1 plugin requires appearance/Home contributions or a `remote` panel; an executable v2 plugin requires `runtime.entry`. `description`, `author`, `settings`, `assets`, `source`, and `runtime.kind` default to empty/declarative. Unknown fields are rejected.
 
 - `id` is a lowercase vendor-qualified id such as `com.example.pack`, 3–96 characters. `core` is reserved. Plugin ids are case-sensitive in storage and lowercase-only in validation.
 - `version` is numeric `major.minor.patch` without leading zeros.
-- `apiVersion` must be `1` for a declarative plugin or `2` for an isolated-ui package.
+- `apiVersion` must be `1` for a declarative plugin or `2` for an isolated-ui or background package.
 - `settings` declares at most 24 host-rendered values. Keys match `[a-z][A-Za-z0-9_-]{0,63}`. Types are `boolean`, `enum`, `number`, and `string`:
   - `boolean` default must be true or false.
   - `enum` requires 1–20 unique string options and a default in those options.
@@ -88,7 +88,7 @@ Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A de
 
 ### Executable package manifest (development)
 
-`apiVersion: 2` is reserved for `runtime.kind: "isolated-ui"`. It is validated and installable today, but remains disabled and cannot be enabled in production. The public shape is:
+`apiVersion: 2` supports `runtime.kind: "isolated-ui"` and `"background"`. Packages install disabled and require user access review before execution. The public shape is:
 
 ```json
 {
@@ -112,7 +112,7 @@ Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A de
 }
 ```
 
-- `runtime.entry` is a package-relative HTML file. An isolated-ui package cannot declare declarative contributions.
+- `runtime.entry` is a package-relative HTML file. An executable package cannot declare declarative contributions or remote panels.
 - Permissions are exact names: `settings.read`, `network.get`, `playback.read`, and `playback.control`. Duplicates, unknown names, and grants on `apiVersion: 1` are rejected.
 - `network.get` requires `network.allow` with 1–8 HTTPS origins. Origins cannot contain a path, port, credentials, IP literal, loopback, or a private-network style host name. The package still cannot fetch directly; every request is bounded and host-mediated.
 - Settings are host-rendered, host-validated, and stored in the existing plugin settings table. A package can read only its own resolved values.
@@ -146,9 +146,9 @@ If a user changes a field owned by an enabled plugin, Luma keeps their input, st
 
 1. **Import or MCP stage** validates the manifest and files, computes a SHA-256 content hash, installs the package under Luma-owned storage, and records it as disabled.
 2. **Preview and enable** is a user action in Settings → Plugins. Luma stages the effective appearance and Home candidate and shows the normal review overlay. The user presses **Keep and enable**.
-3. **Disable** removes only that plugin's contributions. The base appearance, Home, saved settings, and other plugins remain.
-4. **Update** requires a new version. Re-importing the same id and version with identical content is idempotent; changed content under the same version is rejected with `immutable_version`. A new version replaces the package, preserves declared setting values, and stays disabled until the user previews it. MCP staging refuses to replace an enabled package; the user must disable it in Settings first. Native Import may update it and disables it atomically for review.
-5. **Remove** deletes the package and its saved setting values, stops all contributions, and writes a history checkpoint. Earlier history entries that referenced the package restore with a visible "not installed" or version-changed explanation and do not pretend the plugin is enabled.
+3. **Disable** removes the plugin's contributions, stops its runtime, and revokes executable grants. The base appearance, Home, saved settings, and other plugins remain.
+4. **Update** requires a new version. Re-importing the same id and version with identical content is idempotent; changed content under the same version is rejected with `immutable_version`. A new version replaces the package, preserves declared setting values, and stays disabled until the user reviews it again. MCP staging refuses to replace an enabled package; the user must disable it in Settings first. Native Import may update it and disables it atomically for review.
+5. **Remove** deletes the package code and grants, stops its contributions/runtime, and writes a history checkpoint. Settings and local plugin data are kept for reinstalling by default; the confirmation offers an explicit delete option. Earlier history entries that referenced the package restore with a visible "not installed" or version-changed explanation and do not pretend the plugin is enabled.
 
 Installing or updating an enabled plugin disables it atomically; a failed install or update leaves the previous package, enabled state, settings, and rendered configuration intact.
 
@@ -159,8 +159,8 @@ The manifest author writes the schema and defaults. Luma validates values on wri
 - Invalid stored values fall back to the declared default and are marked invalid in the plugin detail. Choosing a value and saving repairs the record.
 - Settings can be edited through the host-rendered plugin detail even while the plugin is disabled. They persist across disable/enable and compatible updates.
 - Settings staged through MCP are a preview candidate and require user Keep. The same values are used by the UI and MCP paths.
-- Removing the plugin deletes its values. Export does not carry user values.
-- Values bind only through declared contributions. A setting that is not bound is still stored and surfaced, but it has no hidden execution side effect.
+- Removing the plugin keeps its values unless the user selects the delete-data option. Reinstalling does not restore runtime grants. Export does not carry user values.
+- Declarative settings bind only through declared contributions. Executable packages can read their own resolved settings through the approved `settings.read` bridge operation.
 - Executable package settings use the same store and snapshot as declarative settings. They therefore appear in plugin listings and saved-version history; there is no per-setting private-value marker yet. The weather example stores a city choice, not coordinates or account data.
 
 ## Navigation and focus
@@ -214,30 +214,31 @@ No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, l
 
 Before activation, Luma rejects absolute paths, `..`, backslashes, drive/UNC paths, Windows-reserved names and characters, case-insensitive duplicate paths, file/directory collisions, symbolic links, executable binaries (`.exe`, `.dll`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.scr`, `.com`, `.cpl`), missing declared files, oversized entries, too many entries, and suspicious compression ratios. Import never runs an unzip script or package install script.
 
-## Future executable runtime
+## Executable lifecycle
 
-Not shipped. Declarative plugins remain the only enableable runtime. `runtime.kind` accepts `isolated-ui`, `background`, and `main-page`; non-declarative packages install disabled, are labeled unsupported, are never executed by production, and cannot be enabled.
+In Settings > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP cannot approve grants or execute packages. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
 
-A development harness in `src-tauri/src/extension_spike.rs` can load one installed `isolated-ui` package without enabling it. Start a debug build with `LUMA_EXTENSION_SPIKE=1`; when exactly one isolated-ui package is installed, it opens after the launcher is ready. Set `LUMA_EXTENSION_PLUGIN=com.example.weather` to choose among several. While the development gate is active, a **Open development surface** action also appears on the installed package card, so the surface can be reopened without restarting Luma; only one package surface can be open at a time. Release builds cannot open or serve the harness. The harness still installs nothing, records no production grant approval, and does not make executable packages enableable in Settings.
+- `isolated-ui` supports `launcher-open`; **Open** shows its desktop surface after `surface.ready`.
+- `background` supports `launcher-open`, `startup`, and `always`. Launcher-open services stop when Luma hides to tray. Startup/always services can start without a launcher and continue in the tray until disabled or Luma exits.
+- The bridge accepts `identity`, `settings.read`, `net.get`, `playback.read`, `playback.toggle`, `playback.next`, `playback.previous`, `surface.ready`, and `surface.close`. Host actions are bounded and checked against the installed package and its stored grant.
+- Network requests use approved HTTPS origins, public-address resolution and address pinning, no redirects, bounded query values, and a 64 KiB JSON response cap.
+- The runtime has 16 registered isolation slots. Active sessions have distinct slot origins and fresh token paths; incognito WebView storage is ephemeral. Durable settings remain in SQLite.
+- A ready timeout and bounded restart policy stop repeated failures: at most three restart attempts in ten minutes, followed by auto-disable with a visible reason.
+- Update preserves declared settings but leaves the package disabled for review. Changed permission/network declarations clear the old grant. Incompatible packages remain installed and disabled rather than blocking startup.
 
-The harness proves the reusable package APIs needed by the example:
+The runtime uses a separate WebView2 window per active package, including a hidden window for a background service. It is not a separate native process sandbox. The live harness has verified bridge/CSP denials and lifecycle cleanup and measured startup/idle cost. Interactive focus, actual renderer crash events and an agreed resource budget remain open; see [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md).
 
-- The window origin, entry, title, identity, assets, and settings come from the installed package record.
-- The package serves only files inside its installed directory, with a restrictive response CSP and same-origin navigation.
-- The bridge is `extension_bridge` with exact operations: `identity`, `settings.read`, `net.get`, `playback.read`, `playback.toggle`, `playback.next`, `playback.previous`, `surface.ready`, and `surface.close`.
-- Each operation is authorized against the package's declared permissions. `net.get` is additionally constrained to the package's `network.allow` origins, a relative path, bounded query values, a 5-second timeout, no redirects, and a 64 KiB response cap.
-- Playback operations reuse the existing native Spotify owner and return the existing bounded music mirror. They do not create a second player or account session.
-- Disable, remove, or update of the active package closes its surface. Hide-to-tray and main-window destruction dismiss it. The surface opens in its own loading state; the host focuses it only after the package reports `surface.ready`. A 5-second watchdog closes an unready surface and returns focus to the launcher.
+The tray preserves Open/Exit and adds one host-owned action per enabled executable package: Open for UI packages or Disable for background services.
 
-The example must be zipped before importing. On Windows PowerShell:
+## Web remote panels
+
+A declarative API v1 package may declare `remote: { "title": "Music controls", "actions": ["playback.previous", "playback.toggle", "playback.next"] }`. Empty actions show playback only. Titles are limited to 48 characters and actions must be unique supported names. Panels appear in the paired web remote under **More > Plugin panels** only while their package is enabled. Every action rechecks the current declaration; no extension HTML or JavaScript is sent to the remote. Display Box has no plugin panel projection in its current protocol.
+
+The importable [music remote example](../examples/plugins/com.example.music-remote/luma-extension.json) proves the declarative panel shape. The [weather example](../examples/plugins/com.example.weather/luma-extension.json) uses the generic executable bridge and its own location/unit settings. Zip a package folder's contents, then import the ZIP through Settings > Plugins. For example:
 
 ```powershell
 Compress-Archive -Path examples\plugins\com.example.weather\* -DestinationPath $env:TEMP\com.example.weather-1.0.0.luma-extension.zip
 ```
-
-Then import the ZIP in **Settings → Plugins**, restart the debug build with `LUMA_EXTENSION_SPIKE=1`, and leave the package disabled.
-
-This harness does not establish isolation, native command denial, CSP behavior, crash containment, TV focus, phone-remote parity, resource budgets, or a production grant-review UI. Those gates remain open in [the runtime spike record](CUSTOMIZATION-RUNTIME-SPIKE.md).
 
 ## Shipped limits and verification
 

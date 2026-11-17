@@ -4,7 +4,7 @@ Implementation boundary (2026-11-15): the current batch ships MCP access, ten-ve
 
 The broader extension system remains the intended product scope, not an optional replacement with presets. Stages 6 and 7 below establish the executable UI runtime, background supervisor, and remote integration. Their public contracts must support custom widgets/screens, permitted external service access with host-managed credentials where needed, and reuse of existing Luma data/actions/events without duplicate playback or account owners. A weather widget consuming an external service and a music screen using existing playback are representative acceptance cases. Do not call the broader plugin system complete until representative extensions run through install, configure, enable, disable, restart/tray, failure, and recovery journeys. Activity-provider integration remains separately sequenced in Stage 8.
 
-Status: cross-layer plan with shipped declarative plugin implementation. Executable runtime stages remain proposals. This file owns the cross-layer plan; [PLUGINS.md](PLUGINS.md) owns the shipped declarative manifest, settings, import/export, navigation, and limits; [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) owns agent transport, tool schema, and final setup-prompt wording; and [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) owns the Display Box client and frame protocol detail.
+Status: cross-layer plan with shipped declarative plugin implementation. Stage 6/7 executable lifecycle and background supervision now have an implementation checkpoint; live acceptance remains open. See PLUGINS.md for the current contract. This file owns the cross-layer plan; [PLUGINS.md](PLUGINS.md) owns the shipped declarative manifest, settings, import/export, navigation, and limits; [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) owns agent transport, tool schema, and final setup-prompt wording; and [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) owns the Display Box client and frame protocol detail.
 
 Assessed: 2026-11-15 against the shared checkout. Concurrent phone-remote and Sports work was present and is not depended on here. Re-read the cited files before implementing; symbols matter more than line numbers.
 
@@ -820,7 +820,7 @@ Exit criteria:
 
 ### Stage 6 — Executable UI gate and first runtime
 
-Contract and acceptance record: [CUSTOMIZATION-RUNTIME-SPIKE.md](CUSTOMIZATION-RUNTIME-SPIKE.md). It is pre-spike: no runtime is selected and no live check has passed.
+Contract and acceptance record: [CUSTOMIZATION-RUNTIME-SPIKE.md](CUSTOMIZATION-RUNTIME-SPIKE.md). A per-package WebView2 runtime and background supervisor are implemented. Runtime acceptance and resource evidence remain open; earlier spike checkpoints are historical.
 
 Dependency: G1/G2 evidence and a feature that cannot be expressed declaratively.
 

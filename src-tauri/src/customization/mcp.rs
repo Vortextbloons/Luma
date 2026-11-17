@@ -29,7 +29,7 @@ const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
 const METHOD_HEADER: &str = "mcp-method";
 const NAME_HEADER: &str = "mcp-name";
-const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; executable runtimes are not supported in this Luma version. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. The user must open Luma > Settings > Plugins and press Preview and enable, then press Keep. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
+const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; isolated-ui and background packages are executable runtimes that only the user can enable after reviewing their permissions. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. For declarative plugins the user must open Luma > Settings > Plugins, preview the plugin, enable it, then press Keep. Executable runtimes require the user to approve their declared permissions, network origins, and trigger. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
 const THEMES: [&str; 6] = [
     "violet-night",
@@ -1472,7 +1472,7 @@ fn action(code: &str) -> &'static str {
             "Another enabled plugin already controls one of these fields. Ask the user to disable or remove it, or choose different contributions."
         }
         "plugin_unsupported" => {
-            "This Luma version runs declarative plugins only. Report the runtime limitation and do not claim the plugin can be enabled."
+            "This package uses an unsupported runtime (main-page). Report the limitation and do not claim the plugin can be enabled."
         }
         "plugin_settings" | "immutable_version" => {
             "Correct the declared setting or package version, then validate again."
@@ -1906,8 +1906,8 @@ fn capabilities() -> Value {
             "extensions": {
                 "supported": true,
                 "declarative": true,
-                "executable": false,
-                "reason": "Declarative plugins that contribute appearance, Home layout, and settings are supported. Isolated-ui packages validate and install disabled with declared permissions, but cannot be enabled or executed in production."
+                "executable": true,
+                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts."
             },
             "plugins": {
                 "supported": true,
@@ -1916,20 +1916,20 @@ fn capabilities() -> Value {
                 "settingTypes": ["boolean", "enum", "number", "string"],
                 "apiVersions": {
                     "declarative": plugin::API_VERSION,
-                    "isolatedUi": plugin::EXECUTABLE_API_VERSION
+                    "executable": plugin::EXECUTABLE_API_VERSION
                 },
                 "runtimes": {
-                    "supported": ["declarative"],
-                    "installedDisabled": ["isolated-ui", "background", "main-page"]
+                    "supported": ["declarative", "isolated-ui", "background"],
+                    "installedDisabled": ["main-page"]
                 },
                 "executablePermissions": plugin::PERMISSIONS
                     .iter()
                     .map(|permission| permission.label())
                     .collect::<Vec<_>>(),
-                "executableNetwork": "An isolated-ui package may declare network.get with up to eight public HTTPS origins. Luma never enables executable packages in production.",
+                "executableNetwork": "An executable package may declare network.get with up to eight public HTTPS origins. The host resolves the name, rejects non-public targets, and pins the request to the resolved address.",
                 "importFormats": ["luma-extension.zip", "manifest plus text/base64 files"],
                 "limits": plugin::limits(),
-                "review": "MCP installs plugins disabled. Only the user can preview and enable a plugin and press Keep. Settings staged by MCP also require user Keep."
+                "review": "MCP installs plugins disabled. Only the user can preview and enable a declarative plugin or approve an executable runtime grant; both require an explicit user action in Luma. Settings staged by MCP also require user Keep."
             }
         },
         "appearance": {

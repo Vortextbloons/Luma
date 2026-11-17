@@ -59,6 +59,11 @@
     'MCP customization': ['M4.5 6.5h15v11h-15z', 'M8.5 12h7'],
   };
   const activeCategory = $derived(settingsCategory(category));
+  let pluginPanel = $state<{ consumeBack: () => boolean }>();
+
+  export function consumeBack() {
+    return pluginPanel?.consumeBack() ?? false;
+  }
   const activeSection = $derived(activeCategory.sections.find(item => item.id === section) ?? activeCategory.sections[0]);
   const theme = $derived(themeById(settings.theme));
   let resetNote = $state('');
@@ -223,7 +228,7 @@
           <WidgetSettings {settings} />
         {/if}
       {:else if activeCategory.name === 'Plugins'}
-        <PluginSettings {native} {revision} {plugins} loading={pluginsLoading} error={pluginsError} reload={onpluginsreload} />
+        <PluginSettings bind:this={pluginPanel} {native} {revision} {plugins} loading={pluginsLoading} error={pluginsError} reload={onpluginsreload} />
       {:else if activeCategory.name === 'MCP customization'}
         <CustomizationSettings {native} {revision} section={activeSection.id} onchanged={() => { homeDraft = null; layoutError = ''; }} />
       {:else if activeCategory.name === 'Display & Sound'}

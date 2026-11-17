@@ -557,6 +557,36 @@ async fn phone_layout(
     Ok(Json(serde_json::json!({"accepted": true, "state": state})))
 }
 
+async fn phone_panels(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    phone_authorized(&app, &headers)?;
+    server::phone_panels(&app)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelActionRequest {
+    id: String,
+    action: String,
+}
+
+async fn phone_panel_action(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<PanelActionRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    same_origin(&headers)?;
+    phone_authorized(&app, &headers)?;
+    server::phone_panel_action(&app, request.id, request.action)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn app_icon(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
@@ -914,6 +944,8 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/phone/pair", post(phone_pair))
         .route("/phone/disconnect", post(phone_disconnect))
         .route("/phone/state", get(phone_state))
+        .route("/phone/panels", get(phone_panels))
+        .route("/phone/panels/action", post(phone_panel_action))
         .route("/phone/playback", get(phone_playback).post(phone_playback))
         .route("/phone/layout", post(phone_layout))
         .route("/phone/settings", post(phone_setting))

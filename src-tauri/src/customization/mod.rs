@@ -2,6 +2,8 @@ pub mod document;
 pub mod history;
 pub mod mcp;
 pub mod plugin;
+#[cfg(all(debug_assertions, windows))]
+pub mod runtime_acceptance;
 pub mod server;
 
 use document::{Config, Document};
@@ -754,6 +756,7 @@ pub fn publish(app: &tauri::AppHandle, document: &Document) {
     if let Some(plugins) = plugins {
         let _ = app.emit_to("main", "customization-plugins-changed", plugins);
     }
+    crate::background::refresh_plugin_menu(app);
     publish_preview(app);
 }
 
@@ -841,6 +844,7 @@ pub async fn customization_restore(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().restore(expected_revision)?;
         publish(&app, &document);
+        crate::extension_spike::sync(&app);
         effective(&app, document)
     })
     .await
@@ -855,6 +859,7 @@ pub async fn customization_restore_layout(
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().restore_layout(expected_revision)?;
         publish(&app, &document);
+        crate::extension_spike::sync(&app);
         effective(&app, document)
     })
     .await
@@ -881,6 +886,7 @@ pub async fn customization_restore_version(
             .state::<Store>()
             .restore_version(expected_revision, revision)?;
         publish(&app, &document);
+        crate::extension_spike::sync(&app);
         if !notices.is_empty() {
             plugin::notice(&app, notices.join(" "));
         }
@@ -1016,6 +1022,34 @@ pub async fn customization_plugin_preview(
 }
 
 #[tauri::command]
+pub async fn customization_plugin_enable_runtime(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+    permissions: Vec<String>,
+    network: Vec<String>,
+    trigger: plugin::Trigger,
+) -> Result<plugin::PluginsState, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin::command_enable_runtime(
+            &app.state::<Store>(),
+            &plugin_id,
+            expected_revision,
+            permissions,
+            network,
+            trigger,
+        )?;
+        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
+            publish(&app, &snapshot.document);
+        }
+        crate::extension_spike::refresh(&app, &plugin_id);
+        plugin::state_for_app(&app)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
 pub async fn customization_plugin_disable(
     app: tauri::AppHandle,
     plugin_id: String,
@@ -1039,18 +1073,30 @@ pub async fn customization_plugin_remove(
     app: tauri::AppHandle,
     plugin_id: String,
     expected_revision: u64,
+    delete_data: bool,
 ) -> Result<plugin::PluginsState, Error> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let notify = app.clone();
-        plugin::command_remove(&app.state::<Store>(), &plugin_id, expected_revision)?;
-        crate::extension_spike::invalidate(&notify, &plugin_id);
-        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
-            publish(&app, &snapshot.document);
+    let remove_app = app.clone();
+    let remove_id = plugin_id.clone();
+    let state = tauri::async_runtime::spawn_blocking(move || {
+        plugin::command_remove(&remove_app.state::<Store>(), &remove_id, expected_revision, delete_data)?;
+        if !delete_data {
+            crate::extension_spike::invalidate(&remove_app, &remove_id);
         }
-        plugin::state_for_app(&app)
+        if let Ok(Some(snapshot)) = remove_app.state::<Store>().snapshot() {
+            publish(&remove_app, &snapshot.document);
+        }
+        plugin::state_for_app(&remove_app)
     })
     .await
-    .map_err(|error| Error::new("storage", error))?
+    .map_err(|error| Error::new("storage", error))??;
+    if delete_data {
+        crate::extension_spike::remove_data(&app, &plugin_id)
+            .await
+            .map_err(|error| Error::new("plugin_data_cleanup", format!(
+                "The plugin was removed, but some local data could not be deleted. Reimport it and remove it with the delete-data option to retry. {error}"
+            )))?;
+    }
+    Ok(state)
 }
 
 #[tauri::command]

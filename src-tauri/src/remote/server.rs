@@ -475,7 +475,7 @@ pub(crate) async fn wake(app: &tauri::AppHandle) -> Result<(), String> {
 pub(crate) fn stop(app: &tauri::AppHandle) -> Result<(), String> {
     crate::viewing::restore_external(app);
     crate::commands::session::close_steam(app);
-    crate::extension_spike::dismiss(app);
+    crate::extension_spike::launcher_hidden(app);
     crate::remote::pointer::stop_all(app);
     crate::remote::pointer::show_cursor(app);
     for label in ["main", "youtube", "stremio", "sports"] {
@@ -756,6 +756,82 @@ pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> 
         state.window_fullscreen = None;
     }
     Ok(state.clone())
+}
+
+fn current_music(app: &tauri::AppHandle) -> Option<MusicState> {
+    let remote = app.try_state::<Remote>()?;
+    let receiver = remote.subscribe_music();
+    let music = receiver.borrow().clone();
+    music
+}
+
+fn panels_response(
+    panels: Vec<crate::customization::plugin::RemotePanel>,
+) -> serde_json::Value {
+    serde_json::json!({ "panels": panels })
+}
+
+pub(crate) fn phone_panels(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
+    crate::customization::plugin::remote_panels(app)
+        .map(panels_response)
+        .map_err(|error| error.message)
+}
+
+fn playback_command(action: crate::customization::plugin::RemoteAction) -> &'static str {
+    use crate::customization::plugin::RemoteAction;
+
+    match action {
+        RemoteAction::PlaybackToggle => "toggle",
+        RemoteAction::PlaybackNext => "next",
+        RemoteAction::PlaybackPrevious => "previous",
+    }
+}
+
+fn action_response(
+    accepted: bool,
+    code: Option<&str>,
+    error: Option<String>,
+    music: Option<MusicState>,
+) -> serde_json::Value {
+    let mut response = serde_json::Map::new();
+    response.insert("accepted".into(), accepted.into());
+    if let Some(code) = code {
+        response.insert("code".into(), code.into());
+    }
+    if let Some(error) = error {
+        response.insert("error".into(), error.into());
+    }
+    if let Some(music) = music {
+        response.insert("music".into(), serde_json::json!(music));
+    }
+    response.into()
+}
+
+pub(crate) async fn phone_panel_action(
+    app: &tauri::AppHandle,
+    id: String,
+    action: String,
+) -> Result<serde_json::Value, String> {
+    let action = match crate::customization::plugin::remote_action(app, &id, &action) {
+        Ok(action) => action,
+        Err(error) => {
+            return Ok(action_response(
+                false,
+                Some(error.code),
+                Some(error.message),
+                current_music(app),
+            ))
+        }
+    };
+    match crate::commands::media::music(app, playback_command(action)).await {
+        Ok(()) => Ok(action_response(true, None, None, current_music(app))),
+        Err(error) => Ok(action_response(
+            false,
+            Some("unavailable"),
+            Some(error),
+            current_music(app),
+        )),
+    }
 }
 
 pub(crate) fn sync_music(
@@ -1047,6 +1123,68 @@ mod tests {
         assert_eq!(value["canSkipPrevious"], false);
         assert!(value.get("artworkUrl").is_none());
         assert!(serde_json::to_vec(&music).unwrap().len() < 512);
+    }
+
+    #[test]
+    fn remote_panel_actions_map_only_to_music_commands() {
+        use crate::customization::plugin::RemoteAction;
+
+        assert_eq!(super::playback_command(RemoteAction::PlaybackToggle), "toggle");
+        assert_eq!(super::playback_command(RemoteAction::PlaybackNext), "next");
+        assert_eq!(super::playback_command(RemoteAction::PlaybackPrevious), "previous");
+    }
+
+    #[test]
+    fn remote_panel_action_errors_keep_the_remote_contract() {
+        let denied = super::action_response(
+            false,
+            Some("denied"),
+            Some("That plugin did not declare this remote action.".into()),
+            None,
+        );
+        assert_eq!(denied["accepted"], false);
+        assert_eq!(denied["code"], "denied");
+        assert_eq!(
+            denied["error"],
+            "That plugin did not declare this remote action."
+        );
+        assert!(denied.get("music").is_none());
+
+        let accepted = super::action_response(
+            true,
+            None,
+            None,
+            Some(super::MusicState {
+                playing: true,
+                title: Some("Song".into()),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(accepted["accepted"], true);
+        assert_eq!(accepted["music"]["title"], "Song");
+        assert!(accepted.get("code").is_none());
+        assert!(accepted.get("error").is_none());
+    }
+
+    #[test]
+    fn remote_panels_use_the_bounded_wire_shape() {
+        use crate::customization::plugin::{RemoteAction, RemotePanel};
+
+        let value = super::panels_response(vec![RemotePanel {
+            id: "com.example.lounge".into(),
+            name: "Lounge".into(),
+            title: "Lounge controls".into(),
+            actions: vec![RemoteAction::PlaybackToggle, RemoteAction::PlaybackNext],
+        }]);
+        let panel = &value["panels"][0];
+        assert_eq!(panel["id"], "com.example.lounge");
+        assert_eq!(panel["name"], "Lounge");
+        assert_eq!(panel["title"], "Lounge controls");
+        assert_eq!(panel["actions"][0], "playback.toggle");
+        assert_eq!(panel["actions"][1], "playback.next");
+        assert_eq!(panel.as_object().unwrap().len(), 4);
+        assert!(panel.get("permissions").is_none());
+        assert!(panel.get("entry").is_none());
     }
 
     #[test]

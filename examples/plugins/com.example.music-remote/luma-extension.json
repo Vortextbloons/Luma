@@ -1,0 +1,16 @@
+{
+  "id": "com.example.music-remote",
+  "name": "Music remote",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "Shares Luma's existing music playback controls with paired web remotes.",
+  "author": "Luma examples",
+  "remote": {
+    "title": "Music controls",
+    "actions": [
+      "playback.previous",
+      "playback.toggle",
+      "playback.next"
+    ]
+  }
+}

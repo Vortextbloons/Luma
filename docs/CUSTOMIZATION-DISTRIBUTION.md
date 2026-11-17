@@ -1,6 +1,6 @@
 # Extension sharing, bundled examples, and themes
 
-Status: declarative package sharing shipped 2026-11-15; executable runtime and catalog remain future work. [PLUGINS.md](PLUGINS.md) owns the exact manifest, ZIP, import/export, settings, navigation, limits, and MCP contract. This supplements [the layer architecture](CUSTOMIZATION-LAYERS.md), [MCP and recovery](CUSTOMIZATION-MCP-PLAN.md), and [remote surfaces](CUSTOMIZATION-DISPLAY-BOX.md).
+Status: declarative package sharing shipped 2026-11-15; executable lifecycle is implemented with live Stage 6/7 acceptance pending; the catalog remains future work. [PLUGINS.md](PLUGINS.md) owns the exact manifest, ZIP, import/export, settings, navigation, limits, and MCP contract. This supplements [the layer architecture](CUSTOMIZATION-LAYERS.md), [MCP and recovery](CUSTOMIZATION-MCP-PLAN.md), and [remote surfaces](CUSTOMIZATION-DISPLAY-BOX.md).
 
 ## Intended experience
 
@@ -20,7 +20,7 @@ Start with installation from a local package file. A curated catalog can subsequ
 
 The normal authoring unit is a folder. `luma-extension.json` sits at its root with package-relative source, runtime entry files, and assets. The extension ID and version identify the package regardless of its folder name or installation location. Do not embed the author's project directory in imports, artwork paths, or runtime entry points.
 
-Shipped sharing filename: `<extension-id>-<version>.luma-extension.zip`, an ordinary ZIP that can also be opened with standard archive tools. The manifest schema and limits are in [PLUGINS.md](PLUGINS.md). A declarative package is one archive containing the manifest, source, and assets. Executable runtime entries are packaged but never run in this version.
+Shipped sharing filename: `<extension-id>-<version>.luma-extension.zip`, an ordinary ZIP that can also be opened with standard archive tools. The manifest schema and limits are in [PLUGINS.md](PLUGINS.md). A declarative package is one archive containing the manifest, source, and assets. Executable packages install disabled and require explicit user access review before running; importing never runs code.
 
 The authoring journey is: AI discovers the plugin schema and example through MCP; creates or edits the folder using its existing coding tools; validates the manifest and declared files with `luma_plugin_validate`; stages the package with `luma_plugin_stage`; the user imports through Settings → Plugins or receives the staged package there, reviews it, previews and enables it, and presses Keep; the user exports the accepted package through the native Save dialog. MCP staging installs disabled and cannot replace an enabled package, enable it, keep it, remove it, or execute it.
 
@@ -30,7 +30,7 @@ The author can choose **Export** from an installed plugin and save a fresh copy 
 
 Acceptance includes moving the package to a differently named folder on a second PC, installing without author tools, deleting the imported ZIP, restarting, switching themes, exporting again, and verifying that the installed plugin still works. Imports validate archive paths, duplicate/case-colliding filenames, symlinks, entry existence, file counts, and compressed/uncompressed size limits before activation. Import never executes build or install scripts.
 
-1. **Shipped 2026-11-15 for declarative plugins:** one package format, local import, manifest inspection, compatibility checks, disabled staging, user preview/enable, disable/remove, recovery, history restore, native export dialog, and archive safety checks. See [PLUGINS.md](PLUGINS.md). Executable code remains future.
+1. **Shipped 2026-11-15 for declarative plugins:** one package format, local import, manifest inspection, compatibility checks, disabled staging, user preview/enable, disable/remove, recovery, history restore, native export dialog, and archive safety checks. See [PLUGINS.md](PLUGINS.md). Executable lifecycle now has an implementation checkpoint; live acceptance remains open.
 2. Add a curated catalog using the same installer. Define catalog ownership, package integrity, publisher identity, and unavailable/removed-version behavior before enabling downloads. A checksum verifies bytes against trusted metadata; it does not establish author trust by itself. Updates are explicit candidates, with renewed approval for capability expansion. Existing installed versions keep working when the catalog is offline.
 3. Consider open publication only after install/update/recovery are proven. Define publisher verification, moderation/reporting, compromised-package handling, storage/bandwidth ownership, and operational responsibility. Do not promise a public marketplace release date before these decisions.
 

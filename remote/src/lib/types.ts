@@ -113,6 +113,26 @@ export interface AppsResponse {
   apps?: AppEntry[];
 }
 
+export interface PanelActionResponse {
+  accepted?: boolean;
+  code?: string;
+  error?: string | null;
+  music?: MusicState | null;
+}
+
+export interface PanelsResponse {
+  panels?: RemotePanel[];
+}
+
+export type PanelAction = "playback.toggle" | "playback.next" | "playback.previous";
+
+export interface RemotePanel {
+  id: string;
+  name: string;
+  title: string;
+  actions: PanelAction[];
+}
+
 export interface TimelineSnapshot {
   position?: number;
   duration?: number;

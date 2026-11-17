@@ -1,12 +1,10 @@
-use std::{sync::OnceLock, time::Duration};
+use std::{future::Future, net::IpAddr, time::Duration};
 
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::Mutex;
 
 const MAX_BODY: usize = 64 * 1024;
-
-static IN_FLIGHT: Mutex<()> = Mutex::const_new(());
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct Error {
@@ -22,10 +20,17 @@ impl Error {
         }
     }
 
-    fn busy() -> Self {
+    pub(crate) fn cancelled() -> Self {
         Self {
-            code: "busy",
-            message: "A network request is already running.",
+            code: "cancelled",
+            message: "The package runtime stopped before the request finished.",
+        }
+    }
+
+    fn denied() -> Self {
+        Self {
+            code: "denied",
+            message: "That host did not resolve to a public address.",
         }
     }
 
@@ -63,9 +68,23 @@ pub(crate) async fn get(
     path: &str,
     query: &[(String, String)],
 ) -> Result<Value, Error> {
-    let _guard = IN_FLIGHT.try_lock().map_err(|_| Error::busy())?;
+    within(REQUEST_TIMEOUT, request(origin, path, query)).await
+}
+
+async fn within<T, F>(duration: Duration, future: F) -> Result<T, Error>
+where
+    F: Future<Output = Result<T, Error>>,
+{
+    tokio::time::timeout(duration, future)
+        .await
+        .map_err(|_| Error::timeout())?
+}
+
+async fn request(origin: &str, path: &str, query: &[(String, String)]) -> Result<Value, Error> {
     let url = build_url(origin, path, query)?;
-    let response = client()?
+    let host = url.host_str().ok_or_else(Error::invalid)?.to_string();
+    let addresses = public_addresses(&host).await?;
+    let response = client(&host, &addresses)?
         .get(url)
         .send()
         .await
@@ -75,26 +94,63 @@ pub(crate) async fn get(
     serde_json::from_slice(&body).map_err(|_| Error::malformed())
 }
 
-fn client() -> Result<&'static reqwest::Client, Error> {
-    static CLIENT: OnceLock<Result<reqwest::Client, Error>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .connect_timeout(Duration::from_secs(3))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|_| Error::unavailable())
-        })
-        .as_ref()
-        .map_err(|error| *error)
+async fn public_addresses(host: &str) -> Result<Vec<std::net::SocketAddr>, Error> {
+    let resolved: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, 443))
+        .await
+        .map_err(|_| Error::unavailable())?
+        .collect();
+    if resolved.is_empty() || !resolved.iter().all(|address| is_public(address.ip())) {
+        return Err(Error::denied());
+    }
+    Ok(resolved)
 }
 
-fn build_url(
-    origin: &str,
-    path: &str,
-    query: &[(String, String)],
-) -> Result<reqwest::Url, Error> {
+fn is_public(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            let octets = address.octets();
+            !(address.is_private()
+                || address.is_loopback()
+                || address.is_link_local()
+                || address.is_broadcast()
+                || address.is_documentation()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                || (octets[0] == 198 && matches!(octets[1], 18 | 19))
+                || octets[0] >= 240)
+        }
+        IpAddr::V6(address) => {
+            let mapped = address.to_ipv4_mapped();
+            if let Some(address) = mapped {
+                return is_public(IpAddr::V4(address));
+            }
+            !(address.is_loopback()
+                || address.is_unspecified()
+                || address.is_multicast()
+                || address.is_unique_local()
+                || address.is_unicast_link_local()
+                || (address.segments()[0] == 0x2001 && address.segments()[1] == 0x0db8)
+                || (address.segments()[0] & 0xffc0) == 0xfe80
+                || (address.segments()[0] & 0xff00) == 0xff00)
+        }
+    }
+}
+
+fn client(host: &str, addresses: &[std::net::SocketAddr]) -> Result<reqwest::Client, Error> {
+    reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(Duration::from_secs(3))
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(host, addresses)
+        .build()
+        .map_err(|_| Error::unavailable())
+}
+
+fn build_url(origin: &str, path: &str, query: &[(String, String)]) -> Result<reqwest::Url, Error> {
     let mut url = reqwest::Url::parse(origin).map_err(|_| Error::invalid())?;
     url.set_path(path);
     url.query_pairs_mut().extend_pairs(query);
@@ -142,7 +198,11 @@ fn transport(error: reqwest::Error) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_chunk, build_url, declared_too_large, require_ok, Error, MAX_BODY};
+    use super::{
+        append_chunk, build_url, declared_too_large, is_public, require_ok, within, Error,
+        MAX_BODY, REQUEST_TIMEOUT,
+    };
+    use std::{net::IpAddr, time::Duration};
 
     #[test]
     fn builds_an_allowlisted_url_from_structured_parts() {
@@ -201,8 +261,64 @@ mod tests {
     }
 
     #[test]
+    fn localhost_resolution_is_rejected_as_a_private_target() {
+        let error =
+            tauri::async_runtime::block_on(super::public_addresses("localhost")).unwrap_err();
+        assert_eq!(error.code, "denied");
+    }
+
+    #[test]
+    fn the_whole_lookup_and_request_share_one_bounded_deadline() {
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(5));
+        let error = tauri::async_runtime::block_on(within(Duration::from_millis(20), async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok::<(), Error>(())
+        }))
+        .unwrap_err();
+        assert_eq!(error.code, "timeout");
+    }
+
+    #[test]
+    fn rejects_private_and_reserved_addresses() {
+        for address in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.4",
+            "169.254.1.1",
+            "0.0.0.0",
+            "100.64.0.1",
+            "198.18.0.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+            "::ffff:192.168.0.1",
+        ] {
+            assert!(
+                !is_public(address.parse::<IpAddr>().unwrap()),
+                "{address} must not be a public target"
+            );
+        }
+        for address in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+            assert!(
+                is_public(address.parse::<IpAddr>().unwrap()),
+                "{address} must remain a public target"
+            );
+        }
+    }
+
+    #[test]
     fn reports_typed_errors() {
-        for error in [Error::invalid(), Error::busy(), Error::timeout(), Error::unavailable(), Error::too_large(), Error::malformed()] {
+        for error in [
+            Error::invalid(),
+            Error::cancelled(),
+            Error::denied(),
+            Error::timeout(),
+            Error::unavailable(),
+            Error::too_large(),
+            Error::malformed(),
+        ] {
             assert!(!error.code.is_empty());
             assert!(!error.message.is_empty());
         }

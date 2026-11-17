@@ -7,6 +7,7 @@
   import MoreMenu from "./MoreMenu.svelte";
   import MusicCard from "./MusicCard.svelte";
   import OfflineBanner from "./OfflineBanner.svelte";
+  import PanelsDialog from "./PanelsDialog.svelte";
   import RemoteKey from "./RemoteKey.svelte";
   import SettingsDialog from "./SettingsDialog.svelte";
   import SearchDialog from "./SearchDialog.svelte";
@@ -17,6 +18,7 @@
   import { say } from "../lib/toast.svelte";
 
   let settingsOpen = $state(false);
+  let panelsOpen = $state(false);
   let textOpen = $state(false);
 
   const navKey = "flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-line bg-white/[0.045] text-[13px] font-semibold text-ink-dim transition active:scale-[.97] active:bg-white/[.11]";
@@ -47,6 +49,11 @@
   function closeText(): void {
     textOpen = false;
     void tick().then(() => document.querySelector<HTMLElement>("[data-type-trigger]")?.focus());
+  }
+
+  function closePanels(): void {
+    panelsOpen = false;
+    void tick().then(() => document.querySelector<HTMLElement>("#more-toggle")?.focus());
   }
 
   $effect(() => {
@@ -89,7 +96,7 @@
           <Icon name="home" className="size-[18px]" />
           <span>Home</span>
         </RemoteKey>
-        <MoreMenu onsend={command} />
+        <MoreMenu onsend={command} onpanels={() => (panelsOpen = true)} />
       </div>
 
       <div class="pad-group">
@@ -103,6 +110,7 @@
   <MusicCard onsend={command} />
 
   <SettingsDialog open={settingsOpen} onclose={closeSettings} />
+  <PanelsDialog open={panelsOpen} onclose={closePanels} />
   <SearchDialog open={screen.current === "search"} onclose={closeSearch} />
   <TextDialog open={textOpen} onclose={closeText} />
 </div>

@@ -3,7 +3,10 @@
   import Icon from "./Icon.svelte";
   import { session } from "../lib/session.svelte";
 
-  let { onsend }: { onsend: (command: string) => Promise<unknown> | unknown } = $props();
+  let { onsend, onpanels }: {
+    onsend: (command: string) => Promise<unknown> | unknown;
+    onpanels: () => void;
+  } = $props();
 
   let open = $state(false);
   let trigger = $state<HTMLButtonElement>();
@@ -90,6 +93,7 @@
       </button>
       <button type="button" role="menuitem" class="more-item" onclick={() => run("switchdisplay")}><Icon name="expand" className="size-[17px]" /><span>Switch PC display</span></button>
       <button type="button" role="menuitem" class="more-item" onclick={() => run("nextplayer")}><Icon name="expand" className="size-[17px]" /><span>Switch Multi Watch player</span></button>
+      <button type="button" role="menuitem" class="more-item" aria-haspopup="dialog" onclick={() => { close(false); onpanels(); }}><Icon name="apps" className="size-[17px]" /><span>Plugin panels</span></button>
       <button type="button" role="menuitem" class="more-item is-danger" onclick={() => run("stop")}>
         <Icon name="stop" className="size-[17px]" />
         <span>Stop Luma</span>

@@ -36,6 +36,8 @@ const MAX_MCP_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_PERMISSIONS: usize = 8;
 const MAX_NETWORK_ORIGINS: usize = 8;
 const MAX_ORIGIN_BYTES: usize = 128;
+const MAX_REMOTE_ACTIONS: usize = 3;
+const MAX_REMOTE_TITLE: usize = 48;
 const BUILTIN_THEMES: [&str; 6] = [
     "violet-night",
     "sapphire",
@@ -94,6 +96,8 @@ pub struct Manifest {
     pub assets: Vec<String>,
     #[serde(default)]
     pub source: Vec<String>,
+    #[serde(default)]
+    pub remote: Option<RemoteContribution>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -124,6 +128,101 @@ impl Permission {
             Self::PlaybackControl => "playback.control",
         }
     }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        PERMISSIONS
+            .iter()
+            .copied()
+            .find(|permission| permission.label() == value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Trigger {
+    LauncherOpen,
+    Startup,
+    Always,
+}
+
+impl Trigger {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::LauncherOpen => "launcher-open",
+            Self::Startup => "startup",
+            Self::Always => "always",
+        }
+    }
+
+    pub(crate) fn supports(self, kind: RuntimeKind) -> bool {
+        match kind {
+            RuntimeKind::IsolatedUi => matches!(self, Self::LauncherOpen),
+            RuntimeKind::Background => true,
+            RuntimeKind::Declarative | RuntimeKind::MainPage => false,
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        [Self::LauncherOpen, Self::Startup, Self::Always]
+            .into_iter()
+            .find(|trigger| trigger.label() == value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteContribution {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub actions: Vec<RemoteAction>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RemoteAction {
+    #[serde(rename = "playback.toggle")]
+    PlaybackToggle,
+    #[serde(rename = "playback.next")]
+    PlaybackNext,
+    #[serde(rename = "playback.previous")]
+    PlaybackPrevious,
+}
+
+impl RemoteAction {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::PlaybackToggle => "playback.toggle",
+            Self::PlaybackNext => "playback.next",
+            Self::PlaybackPrevious => "playback.previous",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        [
+            Self::PlaybackToggle,
+            Self::PlaybackNext,
+            Self::PlaybackPrevious,
+        ]
+        .into_iter()
+        .find(|action| action.label() == value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStatus {
+    pub state: String,
+    pub reason: Option<String>,
+    pub restarts: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemotePanel {
+    pub id: String,
+    pub name: String,
+    pub title: String,
+    pub actions: Vec<RemoteAction>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,7 +358,15 @@ impl RuntimeKind {
         matches!(self, Self::Declarative)
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn is_executable(self) -> bool {
+        matches!(self, Self::IsolatedUi | Self::Background)
+    }
+
+    pub(crate) fn has_surface(self) -> bool {
+        matches!(self, Self::IsolatedUi)
+    }
+
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Declarative => "declarative",
             Self::IsolatedUi => "isolated-ui",
@@ -347,6 +454,11 @@ pub struct PluginRecord {
     pub execution_reason: Option<String>,
     pub permissions: Vec<String>,
     pub network: Vec<String>,
+    pub granted_permissions: Vec<String>,
+    pub granted_network: Vec<String>,
+    pub trigger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_status: Option<RuntimeStatus>,
     pub entry: Option<String>,
     pub surface_openable: bool,
     pub controls: Vec<String>,
@@ -445,12 +557,18 @@ impl StoredPlugin {
     }
 
     fn execution_reason(&self) -> Option<String> {
-        (!self.manifest.runtime.kind.is_declarative()).then(|| {
-            format!(
-                "This plugin declares the {} runtime. This Luma version supports declarative plugins only, so it is installed but cannot be enabled.",
-                self.manifest.runtime.kind.label()
-            )
-        })
+        match self.manifest.runtime.kind {
+            RuntimeKind::Declarative => None,
+            RuntimeKind::IsolatedUi | RuntimeKind::Background => {
+                (self.manifest.api_version != EXECUTABLE_API_VERSION).then(|| {
+                    "This package targets an executable runtime with an older plugin API. Install a compatible version.".to_string()
+                })
+            }
+            RuntimeKind::MainPage => Some(
+                "This plugin declares the main-page runtime. Luma never runs third-party code inside the main window, so it cannot be enabled."
+                    .to_string(),
+            ),
+        }
     }
 
     fn resolved_settings(&self) -> Vec<PluginSetting> {
@@ -495,11 +613,19 @@ impl StoredPlugin {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct Grant {
+    pub permissions: BTreeSet<Permission>,
+    pub network: Vec<String>,
+    pub trigger: Trigger,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct RuntimePackage {
     pub id: String,
     pub name: String,
     pub version: String,
     pub api_version: u32,
+    pub kind: RuntimeKind,
     pub entry: String,
     pub permissions: BTreeSet<Permission>,
     pub network: Vec<String>,
@@ -534,6 +660,32 @@ impl RuntimePackage {
     }
 }
 
+fn load_grant(connection: &Connection, plugin_id: &str) -> Result<Option<Grant>, Error> {
+    let row: Option<(String, String, String)> = connection
+        .query_row(
+            "SELECT permissions, network, trigger FROM plugin_grants WHERE plugin_id = ?1",
+            [plugin_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((permissions, network, trigger)) = row else {
+        return Ok(None);
+    };
+    let permissions: Vec<String> = serde_json::from_str(&permissions)
+        .map_err(|error| Error::new("plugin_storage", error))?;
+    let network: Vec<String> =
+        serde_json::from_str(&network).map_err(|error| Error::new("plugin_storage", error))?;
+    Ok(Some(Grant {
+        permissions: permissions
+            .iter()
+            .filter_map(|permission| Permission::parse(permission))
+            .collect(),
+        network,
+        trigger: Trigger::parse(&trigger)
+            .ok_or_else(|| Error::new("plugin_storage", "The stored runtime trigger is invalid."))?,
+    }))
+}
+
 pub(crate) fn runtime_package(
     store: &Store,
     plugin_id: &str,
@@ -544,14 +696,24 @@ pub(crate) fn runtime_package(
         .iter()
         .find(|(id, _)| id == plugin_id)
         .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
-    if plugin.manifest.runtime.kind != RuntimeKind::IsolatedUi
+    if !plugin.enabled {
+        return Err(Error::new("plugin_disabled", "That plugin is disabled."));
+    }
+    if !plugin.manifest.runtime.kind.is_executable()
         || plugin.manifest.api_version != EXECUTABLE_API_VERSION
+        || plugin.execution_reason().is_some()
     {
         return Err(Error::new(
             "plugin_unsupported",
-            "That plugin does not provide an executable UI surface.",
+            "That plugin does not provide a supported executable runtime.",
         ));
     }
+    let Some(grant) = load_grant(&connection, plugin_id)? else {
+        return Err(Error::new(
+            "plugin_denied",
+            "This plugin has no approved runtime grant. Enable it in Settings > Plugins.",
+        ));
+    };
     let entry = plugin
         .manifest
         .runtime
@@ -567,19 +729,30 @@ pub(crate) fn runtime_package(
             "The installed package files are missing. Reinstall the plugin.",
         ));
     }
+    let declared_permissions: BTreeSet<Permission> =
+        plugin.manifest.permissions.iter().copied().collect();
+    let declared_network = plugin
+        .manifest
+        .network
+        .as_ref()
+        .map(|network| network.allow.clone())
+        .unwrap_or_default();
     Ok(RuntimePackage {
         id: plugin.manifest.id.clone(),
         name: plugin.manifest.name.clone(),
         version: plugin.manifest.version.clone(),
         api_version: plugin.manifest.api_version,
+        kind: plugin.manifest.runtime.kind,
         entry,
-        permissions: plugin.manifest.permissions.iter().copied().collect(),
-        network: plugin
-            .manifest
+        permissions: declared_permissions
+            .intersection(&grant.permissions)
+            .copied()
+            .collect(),
+        network: grant
             .network
-            .as_ref()
-            .map(|network| network.allow.clone())
-            .unwrap_or_default(),
+            .into_iter()
+            .filter(|origin| declared_network.contains(origin))
+            .collect(),
         settings: plugin
             .manifest
             .settings
@@ -590,17 +763,24 @@ pub(crate) fn runtime_package(
     })
 }
 
-pub(crate) fn executable_package_ids(store: &Store) -> Result<Vec<String>, Error> {
+pub(crate) fn granted_plugins(store: &Store) -> Result<Vec<(String, Grant)>, Error> {
     let connection = store.connection()?;
     let plugins = load_plugins(&connection)?;
-    Ok(plugins
-        .into_iter()
-        .filter(|(_, plugin)| {
-            plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
-                && plugin.manifest.api_version == EXECUTABLE_API_VERSION
-        })
-        .map(|(id, _)| id)
-        .collect())
+    let mut granted = Vec::new();
+    for (id, plugin) in plugins {
+        if !plugin.enabled
+            || !plugin.manifest.runtime.kind.is_executable()
+            || plugin.execution_reason().is_some()
+        {
+            continue;
+        }
+        if let Some(grant) = load_grant(&connection, &id)? {
+            if grant.trigger.supports(plugin.manifest.runtime.kind) {
+                granted.push((id, grant));
+            }
+        }
+    }
+    Ok(granted)
 }
 
 pub(super) fn create(connection: &Connection) -> Result<(), Error> {
@@ -621,6 +801,14 @@ pub(super) fn create(connection: &Connection) -> Result<(), Error> {
             key TEXT NOT NULL,
             value TEXT NOT NULL,
             PRIMARY KEY (plugin_id, key)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_grants (
+            plugin_id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            permissions TEXT NOT NULL,
+            network TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            granted_at TEXT NOT NULL
         );",
     )?;
     Ok(())
@@ -655,6 +843,19 @@ pub(super) fn reconcile(connection: &Connection) -> Result<Vec<String>, Error> {
     let mut changed = Vec::new();
     for (id, plugin) in plugins.iter_mut() {
         if !plugin.enabled || plugin.execution_reason().is_some() {
+            continue;
+        }
+        if plugin.manifest.runtime.kind.is_executable() && load_grant(connection, id)?.is_none() {
+            plugin.enabled = false;
+            plugin.disabled_reason = Some(
+                "Disabled because its runtime permission grant is missing. Review and enable it again."
+                    .into(),
+            );
+            changed.push(id.clone());
+            notices.push(format!(
+                "{} needs its runtime permissions reviewed again.",
+                plugin.manifest.name
+            ));
             continue;
         }
         if let Err(error) = apply_plugins(&base, &[(id.clone(), plugin.clone())]) {
@@ -855,6 +1056,8 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
         } else {
             None
         };
+        let grant = load_grant(connection, &id)?;
+        let executable = plugin.manifest.runtime.kind.is_executable();
         records.push(PluginRecord {
             id,
             name: plugin.manifest.name.clone(),
@@ -864,7 +1067,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             author: plugin.manifest.author.clone(),
             enabled: plugin.enabled,
             runtime: plugin.manifest.runtime.kind.label().into(),
-            executable: !plugin.manifest.runtime.kind.is_declarative(),
+            executable,
             execution_reason,
             permissions: plugin
                 .manifest
@@ -878,9 +1081,29 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
                 .as_ref()
                 .map(|network| network.allow.clone())
                 .unwrap_or_default(),
+            granted_permissions: grant
+                .as_ref()
+                .map(|grant| {
+                    grant
+                        .permissions
+                        .iter()
+                        .map(|permission| permission.label().to_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            granted_network: grant
+                .as_ref()
+                .map(|grant| grant.network.clone())
+                .unwrap_or_default(),
+            trigger: grant
+                .as_ref()
+                .map(|grant| grant.trigger.label().to_string()),
+            runtime_status: None,
             entry: plugin.manifest.runtime.entry.clone(),
-            surface_openable: plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
-                && crate::extension_spike::development_enabled(),
+            surface_openable: plugin.enabled
+                && executable
+                && plugin.manifest.runtime.kind.has_surface()
+                && grant.is_some(),
             controls: active.iter().map(|field| (*field).into()).collect(),
             declared_controls: declared.iter().map(|field| (*field).into()).collect(),
             detached_fields: plugin.detached.iter().cloned().collect(),
@@ -1177,10 +1400,19 @@ pub(super) fn prepare_enable(
     if let Some(reason) = plugin.execution_reason() {
         return Err(Error::new("plugin_unsupported", reason));
     }
-    if !plugin.enabled && plugin.manifest.contributes.fields().is_empty() {
+    if plugin.manifest.runtime.kind.is_executable() {
+        return Err(Error::new(
+            "plugin_runtime",
+            "Executable plugins are enabled through their runtime permission review, not a layout preview.",
+        ));
+    }
+    if !plugin.enabled
+        && plugin.manifest.contributes.fields().is_empty()
+        && plugin.manifest.remote.is_none()
+    {
         return Err(Error::new(
             "plugin_invalid",
-            "This plugin does not declare any supported appearance or Home contribution.",
+            "This plugin does not declare any supported appearance, Home, or remote contribution.",
         ));
     }
     let reattach = plugin.enabled && !plugin.detached.is_empty();
@@ -1295,6 +1527,12 @@ pub(super) fn apply_action(
                 .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
             if let Some(reason) = plugin.execution_reason() {
                 return Err(Error::new("plugin_unsupported", reason));
+            }
+            if plugin.manifest.runtime.kind.is_executable() {
+                return Err(Error::new(
+                    "plugin_runtime",
+                    "Executable plugins are enabled through their runtime permission review.",
+                ));
             }
             let mut owners: BTreeMap<&'static str, String> = BTreeMap::new();
             for (id, candidate) in &plugins {
@@ -1413,11 +1651,18 @@ pub(super) fn disable(connection: &Connection, plugin_id: &str) -> Result<(), Er
     if changed == 0 {
         return Err(Error::new("plugin_missing", "That plugin is not installed."));
     }
+    connection.execute(
+        "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+        [plugin_id],
+    )?;
     Ok(())
 }
 
-pub(super) fn remove_row(connection: &Connection, plugin_id: &str) -> Result<(), Error> {
-    connection.execute("DELETE FROM plugin_settings WHERE plugin_id = ?1", [plugin_id])?;
+pub(super) fn remove_row(connection: &Connection, plugin_id: &str, delete_data: bool) -> Result<(), Error> {
+    if delete_data {
+        connection.execute("DELETE FROM plugin_settings WHERE plugin_id = ?1", [plugin_id])?;
+    }
+    connection.execute("DELETE FROM plugin_grants WHERE plugin_id = ?1", [plugin_id])?;
     let changed = connection.execute("DELETE FROM plugins WHERE id = ?1", [plugin_id])?;
     if changed == 0 {
         return Err(Error::new("plugin_missing", "That plugin is not installed."));
@@ -1457,6 +1702,24 @@ pub(super) fn restore_snapshot(
             connection.execute(
                 "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = ?1 WHERE id = ?2",
                 params![reason, id],
+            )?;
+            continue;
+        }
+        if plugin.manifest.runtime.kind.is_executable() {
+            notices.push(format!(
+                "{} uses an executable runtime and must be enabled again from its permission review.",
+                plugin.manifest.name
+            ));
+            connection.execute(
+                "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = ?1 WHERE id = ?2",
+                params![
+                    "This saved version did not include the current runtime grant. Review its permissions to enable it.",
+                    id
+                ],
+            )?;
+            connection.execute(
+                "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+                [id],
             )?;
             continue;
         }
@@ -1726,13 +1989,22 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
     for path in manifest.assets.iter().chain(manifest.source.iter()) {
         validate_relative_path(path)?;
     }
+    if let Some(remote) = &manifest.remote {
+        validate_remote(remote)?;
+        if manifest.api_version == EXECUTABLE_API_VERSION {
+            return Err(Error::new(
+                "validation",
+                "Remote panels are declarative contributions and cannot be declared by an executable plugin.",
+            ));
+        }
+    }
     if manifest.api_version == EXECUTABLE_API_VERSION {
         validate_executable_manifest(manifest)?;
     } else {
         if !manifest.runtime.kind.is_declarative() {
             return Err(Error::new(
                 "incompatible",
-                "An executable UI plugin must use API version 2.",
+                "An executable plugin must use API version 2.",
             ));
         }
         if !manifest.permissions.is_empty() || manifest.network.is_some() {
@@ -1748,10 +2020,36 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             ));
         }
         validate_contributions(manifest)?;
-        if manifest.contributes.is_empty() {
+        if manifest.contributes.is_empty() && manifest.remote.is_none() {
             return Err(Error::new(
                 "validation",
-                "A declarative plugin must contribute at least one supported appearance or Home field.",
+                "A declarative plugin must contribute at least one supported appearance, Home, or remote field.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_remote(remote: &RemoteContribution) -> Result<(), Error> {
+    let title = remote.title.trim();
+    if title.chars().count() > MAX_REMOTE_TITLE || title.chars().any(char::is_control) {
+        return Err(Error::new(
+            "validation",
+            format!("A remote panel title must be at most {MAX_REMOTE_TITLE} characters and contain no control characters."),
+        ));
+    }
+    if remote.actions.len() > MAX_REMOTE_ACTIONS {
+        return Err(Error::new(
+            "validation",
+            format!("A remote panel can declare at most {MAX_REMOTE_ACTIONS} actions."),
+        ));
+    }
+    let mut seen = HashSet::new();
+    for action in &remote.actions {
+        if !seen.insert(action.label()) {
+            return Err(Error::new(
+                "validation",
+                format!("Duplicate remote action: {}.", action.label()),
             ));
         }
     }
@@ -1759,29 +2057,32 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
 }
 
 fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
-    if manifest.runtime.kind != RuntimeKind::IsolatedUi {
+    if !matches!(
+        manifest.runtime.kind,
+        RuntimeKind::IsolatedUi | RuntimeKind::Background
+    ) {
         return Err(Error::new(
             "incompatible",
-            "API version 2 is reserved for the isolated-ui runtime.",
+            "API version 2 is reserved for the isolated-ui and background runtimes.",
         ));
     }
     if !manifest.contributes.is_empty() {
         return Err(Error::new(
             "validation",
-            "An isolated-ui plugin cannot declare appearance or Home contributions.",
+            "An executable plugin cannot declare appearance or Home contributions.",
         ));
     }
     let Some(entry) = &manifest.runtime.entry else {
         return Err(Error::new(
             "validation",
-            "An isolated-ui plugin must declare runtime.entry.",
+            "An executable plugin must declare runtime.entry.",
         ));
     };
     validate_relative_path(entry)?;
     if !entry.to_ascii_lowercase().ends_with(".html") {
         return Err(Error::new(
             "validation",
-            "An isolated-ui runtime entry must be an HTML file.",
+            "An executable runtime entry must be an HTML file.",
         ));
     }
     if manifest.permissions.len() > MAX_PERMISSIONS {
@@ -2491,6 +2792,34 @@ fn install(
                     )?;
                 }
             }
+            if let Some(grant) = load_grant(&transaction, &package.manifest.id)? {
+                let declared: BTreeSet<Permission> =
+                    package.manifest.permissions.iter().copied().collect();
+                let allowed_network = package
+                    .manifest
+                    .network
+                    .as_ref()
+                    .map(|network| network.allow.as_slice())
+                    .unwrap_or(&[]);
+                let declared_network: BTreeSet<&String> = allowed_network.iter().collect();
+                let granted_network: BTreeSet<&String> = grant.network.iter().collect();
+                let compatible = declared == grant.permissions
+                    && declared_network == granted_network
+                    && grant
+                        .trigger
+                        .supports(package.manifest.runtime.kind);
+                if compatible {
+                    transaction.execute(
+                        "UPDATE plugin_grants SET version = ?1 WHERE plugin_id = ?2",
+                        params![package.manifest.version, package.manifest.id],
+                    )?;
+                } else {
+                    transaction.execute(
+                        "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+                        [&package.manifest.id],
+                    )?;
+                }
+            }
         } else {
             transaction.execute(
                 "INSERT INTO plugins (id, manifest, enabled, detached, disabled_reason, source, installed_at, size_bytes, content_hash) VALUES (?1, ?2, 0, '[]', NULL, ?3, ?4, ?5, ?6)",
@@ -2701,12 +3030,152 @@ pub(super) fn state_for_app(app: &tauri::AppHandle) -> Result<PluginsState, Erro
     let document = store.read()?.ok_or_else(|| {
         Error::new("not_initialized", "Open Luma once before managing plugins.")
     })?;
+    let mut state = {
+        let connection = store.connection()?;
+        state(&connection, &document.config)?
+    };
+    for record in &mut state.plugins {
+        record.runtime_status = crate::extension_spike::runtime_status(app, &record.id);
+    }
+    Ok(state)
+}
+
+pub(crate) fn disable_on_crash(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    reason: &str,
+) -> Result<(), Error> {
+    let store = app.state::<Store>();
+    let mut connection = store.connection()?;
+    let transaction = connection.transaction()?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
+    let name: Option<String> = transaction
+        .query_row(
+            "SELECT manifest FROM plugins WHERE id = ?1",
+            [plugin_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|raw| {
+            serde_json::from_str::<Manifest>(&raw)
+                .map(|manifest| manifest.name)
+                .unwrap_or_else(|_| plugin_id.to_string())
+        });
+    let changed = transaction.execute(
+        "UPDATE plugins SET enabled = 0, detached = '[]', disabled_reason = ?1 WHERE id = ?2",
+        params![reason, plugin_id],
+    )?;
+    if changed == 0 {
+        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+    }
+    transaction.execute(
+        "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+        [plugin_id],
+    )?;
+    Store::write(&transaction, &current, current.config.clone(), true)?;
+    transaction.commit()?;
+    drop(connection);
+    if let Ok(Some(snapshot)) = store.snapshot() {
+        super::publish(app, &snapshot.document);
+    }
+    notice(
+        app,
+        format!(
+            "{} was disabled after repeated runtime failures. Open Settings > Plugins for details.",
+            name.unwrap_or_else(|| plugin_id.to_string())
+        ),
+    );
+    Ok(())
+}
+
+pub(crate) fn remote_panels(app: &tauri::AppHandle) -> Result<Vec<RemotePanel>, Error> {
+    let store = app.state::<Store>();
     let connection = store.connection()?;
-    state(&connection, &document.config)
+    remote_panels_for(&connection)
+}
+
+fn remote_panels_for(connection: &Connection) -> Result<Vec<RemotePanel>, Error> {
+    let mut panels = Vec::new();
+    for (id, plugin) in load_plugins(connection)? {
+        if !plugin.enabled
+            || plugin.manifest.runtime.kind != RuntimeKind::Declarative
+            || plugin.execution_reason().is_some()
+        {
+            continue;
+        }
+        let Some(remote) = &plugin.manifest.remote else {
+            continue;
+        };
+        let title = remote.title.trim();
+        panels.push(RemotePanel {
+            id,
+            name: plugin.manifest.name.clone(),
+            title: if title.is_empty() {
+                plugin.manifest.name.clone()
+            } else {
+                title.to_string()
+            },
+            actions: remote.actions.clone(),
+        });
+    }
+    panels.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(panels)
+}
+
+pub(crate) fn remote_action(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    action: &str,
+) -> Result<RemoteAction, Error> {
+    let store = app.state::<Store>();
+    let connection = store.connection()?;
+    remote_action_for(&connection, plugin_id, action)
+}
+
+fn remote_action_for(
+    connection: &Connection,
+    plugin_id: &str,
+    action: &str,
+) -> Result<RemoteAction, Error> {
+    let plugins = load_plugins(connection)?;
+    let (_, plugin) = plugins
+        .iter()
+        .find(|(id, _)| id == plugin_id)
+        .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    if !plugin.enabled
+        || plugin.manifest.runtime.kind != RuntimeKind::Declarative
+        || plugin.execution_reason().is_some()
+    {
+        return Err(Error::new(
+            "plugin_disabled",
+            "That plugin is not enabled for remote control.",
+        ));
+    }
+    let declared = plugin
+        .manifest
+        .remote
+        .as_ref()
+        .is_some_and(|remote| remote.actions.iter().any(|declared| declared.label() == action));
+    if !declared {
+        return Err(Error::new(
+            "denied",
+            "That plugin did not declare this remote action.",
+        ));
+    }
+    RemoteAction::parse(action)
+        .ok_or_else(|| Error::new("denied", "Unknown remote action."))
 }
 
 pub(crate) fn notice(app: &tauri::AppHandle, message: impl ToString) {
     let _ = app.emit_to("main", "customization-notice", message.to_string());
+}
+
+pub(crate) fn notify_plugins(app: &tauri::AppHandle) {
+    crate::background::refresh_plugin_menu(app);
+    if let Ok(state) = state_for_app(app) {
+        let _ = app.emit_to("main", "customization-plugins-changed", state);
+    }
 }
 
 pub fn schema_document() -> Value {
@@ -2754,18 +3223,28 @@ pub fn schema_document() -> Value {
             },
             "order": "all twelve app ids exactly once, Custom last"
         },
+        "remote": {
+            "field": "remote",
+            "apiVersion": API_VERSION,
+            "shape": { "title": "optional 1-48 character panel title", "actions": ["playback.toggle", "playback.next", "playback.previous"] },
+            "behavior": "A declarative package may contribute one host-rendered remote panel. Empty actions show now-playing only. Only enabled declarative packages are projected; extension code never reaches the remote."
+        },
         "runtime": {
             "kinds": ["declarative", "isolated-ui", "background", "main-page"],
-            "supported": ["declarative"],
+            "supported": ["declarative", "isolated-ui", "background"],
             "executable": {
                 "apiVersion": EXECUTABLE_API_VERSION,
-                "kinds": ["isolated-ui"],
+                "kinds": ["isolated-ui", "background"],
                 "entry": "HTML file inside the package",
                 "permissions": PERMISSIONS.iter().map(|permission| permission.label()).collect::<Vec<_>>(),
-                "network": "network.get requires network.allow with 1 to 8 public HTTPS origins",
-                "behavior": "Executable packages install disabled and cannot be enabled in this Luma version. A development-only host can load an installed package when its environment gate is enabled."
+                "network": "network.get requires network.allow with 1 to 8 public HTTPS origins; the host resolves the name and rejects non-public addresses",
+                "triggers": {
+                    "isolated-ui": ["launcher-open"],
+                    "background": ["launcher-open", "startup", "always"]
+                },
+                "behavior": "Executable packages install disabled. The user reviews the exact declared permissions, network origins, and trigger in Settings > Plugins; that consent is required before the runtime starts. Isolated-ui packages open in a host-owned window with a package-specific origin and a fixed bridge. Background packages run headless in the same isolated runtime. Disable, removal, and exit stop the runtime."
             },
-            "unsupportedBehavior": "Other runtimes install disabled and cannot be enabled. Their files are packaged but never executed by production."
+            "unsupportedBehavior": "The main-page runtime installs disabled and can never be enabled. It is never executed inside the main window."
         },
         "limits": limits(),
         "example": example
@@ -2898,6 +3377,150 @@ pub(super) fn command_preview(
     store.preview_plugin(plugin_id, expected_revision)
 }
 
+pub(super) fn command_enable_runtime(
+    store: &Store,
+    plugin_id: &str,
+    expected_revision: u64,
+    permissions: Vec<String>,
+    network: Vec<String>,
+    trigger: Trigger,
+) -> Result<(), Error> {
+    let mut connection = store.connection()?;
+    let transaction = connection.transaction()?;
+    let current = Store::current(&transaction)?.ok_or_else(|| {
+        Error::new("not_initialized", "Customization is not initialized.")
+    })?;
+    if current.revision != expected_revision {
+        return Err(Error::new("conflict", "Customization changed elsewhere."));
+    }
+    let plugins = load_plugins(&transaction)?;
+    let (_, plugin) = plugins
+        .iter()
+        .find(|(id, _)| id == plugin_id)
+        .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    if let Some(reason) = plugin.execution_reason() {
+        return Err(Error::new("plugin_unsupported", reason));
+    }
+    if !plugin.manifest.runtime.kind.is_executable() {
+        return Err(Error::new(
+            "plugin_runtime",
+            "Only executable plugins use a runtime grant. Declarative plugins are enabled with Preview and Keep.",
+        ));
+    }
+    if plugin.enabled {
+        return Err(Error::new(
+            "plugin_enabled",
+            "Disable this plugin before changing its runtime permissions.",
+        ));
+    }
+    if !trigger.supports(plugin.manifest.runtime.kind) {
+        return Err(Error::new(
+            "plugin_trigger",
+            format!(
+                "The {} runtime does not support the {} trigger.",
+                plugin.manifest.runtime.kind.label(),
+                trigger.label()
+            ),
+        ));
+    }
+    let mut granted = BTreeSet::new();
+    for label in &permissions {
+        let permission = Permission::parse(label).ok_or_else(|| {
+            Error::new(
+                "denied",
+                format!("Unknown runtime permission: {label}."),
+            )
+        })?;
+        if !granted.insert(permission) {
+            return Err(Error::new(
+                "validation",
+                format!("Duplicate runtime permission: {}.", permission.label()),
+            ));
+        }
+    }
+    let declared: BTreeSet<Permission> = plugin.manifest.permissions.iter().copied().collect();
+    if !granted.is_subset(&declared) {
+        return Err(Error::new(
+            "denied",
+            "The requested runtime permissions were not declared by this package.",
+        ));
+    }
+    let mut seen_network = HashSet::new();
+    for origin in &network {
+        if !seen_network.insert(origin.clone()) {
+            return Err(Error::new(
+                "validation",
+                format!("Duplicate network origin: {origin}."),
+            ));
+        }
+    }
+    let declared_network = plugin
+        .manifest
+        .network
+        .as_ref()
+        .map(|network| network.allow.as_slice())
+        .unwrap_or(&[]);
+    if !network.iter().all(|origin| declared_network.contains(origin)) {
+        return Err(Error::new(
+            "denied",
+            "The requested network origins were not declared by this package.",
+        ));
+    }
+    if !network.is_empty() && !granted.contains(&Permission::NetworkGet) {
+        return Err(Error::new(
+            "validation",
+            "A network allowlist requires the network.get permission.",
+        ));
+    }
+    for (id, candidate) in &plugins {
+        if !candidate.enabled
+            || candidate.execution_reason().is_some()
+            || id == plugin_id
+            || !candidate.manifest.runtime.kind.is_declarative()
+        {
+            continue;
+        }
+        for field in candidate.active_fields() {
+            if plugin.declared_fields().contains(field) {
+                return Err(Error::new(
+                    "plugin_conflict",
+                    format!(
+                        "{} cannot be enabled because {field} is already controlled by {id}.",
+                        plugin.manifest.name
+                    ),
+                ));
+            }
+        }
+    }
+    transaction.execute(
+        "UPDATE plugins SET enabled = 1, detached = '[]', disabled_reason = NULL WHERE id = ?1",
+        [plugin_id],
+    )?;
+    transaction.execute(
+        "INSERT OR REPLACE INTO plugin_grants (plugin_id, version, permissions, network, trigger, granted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            plugin_id,
+            plugin.manifest.version,
+            serde_json::to_string(
+                &granted
+                    .iter()
+                    .map(|permission| permission.label().to_string())
+                    .collect::<Vec<_>>()
+            )
+            .map_err(|error| Error::new("plugin_storage", error))?,
+            serde_json::to_string(&network)
+                .map_err(|error| Error::new("plugin_storage", error))?,
+            trigger.label(),
+            Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        ],
+    )?;
+    apply(&transaction, &current.config)?;
+    Store::write(&transaction, &current, current.config.clone(), true)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub(super) fn command_disable(
     store: &Store,
     plugin_id: &str,
@@ -2921,6 +3544,7 @@ pub(super) fn command_remove(
     store: &Store,
     plugin_id: &str,
     expected_revision: u64,
+    delete_data: bool,
 ) -> Result<(), Error> {
     let mut connection = store.connection()?;
     let transaction = connection.transaction()?;
@@ -2942,7 +3566,7 @@ pub(super) fn command_remove(
     };
     let manifest: Manifest = serde_json::from_str(&raw)
         .map_err(|error| Error::new("plugin_storage", error))?;
-    remove_row(&transaction, plugin_id)?;
+    remove_row(&transaction, plugin_id, delete_data)?;
     Store::write(&transaction, &current, current.config.clone(), true)?;
     transaction.commit()?;
     delete_package(store, plugin_id, &manifest.version);
@@ -3083,6 +3707,25 @@ mod tests {
         let revision = store.read().unwrap().unwrap().revision;
         let preview = store.preview_plugin(id, revision).unwrap();
         store.keep(&preview.id).unwrap()
+    }
+
+    fn enable_runtime(
+        store: &Store,
+        id: &str,
+        permissions: &[&str],
+        network: &[&str],
+        trigger: Trigger,
+    ) {
+        let revision = store.read().unwrap().unwrap().revision;
+        command_enable_runtime(
+            store,
+            id,
+            revision,
+            permissions.iter().map(|value| value.to_string()).collect(),
+            network.iter().map(|value| value.to_string()).collect(),
+            trigger,
+        )
+        .unwrap();
     }
 
     fn map(value: Value) -> Map<String, Value> {
@@ -3242,7 +3885,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_runtime_packages_install_disabled_and_cannot_enable() {
+    fn executable_runtime_packages_install_disabled_and_offer_a_grant_review() {
         let (store, _root) = store();
         let mut code = manifest("com.example.code", "1.0.0");
         code["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
@@ -3263,13 +3906,144 @@ mod tests {
         .unwrap();
         assert!(!outcome.plugin.enabled);
         assert!(outcome.plugin.executable);
-        assert!(!outcome.plugin.can_enable);
+        assert!(outcome.plugin.can_enable);
+        assert!(outcome.plugin.execution_reason.is_none());
+        assert!(!outcome.plugin.surface_openable);
+        assert!(outcome.plugin.granted_permissions.is_empty());
         assert_eq!(outcome.plugin.permissions, ["settings.read"]);
         assert_eq!(outcome.plugin.entry.as_deref(), Some("ui/index.html"));
-        assert!(outcome.plugin.execution_reason.as_deref().unwrap().contains("cannot be enabled"));
         let revision = store.read().unwrap().unwrap().revision;
         let error = store.preview_plugin("com.example.code", revision).unwrap_err();
-        assert_eq!(error.code, "plugin_unsupported");
+        assert_eq!(error.code, "plugin_runtime");
+        assert_eq!(
+            runtime_package(&store, "com.example.code").unwrap_err().code,
+            "plugin_disabled"
+        );
+    }
+
+    #[test]
+    fn runtime_grants_are_explicit_bounded_and_required_before_execution() {
+        let (store, _root) = store();
+        let mut code = manifest("com.example.code", "1.0.0");
+        code["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        code["contributes"] = serde_json::json!({});
+        code["permissions"] = serde_json::json!(["settings.read", "network.get"]);
+        code["network"] = serde_json::json!({ "allow": ["https://api.open-meteo.com"] });
+        code["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": code,
+                "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+            }),
+            "mcp",
+        )
+        .unwrap();
+
+        let revision = store.read().unwrap().unwrap().revision;
+        assert_eq!(
+            command_enable_runtime(
+                &store,
+                "com.example.code",
+                revision,
+                vec!["playback.read".into()],
+                vec![],
+                Trigger::LauncherOpen,
+            )
+            .unwrap_err()
+            .code,
+            "denied"
+        );
+        assert_eq!(
+            command_enable_runtime(
+                &store,
+                "com.example.code",
+                revision,
+                vec!["network.get".into()],
+                vec!["https://example.com".into()],
+                Trigger::LauncherOpen,
+            )
+            .unwrap_err()
+            .code,
+            "denied"
+        );
+        assert_eq!(
+            command_enable_runtime(
+                &store,
+                "com.example.code",
+                revision,
+                vec!["settings.read".into()],
+                vec![],
+                Trigger::Startup,
+            )
+            .unwrap_err()
+            .code,
+            "plugin_trigger"
+        );
+        command_enable_runtime(
+            &store,
+            "com.example.code",
+            revision,
+            vec!["settings.read".into(), "network.get".into()],
+            vec!["https://api.open-meteo.com".into()],
+            Trigger::LauncherOpen,
+        )
+        .unwrap();
+        let state = state_for_store(&store);
+        let record = &state.plugins[0];
+        assert!(record.enabled);
+        assert!(record.surface_openable);
+        assert_eq!(record.granted_permissions, ["settings.read", "network.get"]);
+        assert_eq!(record.granted_network, ["https://api.open-meteo.com"]);
+        assert_eq!(record.trigger.as_deref(), Some("launcher-open"));
+        let package = runtime_package(&store, "com.example.code").unwrap();
+        assert!(package.allows(Permission::SettingsRead));
+        assert!(package.allows(Permission::NetworkGet));
+        assert_eq!(package.network, ["https://api.open-meteo.com"]);
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.code", revision).unwrap();
+        let state = state_for_store(&store);
+        assert!(!state.plugins[0].enabled);
+        assert!(!state.plugins[0].surface_openable);
+        assert!(state.plugins[0].granted_permissions.is_empty());
+        assert!(state.plugins[0].trigger.is_none());
+    }
+
+    #[test]
+    fn background_runtime_accepts_startup_and_always_triggers() {
+        let (store, _root) = store();
+        let mut service = manifest("com.example.service", "1.0.0");
+        service["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        service["contributes"] = serde_json::json!({});
+        service["permissions"] = serde_json::json!(["settings.read"]);
+        service["runtime"] = serde_json::json!({ "kind": "background", "entry": "worker.html" });
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": service,
+                "files": [{ "path": "worker.html", "text": "<!doctype html>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        assert!(state_for_store(&store).plugins[0].can_enable);
+        enable_runtime(
+            &store,
+            "com.example.service",
+            &["settings.read"],
+            &[],
+            Trigger::Always,
+        );
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].runtime, "background");
+        assert!(!state.plugins[0].surface_openable);
+        assert_eq!(state.plugins[0].trigger.as_deref(), Some("always"));
+        assert_eq!(
+            granted_plugins(&store).unwrap()[0].1.trigger,
+            Trigger::Always
+        );
     }
 
     #[test]
@@ -3327,6 +4101,13 @@ mod tests {
         runtime(&mut playback);
         playback["permissions"] = serde_json::json!(["playback.read", "playback.control"]);
         assert!(stage_with(playback).is_ok());
+        enable_runtime(
+            &store,
+            "com.example.playback",
+            &["playback.read", "playback.control"],
+            &[],
+            Trigger::LauncherOpen,
+        );
         let package = runtime_package(&store, "com.example.playback").unwrap();
         assert!(package.allows(Permission::PlaybackRead));
         assert!(package.allows(Permission::PlaybackControl));
@@ -3367,13 +4148,25 @@ mod tests {
         assert_eq!(outcome.plugin.runtime, "isolated-ui");
         assert!(!outcome.plugin.enabled);
         assert!(outcome.plugin.executable);
-        assert!(!outcome.plugin.can_enable);
+        assert!(outcome.plugin.can_enable);
         assert_eq!(
             outcome.plugin.permissions,
             ["settings.read", "network.get"]
         );
         assert_eq!(outcome.plugin.network, ["https://api.open-meteo.com"]);
-        assert_eq!(executable_package_ids(&store).unwrap(), ["com.example.weather"]);
+        assert!(granted_plugins(&store).unwrap().is_empty());
+
+        enable_runtime(
+            &store,
+            "com.example.weather",
+            &["settings.read", "network.get"],
+            &["https://api.open-meteo.com"],
+            Trigger::LauncherOpen,
+        );
+        assert_eq!(
+            granted_plugins(&store).unwrap()[0].0,
+            "com.example.weather"
+        );
 
         let package = runtime_package(&store, "com.example.weather").unwrap();
         assert_eq!(package.api_version, EXECUTABLE_API_VERSION);
@@ -3393,6 +4186,264 @@ mod tests {
         assert_eq!(package.read("../luma-extension.json").unwrap_err().code, "validation");
         assert_eq!(package.read("ui/missing.js").unwrap_err().code, "plugin_missing");
     }
+
+    #[test]
+    fn compatible_updates_keep_the_runtime_grant_and_expansion_clears_it() {
+        let (store, _root) = store();
+        let package = |version: &str, permissions: Value| {
+            serde_json::json!({
+                "manifest": {
+                    "id": "com.example.update",
+                    "name": "Updating runtime",
+                    "version": version,
+                    "apiVersion": EXECUTABLE_API_VERSION,
+                    "contributes": {},
+                    "permissions": permissions,
+                    "runtime": { "kind": "isolated-ui", "entry": "ui/index.html" }
+                },
+                "files": [{ "path": "ui/index.html", "text": format!("<!doctype html><p>{version}</p>") }]
+            })
+        };
+        stage_submission(
+            &store,
+            &package("1.0.0", serde_json::json!(["settings.read"])),
+            "import",
+        )
+        .unwrap();
+        enable_runtime(
+            &store,
+            "com.example.update",
+            &["settings.read"],
+            &[],
+            Trigger::LauncherOpen,
+        );
+
+        let outcome = stage_submission(
+            &store,
+            &package("1.1.0", serde_json::json!(["settings.read"])),
+            "import",
+        )
+        .unwrap();
+        assert!(!outcome.plugin.enabled);
+        assert_eq!(outcome.plugin.granted_permissions, ["settings.read"]);
+        assert_eq!(outcome.plugin.trigger.as_deref(), Some("launcher-open"));
+
+        let outcome = stage_submission(
+            &store,
+            &package(
+                "1.2.0",
+                serde_json::json!(["settings.read", "playback.read"]),
+            ),
+            "import",
+        )
+        .unwrap();
+        assert!(!outcome.plugin.enabled);
+        assert!(outcome.plugin.granted_permissions.is_empty());
+        assert!(outcome.plugin.trigger.is_none());
+        assert!(outcome.plugin.can_enable);
+    }
+
+    #[test]
+    fn an_enabled_executable_without_a_grant_is_disabled_at_startup() {
+        let (store, _root) = store();
+        let mut code = manifest("com.example.orphan", "1.0.0");
+        code["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        code["contributes"] = serde_json::json!({});
+        code["permissions"] = serde_json::json!(["settings.read"]);
+        code["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": code,
+                "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        enable_runtime(
+            &store,
+            "com.example.orphan",
+            &["settings.read"],
+            &[],
+            Trigger::LauncherOpen,
+        );
+        store
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM plugin_grants WHERE plugin_id = ?1", ["com.example.orphan"])
+            .unwrap();
+        reconcile(&store.connection().unwrap()).unwrap();
+        let state = state_for_store(&store);
+        assert!(!state.plugins[0].enabled);
+        assert!(!state.plugins[0].surface_openable);
+        assert!(state.plugins[0]
+            .disabled_reason
+            .as_deref()
+            .unwrap()
+            .contains("grant is missing"));
+    }
+
+    #[test]
+    fn runtime_trigger_names_match_the_command_contract() {
+        for (json, trigger) in [
+            ("\"launcher-open\"", Trigger::LauncherOpen),
+            ("\"startup\"", Trigger::Startup),
+            ("\"always\"", Trigger::Always),
+        ] {
+            assert_eq!(serde_json::from_str::<Trigger>(json).unwrap(), trigger);
+        }
+        assert!(serde_json::from_str::<Trigger>("\"on-demand\"").is_err());
+        assert!(Trigger::LauncherOpen.supports(RuntimeKind::IsolatedUi));
+        assert!(!Trigger::Startup.supports(RuntimeKind::IsolatedUi));
+        assert!(Trigger::Always.supports(RuntimeKind::Background));
+        assert!(!Trigger::Always.supports(RuntimeKind::Declarative));
+    }
+
+    #[test]
+    fn the_music_remote_example_projects_an_enabled_panel() {
+        let (store, _root) = store();
+        let manifest: Value = serde_json::from_str(include_str!(
+            "../../../examples/plugins/com.example.music-remote/luma-extension.json"
+        ))
+        .unwrap();
+        let outcome = stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": manifest, "files": [] }),
+            "import",
+        )
+        .unwrap();
+        assert!(!outcome.plugin.enabled);
+        assert!(outcome.plugin.can_enable);
+        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+
+        enable(&store, "com.example.music-remote");
+        let panels = remote_panels_for(&store.connection().unwrap()).unwrap();
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].id, "com.example.music-remote");
+        assert_eq!(panels[0].title, "Music controls");
+        assert_eq!(
+            panels[0]
+                .actions
+                .iter()
+                .map(|action| action.label())
+                .collect::<Vec<_>>(),
+            ["playback.previous", "playback.toggle", "playback.next"]
+        );
+    }
+
+    #[test]
+    fn remote_panels_project_only_enabled_declarative_packages_and_recheck_actions() {
+        let (store, _root) = store();
+        let mut panel = manifest("com.example.remote", "1.0.0");
+        panel["contributes"] = serde_json::json!({});
+        panel["remote"] = serde_json::json!({
+            "title": "  Lounge controls  ",
+            "actions": ["playback.toggle", "playback.next"]
+        });
+        stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": panel, "files": [] }),
+            "import",
+        )
+        .unwrap();
+        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+
+        enable(&store, "com.example.remote");
+        let panels = remote_panels_for(&store.connection().unwrap()).unwrap();
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].title, "Lounge controls");
+        assert_eq!(
+            panels[0]
+                .actions
+                .iter()
+                .map(|action| action.label())
+                .collect::<Vec<_>>(),
+            ["playback.toggle", "playback.next"]
+        );
+        assert_eq!(
+            remote_action_for(&store.connection().unwrap(), "com.example.remote", "playback.next")
+                .unwrap(),
+            RemoteAction::PlaybackNext
+        );
+        assert_eq!(
+            remote_action_for(
+                &store.connection().unwrap(),
+                "com.example.remote",
+                "playback.previous"
+            )
+            .unwrap_err()
+            .code,
+            "denied"
+        );
+        assert_eq!(
+            remote_action_for(&store.connection().unwrap(), "com.example.missing", "playback.next")
+                .unwrap_err()
+                .code,
+            "plugin_missing"
+        );
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.remote", revision).unwrap();
+        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+        assert_eq!(
+            remote_action_for(&store.connection().unwrap(), "com.example.remote", "playback.next")
+                .unwrap_err()
+                .code,
+            "plugin_disabled"
+        );
+    }
+
+    #[test]
+    fn remote_manifest_shape_is_bounded_and_executable_packages_cannot_declare_panels() {
+        let (store, _root) = store();
+        let mut duplicate = manifest("com.example.duplicate", "1.0.0");
+        duplicate["remote"] = serde_json::json!({
+            "actions": ["playback.next", "playback.next"]
+        });
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": duplicate, "files": [] }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+
+        let mut executable = manifest("com.example.executable", "1.0.0");
+        executable["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        executable["contributes"] = serde_json::json!({});
+        executable["runtime"] = serde_json::json!({ "kind": "background", "entry": "worker.html" });
+        executable["remote"] = serde_json::json!({ "actions": [] });
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({
+                    "manifest": executable,
+                    "files": [{ "path": "worker.html", "text": "<!doctype html>" }]
+                }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+
+        let mut long_title = manifest("com.example.title", "1.0.0");
+        long_title["remote"] = serde_json::json!({ "title": "x".repeat(49) });
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": long_title, "files": [] }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+    }
+
 
     #[test]
     fn mcp_settings_stage_uses_the_same_values_and_requires_keep() {
@@ -3551,7 +4602,7 @@ mod tests {
         stage(&store, "com.example.lounge", "1.0.0");
         let enabled = enable(&store, "com.example.lounge");
         let revision = store.read().unwrap().unwrap().revision;
-        command_remove(&store, "com.example.lounge", revision).unwrap();
+        command_remove(&store, "com.example.lounge", revision, false).unwrap();
         assert_eq!(store.read_effective().unwrap().unwrap().config, Config::default());
         assert!(!root.join("com.example.lounge").join("1.0.0").exists());
         let current = store.read().unwrap().unwrap();
@@ -3561,6 +4612,29 @@ mod tests {
         assert_eq!(restored.config, enabled.config);
         assert!(!notices.is_empty());
         assert!(state_for_store(&store).plugins.is_empty());
+    }
+
+    #[test]
+    fn reinstall_keeps_settings_only_when_removal_retains_data() {
+        let (store, _root) = store();
+        let id = "com.example.lounge";
+        stage(&store, id, "1.0.0");
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(&store, id, revision, map(serde_json::json!({
+            "theme": "onyx", "showFeatured": false, "columns": 2, "label": "Lounge"
+        }))).unwrap();
+        let saved = settings_map(&store.connection().unwrap(), id).unwrap();
+        let revision = store.read().unwrap().unwrap().revision;
+        command_remove(&store, id, revision, false).unwrap();
+        stage(&store, id, "1.0.0");
+        let reinstalled = &state_for_store(&store).plugins[0];
+        assert!(!reinstalled.enabled);
+        assert_eq!(settings_map(&store.connection().unwrap(), id).unwrap(), saved);
+        let revision = store.read().unwrap().unwrap().revision;
+        command_remove(&store, id, revision, true).unwrap();
+        stage(&store, id, "1.0.0");
+        let reinstalled = &state_for_store(&store).plugins[0];
+        assert!(reinstalled.settings.iter().all(|setting| setting.value == setting.default));
     }
 
     #[test]

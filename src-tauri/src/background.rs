@@ -7,13 +7,15 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Emitter, Manager, Runtime,
 };
 use tauri_plugin_autostart::ManagerExt;
 
 static RETAIN_VIEWS: AtomicBool = AtomicBool::new(false);
+const TRAY_ID: &str = "luma-tray";
+const MAX_TRAY_PLUGIN_NAME: usize = 40;
 
 fn unloading() -> &'static Mutex<HashSet<String>> {
     static UNLOADING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -136,12 +138,21 @@ pub(crate) async fn main_window(app: &tauri::AppHandle) -> Result<tauri::Webview
 }
 
 pub fn show(app: &tauri::AppHandle) {
+    show_with(app, None);
+}
+
+fn show_with(app: &tauri::AppHandle, plugin_id: Option<String>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match main_window(&app).await {
             Ok(window) => {
                 if present(window, None).await.is_ok() {
-                    crate::extension_spike::autostart(app.clone());
+                    crate::extension_spike::launcher_presented(&app);
+                    if let Some(plugin_id) = plugin_id {
+                        if let Err(error) = crate::extension_spike::open(&app, &plugin_id) {
+                            crate::customization::plugin::notice(&app, error);
+                        }
+                    }
                 }
             }
             Err(error) => eprintln!("Could not open Luma: {error}"),
@@ -174,7 +185,7 @@ pub fn quit_app(app: tauri::AppHandle) {
 pub fn hide_to_tray(app: tauri::AppHandle) {
     crate::viewing::restore_external(&app);
     crate::commands::session::close_steam(&app);
-    crate::extension_spike::dismiss(&app);
+    crate::extension_spike::launcher_hidden(&app);
     unload(&app, "main");
     unload(&app, "youtube");
     unload(&app, "stremio");
@@ -234,6 +245,7 @@ pub(crate) async fn present(
     window: tauri::WebviewWindow,
     fullscreen: Option<bool>,
 ) -> Result<(), String> {
+    crate::extension_spike::hide_surfaces(window.app_handle());
     if crate::viewing::present(&window)? { return Ok(()); }
     crate::tv::place(&window)?;
     let audio_error = crate::tv::apply_audio(window.app_handle()).await.err();
@@ -286,18 +298,109 @@ pub(crate) async fn present(
     Ok(())
 }
 
-pub fn setup(app: &tauri::App) -> tauri::Result<()> {
+fn tray_plugin_name(name: &str, id: &str) -> String {
+    let source = if name.trim().is_empty() { id } else { name };
+    let mut characters = source.chars().filter(|character| !character.is_control());
+    let mut label: String = characters.by_ref().take(MAX_TRAY_PLUGIN_NAME).collect();
+    if characters.next().is_some() {
+        label.pop();
+        label.push('…');
+    }
+    label
+}
+
+fn tray_plugin_actions<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<Vec<(String, String)>> {
+    let snapshot = app
+        .try_state::<crate::customization::Store>()?
+        .snapshot()
+        .ok()
+        .flatten()?;
+    let mut actions = Vec::new();
+    for plugin in snapshot.plugins.plugins {
+        if !plugin.enabled || !plugin.executable {
+            continue;
+        }
+        let name = tray_plugin_name(&plugin.name, &plugin.id);
+        match plugin.runtime.as_str() {
+            "isolated-ui" => {
+                actions.push((format!("plugin:open:{}", plugin.id), format!("Open {name}")))
+            }
+            "background" => actions.push((
+                format!("plugin:disable:{}", plugin.id),
+                format!("Disable {name}"),
+            )),
+            _ => {}
+        }
+    }
+    Some(actions)
+}
+
+fn tray_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::new(app)?;
     let open = MenuItem::with_id(app, "open", "Open Luma TV", true, None::<&str>)?;
+    menu.append(&open)?;
+    if let Some(actions) = tray_plugin_actions(app) {
+        if !actions.is_empty() {
+            let plugins = Submenu::with_id(app, "plugins", "Plugins", true)?;
+            for (id, label) in actions {
+                let item = MenuItem::with_id(app, id, label, true, None::<&str>)?;
+                plugins.append(&item)?;
+            }
+            menu.append(&plugins)?;
+        }
+    }
     let quit = MenuItem::with_id(app, "quit", "Exit Luma…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
-    let mut tray = TrayIconBuilder::new()
+    menu.append(&quit)?;
+    Ok(menu)
+}
+
+pub(crate) fn refresh_plugin_menu(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    if let Ok(menu) = tray_menu(app) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn disable_plugin(app: &tauri::AppHandle, plugin_id: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let revision = app
+            .try_state::<crate::customization::Store>()
+            .and_then(|store| store.read().ok().flatten())
+            .map(|document| document.revision);
+        let Some(revision) = revision else {
+            eprintln!("Could not disable plugin: plugin storage is unavailable.");
+            return;
+        };
+        if let Err(error) =
+            crate::customization::customization_plugin_disable(app.clone(), plugin_id, revision)
+                .await
+        {
+            crate::customization::plugin::notice(&app, error.message);
+        }
+        refresh_plugin_menu(&app);
+    });
+}
+
+pub fn setup(app: &tauri::App) -> tauri::Result<()> {
+    let menu = tray_menu(app.handle())?;
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Luma TV · Remote server")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show(app),
-            "quit" => request_exit(app),
-            _ => {}
+        .on_menu_event(|app, event| {
+            let id = event.id.as_ref();
+            if id == "open" {
+                show(app);
+            } else if id == "quit" {
+                request_exit(app);
+            } else if let Some(plugin_id) = id.strip_prefix("plugin:open:") {
+                show_with(app, Some(plugin_id.to_string()));
+            } else if let Some(plugin_id) = id.strip_prefix("plugin:disable:") {
+                disable_plugin(app, plugin_id.to_string());
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if matches!(
