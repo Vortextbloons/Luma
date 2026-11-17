@@ -114,7 +114,29 @@ fn item(value: &Value, machine: &str, base: &str, fallback_time: &str) -> Option
     })
 }
 
-pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, String> {
+fn resume_ids(value: &Value, machine: &str, base: &str, now: &str) -> Option<Vec<String>> {
+    let container = value.get("MediaContainer")?;
+    let empty = Vec::new();
+    let entries = container
+        .get("Metadata")
+        .and_then(Value::as_array)
+        .or_else(|| (container.get("size").and_then(Value::as_u64) == Some(0)).then_some(&empty))?;
+    if container.get("offset").and_then(Value::as_u64).unwrap_or(0) != 0
+        || container
+            .get("totalSize")
+            .and_then(Value::as_u64)
+            .unwrap_or(entries.len() as u64)
+            > entries.len() as u64
+    {
+        return None;
+    }
+    entries
+        .iter()
+        .map(|value| item(value, machine, base, now).map(|item| item.id))
+        .collect()
+}
+
+pub async fn refresh(config: &ProviderConfig) -> Result<super::ProviderRefresh, String> {
     let base = validated_base(config.server_url.as_deref().unwrap_or(""))?;
     let token = config
         .token
@@ -129,12 +151,19 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         .unwrap_or("")
         .to_string();
     let mut items = BTreeMap::new();
-    let on_deck = json(&format!("{base}/library/onDeck"), token).await;
-    let recently_viewed = json(&format!("{base}/library/recentlyViewed"), token).await;
+    let deck_url = format!("{base}/library/onDeck");
+    let recent_url = format!("{base}/library/recentlyViewed");
+    let (on_deck, recently_viewed) =
+        tokio::join!(json(&deck_url, token), json(&recent_url, token),);
 
     if let (Err(deck_error), Err(_)) = (&on_deck, &recently_viewed) {
         return Err(deck_error.clone());
     }
+
+    let resume_ids = on_deck
+        .as_ref()
+        .ok()
+        .and_then(|value| resume_ids(value, &machine, &base, &now));
 
     for value in [on_deck.ok(), recently_viewed.ok()].into_iter().flatten() {
         if let Some(metadata) = value
@@ -149,7 +178,10 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         }
     }
 
-    Ok(items.into_values().collect())
+    Ok(super::ProviderRefresh {
+        items: items.into_values().collect(),
+        resume_ids,
+    })
 }
 
 #[cfg(test)]
@@ -210,5 +242,29 @@ mod tests {
         assert_eq!(item.progress_seconds, Some(120.0));
         assert_eq!(item.duration_seconds, Some(600.0));
         assert_eq!(item.completed, Some(false));
+    }
+    #[test]
+    fn only_complete_resume_responses_can_clear_old_progress() {
+        let entry = json!({"ratingKey": "42", "type": "movie", "title": "Example", "viewOffset": 10, "duration": 100});
+        let complete = json!({"MediaContainer": {"Metadata": [entry], "size": 1, "totalSize": 1}});
+        assert_eq!(
+            resume_ids(&complete, "machine", "base", "now"),
+            Some(vec!["plex:machine:42".into()])
+        );
+        let truncated = json!({"MediaContainer": {"Metadata": [entry], "totalSize": 2}});
+        assert_eq!(resume_ids(&truncated, "machine", "base", "now"), None);
+        assert_eq!(
+            resume_ids(
+                &json!({"MediaContainer": {"size": 0}}),
+                "machine",
+                "base",
+                "now"
+            ),
+            Some(vec![])
+        );
+        assert_eq!(
+            resume_ids(&json!({"MediaContainer": {}}), "machine", "base", "now"),
+            None
+        );
     }
 }

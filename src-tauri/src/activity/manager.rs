@@ -11,14 +11,33 @@ use super::{
     storage::Storage,
 };
 use crate::commands::{self, apps};
+use std::{
+    collections::BTreeMap,
+    sync::{Mutex, MutexGuard},
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 const TRACKING_KEY: &str = "tracking.enabled";
 const TOKEN_SAVED_KEY: &str = "tokenSaved";
 
+#[derive(Default)]
+struct RefreshState {
+    sequence: u64,
+    pending: BTreeMap<String, u64>,
+}
+
+impl RefreshState {
+    fn begin(&mut self, provider: &str) -> u64 {
+        self.sequence += 1;
+        self.pending.insert(provider.into(), self.sequence);
+        self.sequence
+    }
+}
+
 pub struct Activity {
     storage: Storage,
+    refresh_revision: Mutex<RefreshState>,
 }
 
 impl Activity {
@@ -30,26 +49,13 @@ impl Activity {
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         Ok(Self {
             storage: Storage::open(&directory.join("activity.sqlite3"))?,
+            refresh_revision: Mutex::new(RefreshState::default()),
         })
     }
 
     pub fn snapshot(&self) -> Result<ActivitySnapshot, String> {
         let tracking_enabled = self.storage.bool_preference(TRACKING_KEY, true)?;
-        let hidden: Vec<String> = PROVIDERS
-            .iter()
-            .filter(|provider| {
-                self.storage
-                    .bool_preference(&provider_hidden_key(provider.id), false)
-                    .unwrap_or(false)
-            })
-            .map(|provider| provider.id.to_string())
-            .collect();
-        let items = self
-            .storage
-            .list(50)?
-            .into_iter()
-            .filter(|item| !hidden.contains(&item.provider))
-            .collect::<Vec<_>>();
+        let items = self.storage.list(50)?;
         Ok(ActivitySnapshot {
             items,
             providers: self.providers()?,
@@ -247,10 +253,12 @@ impl Activity {
     }
 
     pub fn set_tracking(&self, enabled: bool) -> Result<(), String> {
+        let _revision = self.invalidate_refreshes()?;
         self.storage.set_bool_preference(TRACKING_KEY, enabled)
     }
 
     pub fn set_provider_enabled(&self, provider: &str, enabled: bool) -> Result<(), String> {
+        let _revision = self.invalidate_refreshes()?;
         provider_info(provider).ok_or("Unknown activity provider.")?;
         self.storage
             .set_bool_preference(&provider_enabled_key(provider), enabled)
@@ -263,6 +271,7 @@ impl Activity {
     }
 
     pub fn clear(&self, item_id: Option<&str>, provider: Option<&str>) -> Result<(), String> {
+        let _revision = self.invalidate_refreshes()?;
         match (item_id, provider) {
             (Some(id), _) => {
                 if id.trim().is_empty() {
@@ -279,6 +288,7 @@ impl Activity {
     }
 
     pub fn save_config(&self, provider: &str, input: &ProviderConfigInput) -> Result<(), String> {
+        let _revision = self.invalidate_refreshes()?;
         let info = provider_info(provider).ok_or("Unknown activity provider.")?;
         if !matches!(
             info.kind,
@@ -351,6 +361,7 @@ impl Activity {
     }
 
     pub fn disconnect(&self, provider: &str) -> Result<(), String> {
+        let _revision = self.invalidate_refreshes()?;
         provider_info(provider).ok_or("Unknown activity provider.")?;
         credentials::delete(provider)?;
         self.storage
@@ -360,6 +371,12 @@ impl Activity {
         self.storage
             .remove_preference(&provider_error_key(provider))?;
         Ok(())
+    }
+
+    fn invalidate_refreshes(&self) -> Result<MutexGuard<'_, RefreshState>, String> {
+        let mut revision = self.refresh_revision.lock().map_err(|e| e.to_string())?;
+        revision.pending.clear();
+        Ok(revision)
     }
 
     pub async fn refresh(&self, provider: &str) -> Result<RefreshResult, String> {
@@ -379,11 +396,15 @@ impl Activity {
                 info.name
             ));
         }
-        let config = ProviderConfig {
-            server_url: self.storage.preference(&provider_url_key(provider))?,
-            user_id: self.storage.preference(&provider_user_key(provider))?,
-            client_id: self.storage.preference(&provider_client_key(provider))?,
-            token: credentials::read(provider)?,
+        let (revision, config) = {
+            let mut revision = self.refresh_revision.lock().map_err(|e| e.to_string())?;
+            let config = ProviderConfig {
+                server_url: self.storage.preference(&provider_url_key(provider))?,
+                user_id: self.storage.preference(&provider_user_key(provider))?,
+                client_id: self.storage.preference(&provider_client_key(provider))?,
+                token: credentials::read(provider)?,
+            };
+            (revision.begin(provider), config)
         };
         let configured = config.token.is_some()
             && match info.kind {
@@ -401,16 +422,31 @@ impl Activity {
                 }
             ));
         }
-        match providers::refresh(provider, &config).await {
-            Ok(items) => {
-                let updated = items.len();
-                for item in &items {
-                    self.storage.upsert(item)?;
-                }
-                self.storage
-                    .set_preference(&provider_success_key(provider), &now())?;
-                self.storage
-                    .remove_preference(&provider_error_key(provider))?;
+        let result = providers::refresh(provider, &config).await;
+        self.finish_refresh(provider, revision, result)
+    }
+
+    fn finish_refresh(
+        &self,
+        provider: &str,
+        revision: u64,
+        result: Result<providers::ProviderRefresh, String>,
+    ) -> Result<RefreshResult, String> {
+        let mut current = self.refresh_revision.lock().map_err(|e| e.to_string())?;
+        if current.pending.get(provider) != Some(&revision)
+            || !self.tracking_enabled()?
+            || !self.provider_enabled(provider)?
+        {
+            return Err(
+                "Activity settings changed during synchronization. Check the connection again."
+                    .into(),
+            );
+        }
+        current.pending.remove(provider);
+        match result {
+            Ok(data) => {
+                let updated = data.items.len();
+                self.storage.import_provider(provider, &data, &now())?;
                 Ok(RefreshResult {
                     snapshot: self.snapshot()?,
                     updated,
@@ -701,6 +737,7 @@ mod tests {
     fn activity() -> Activity {
         Activity {
             storage: Storage::memory().unwrap(),
+            refresh_revision: Mutex::new(RefreshState::default()),
         }
     }
 
@@ -776,5 +813,112 @@ mod tests {
             "http://other.local:8096/web/index.html#/details?id=1"
         )
         .is_err());
+    }
+    #[test]
+    fn hidden_history_does_not_consume_the_visible_limit() {
+        let activity = activity();
+        activity
+            .storage
+            .record_launch("Netflix", "2025-01-01T00:00:00.000Z")
+            .unwrap();
+        for index in 0..50 {
+            let report = PlaybackReport {
+                video_id: format!("{index:011}"),
+                title: "Video".into(),
+                channel: None,
+                artwork: None,
+                position_seconds: 10.0,
+                duration_seconds: 100.0,
+                completed: false,
+            };
+            activity.record_youtube(&report).unwrap();
+        }
+        activity.set_provider_hidden("youtube", true).unwrap();
+        let snapshot = activity.snapshot().unwrap();
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].title, "Netflix");
+    }
+
+    #[test]
+    fn delayed_sync_cannot_undo_history_or_connection_changes() {
+        for change in 0..4 {
+            let activity = activity();
+            let revision = activity.refresh_revision.lock().unwrap().begin("plex");
+            let mut stale = activity.record_launch("Netflix").unwrap().unwrap();
+            stale.id = "plex:stale".into();
+            stale.provider = "plex".into();
+            match change {
+                0 => activity.clear(None, None).unwrap(),
+                1 => {
+                    activity.set_tracking(false).unwrap();
+                    activity.set_tracking(true).unwrap();
+                }
+                2 => {
+                    activity.set_provider_enabled("plex", false).unwrap();
+                    activity.set_provider_enabled("plex", true).unwrap();
+                }
+                _ => activity
+                    .save_config(
+                        "plex",
+                        &ProviderConfigInput {
+                            server_url: Some("http://new-server:32400".into()),
+                            user_id: None,
+                            client_id: None,
+                            token: None,
+                        },
+                    )
+                    .unwrap(),
+            }
+            let data = providers::ProviderRefresh {
+                items: vec![stale],
+                resume_ids: Some(vec![]),
+            };
+            assert!(activity.finish_refresh("plex", revision, Ok(data)).is_err());
+            assert!(activity
+                .finish_refresh("plex", revision, Err("Old connection failed".into()))
+                .is_err());
+            assert!(activity.storage.get("plex:stale").unwrap().is_none());
+            assert!(activity
+                .storage
+                .preference(&provider_success_key("plex"))
+                .unwrap()
+                .is_none());
+            assert!(activity
+                .storage
+                .preference(&provider_error_key("plex"))
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn newer_sync_supersedes_only_the_same_provider() {
+        let activity = activity();
+        let old = activity.refresh_revision.lock().unwrap().begin("plex");
+        let jellyfin = activity.refresh_revision.lock().unwrap().begin("jellyfin");
+        let current = activity.refresh_revision.lock().unwrap().begin("plex");
+        assert!(activity
+            .finish_refresh("plex", old, Err("Outdated failure".into()))
+            .is_err());
+        assert!(activity
+            .finish_refresh(
+                "plex",
+                current,
+                Ok(providers::ProviderRefresh {
+                    items: vec![],
+                    resume_ids: None
+                })
+            )
+            .is_ok());
+        assert!(activity
+            .finish_refresh(
+                "jellyfin",
+                jellyfin,
+                Ok(providers::ProviderRefresh {
+                    items: vec![],
+                    resume_ids: None
+                })
+            )
+            .is_ok());
     }
 }

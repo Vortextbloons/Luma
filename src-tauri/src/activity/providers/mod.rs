@@ -80,11 +80,19 @@ pub fn safe_artwork(value: Option<&str>, fallback: Option<String>) -> Option<Str
         .or(fallback)
 }
 
-pub async fn refresh(provider: &str, config: &ProviderConfig) -> Result<Vec<ActivityItem>, String> {
+pub struct ProviderRefresh {
+    pub items: Vec<ActivityItem>,
+    pub resume_ids: Option<Vec<String>>,
+}
+
+pub async fn refresh(provider: &str, config: &ProviderConfig) -> Result<ProviderRefresh, String> {
     match provider {
         "plex" => plex::refresh(config).await,
         "jellyfin" => jellyfin::refresh(config).await,
-        "trakt" => trakt::refresh(config).await,
+        "trakt" => trakt::refresh(config).await.map(|items| ProviderRefresh {
+            items,
+            resume_ids: None,
+        }),
         _ => Err(format!(
             "{provider} does not provide a refreshable activity source."
         )),
@@ -129,5 +137,56 @@ mod tests {
             ),
             Some("https://i.ytimg.com/".into())
         );
+    }
+    #[tokio::test]
+    async fn independent_provider_lists_load_concurrently() {
+        use axum::{extract::State, routing::get, Json, Router};
+        use serde_json::{json, Value};
+        use std::sync::Arc;
+        use tokio::sync::Barrier;
+
+        async fn list(State(barrier): State<Arc<Barrier>>) -> Json<Value> {
+            barrier.wait().await;
+            Json(
+                json!({"MediaContainer": {"Metadata": [], "size": 0}, "Items": [], "TotalRecordCount": 0}),
+            )
+        }
+        for provider in ["plex", "jellyfin"] {
+            let barrier = Arc::new(Barrier::new(2));
+            let router = Router::new()
+                .route(
+                    "/identity",
+                    get(|| async {
+                        Json(json!({"MediaContainer": {"machineIdentifier": "machine"}}))
+                    }),
+                )
+                .route("/library/onDeck", get(list))
+                .route("/library/recentlyViewed", get(list))
+                .route("/Users/user/Items/Resume", get(list))
+                .route("/Users/user/Items", get(list))
+                .with_state(barrier);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let config = ProviderConfig {
+                server_url: Some(format!("http://{address}")),
+                token: Some("test-token".into()),
+                user_id: Some("user".into()),
+                client_id: None,
+            };
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                refresh(provider, &config),
+            )
+            .await;
+            server.abort();
+            let data = result
+                .expect("both list requests must start before either finishes")
+                .unwrap();
+            assert!(data.items.is_empty());
+            assert_eq!(data.resume_ids, Some(vec![]));
+        }
     }
 }

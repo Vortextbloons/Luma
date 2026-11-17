@@ -60,6 +60,10 @@ impl Storage {
 
     pub fn upsert(&self, item: &ActivityItem) -> Result<(), String> {
         let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        Self::upsert_on(&connection, item)
+    }
+
+    fn upsert_on(connection: &Connection, item: &ActivityItem) -> Result<(), String> {
         connection
             .execute(
                 "INSERT INTO activity_items (
@@ -121,6 +125,44 @@ impl Storage {
             )
             .map_err(|error| error.to_string())?;
         Ok(())
+    }
+
+    pub fn import_provider(
+        &self,
+        provider: &str,
+        data: &super::providers::ProviderRefresh,
+        now: &str,
+    ) -> Result<(), String> {
+        let mut connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        for item in &data.items {
+            Self::upsert_on(&transaction, item)?;
+        }
+        if let Some(ids) = &data.resume_ids {
+            let ids = serde_json::to_string(ids).map_err(|e| e.to_string())?;
+            transaction
+                .execute(
+                    "UPDATE activity_items SET progress_seconds = NULL, can_resume = 0
+                 WHERE provider = ?1 AND progress_source = 'provider'
+                   AND id NOT IN (SELECT value FROM json_each(?2))",
+                    params![provider, ids],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO activity_preferences (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![super::models::provider_success_key(provider), now],
+            )
+            .map_err(|e| e.to_string())?;
+        transaction
+            .execute(
+                "DELETE FROM activity_preferences WHERE key = ?1",
+                params![super::models::provider_error_key(provider)],
+            )
+            .map_err(|e| e.to_string())?;
+        transaction.commit().map_err(|e| e.to_string())
     }
 
     pub fn record_launch(&self, app: &str, now: &str) -> Result<ActivityItem, String> {
@@ -191,7 +233,12 @@ impl Storage {
                         artwork, last_activity_at, progress_seconds, duration_seconds,
                         progress_source, completed, can_resume, launch_target, resume_kind,
                         launch_count, metadata_updated_at
-                 FROM activity_items ORDER BY last_activity_at DESC LIMIT ?1",
+                 FROM activity_items
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM activity_preferences
+                     WHERE key = 'provider.' || activity_items.provider || '.hidden' AND value = 'true'
+                 )
+                 ORDER BY last_activity_at DESC LIMIT ?1",
             )
             .map_err(|error| error.to_string())?;
         let rows = statement
@@ -376,5 +423,75 @@ mod tests {
         assert!(!storage.bool_preference("tracking", true).unwrap());
         storage.remove_preference("tracking").unwrap();
         assert!(storage.bool_preference("tracking", true).unwrap());
+    }
+    #[test]
+    fn resume_reconciliation_preserves_history_and_partial_failures() {
+        let storage = Storage::memory().unwrap();
+        storage
+            .upsert(&item("plex:old", "2026-01-01T00:00:00.000Z", 20.0))
+            .unwrap();
+        let mut data = super::super::providers::ProviderRefresh {
+            items: vec![item("plex:current", "2026-01-02T00:00:00.000Z", 50.0)],
+            resume_ids: None,
+        };
+        storage.import_provider("plex", &data, "now").unwrap();
+        assert_eq!(
+            storage.get("plex:old").unwrap().unwrap().progress_seconds,
+            Some(20.0)
+        );
+        data.resume_ids = Some(vec!["plex:current".into()]);
+        storage.import_provider("plex", &data, "now").unwrap();
+        assert_eq!(
+            storage.get("plex:old").unwrap().unwrap().progress_seconds,
+            None
+        );
+        assert_eq!(
+            storage.get("plex:old").unwrap().unwrap().completed,
+            Some(false)
+        );
+        assert_eq!(
+            storage
+                .get("plex:current")
+                .unwrap()
+                .unwrap()
+                .progress_seconds,
+            Some(50.0)
+        );
+        data.items.clear();
+        data.resume_ids = Some(vec![]);
+        storage.import_provider("plex", &data, "now").unwrap();
+        assert_eq!(
+            storage
+                .get("plex:current")
+                .unwrap()
+                .unwrap()
+                .progress_seconds,
+            None
+        );
+        assert_eq!(storage.list(50).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn failed_import_rolls_back_items_and_sync_status() {
+        let storage = Storage::memory().unwrap();
+        storage
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_bad BEFORE INSERT ON activity_items WHEN NEW.id = 'bad'
+             BEGIN SELECT RAISE(ABORT, 'rejected item'); END;",
+            )
+            .unwrap();
+        let data = super::super::providers::ProviderRefresh {
+            items: vec![item("good", "now", 10.0), item("bad", "now", 20.0)],
+            resume_ids: None,
+        };
+        assert!(storage.import_provider("plex", &data, "now").is_err());
+        assert!(storage.list(50).unwrap().is_empty());
+        assert!(storage
+            .preference(&super::super::models::provider_success_key("plex"))
+            .unwrap()
+            .is_none());
     }
 }

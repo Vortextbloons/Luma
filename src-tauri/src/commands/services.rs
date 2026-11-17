@@ -532,7 +532,7 @@ impl Cdp {
                 json!({
                     "expression": expression,
                     "returnByValue": true,
-                    "awaitPromise": false,
+                    "awaitPromise": true,
                     "userGesture": true
                 }),
             )
@@ -574,7 +574,7 @@ impl Cdp {
                 continue;
             };
             let result = self.call("Runtime.evaluate", json!({
-                "expression": expression, "contextId": context, "returnByValue": true, "userGesture": true,
+                "expression": expression, "contextId": context, "returnByValue": true, "awaitPromise": true, "userGesture": true,
             })).await?;
             if result.get("exceptionDetails").is_some() {
                 continue;
@@ -645,6 +645,9 @@ mod tests {
                 let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
                 let request: Value = serde_json::from_str(&text).unwrap();
                 assert_eq!(request["method"], expected);
+                if expected == "Runtime.evaluate" {
+                    assert_eq!(request["params"]["awaitPromise"], true);
+                }
                 let result = match expected {
                     "Page.getFrameTree" => {
                         json!({ "frameTree": { "childFrames": [{ "frame": { "id": "movie" } }] } })
@@ -780,36 +783,8 @@ mod tests {
     }
 }
 
-pub(crate) async fn timeline(app: &AppHandle, script: &str) -> Result<Value, String> {
+pub(crate) fn current_source(app: &AppHandle) -> Option<String> {
     let state = app.state::<Services>();
-    let names: Vec<String> = state
-        .inner
-        .lock()
-        .map_err(|e| e.to_string())?
-        .windows
-        .keys()
-        .cloned()
-        .collect();
-    for name in names {
-        if !crate::commands::session::web_current(app, &name) {
-            continue;
-        }
-        let url = tracked(app, &name)
-            .map(|window| window.url)
-            .unwrap_or_default();
-        let mut connections = state.connections.lock().await;
-        if !connections.contains_key(&name) {
-            connections.insert(name.clone(), connect(app, &name, &url).await?);
-        }
-        let result = connections
-            .get_mut(&name)
-            .ok_or("Player unavailable")?
-            .timeline(script)
-            .await;
-        if result.is_err() {
-            connections.remove(&name);
-        }
-        return result;
-    }
-    Ok(Value::Null)
+    let names: Vec<String> = state.inner.lock().ok()?.windows.keys().cloned().collect();
+    names.into_iter().find(|name| crate::commands::session::web_current(app, name))
 }

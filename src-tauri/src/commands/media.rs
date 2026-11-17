@@ -5,65 +5,100 @@ pub fn stop(app: &tauri::AppHandle) {
     spotify::shutdown(app);
 }
 
-pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+enum PlayerTarget {
+    Embedded(tauri::WebviewWindow),
+    Sports,
+    Service(String),
+    #[cfg(windows)]
+    Native(String),
+    External,
+    Music,
+}
+
+fn player_target(app: &tauri::AppHandle) -> PlayerTarget {
     crate::viewing::refresh_external_focus(app);
     if crate::viewing::external_selected(app) {
-        if !matches!(action, "toggle" | "previous" | "next") { return Err("Unknown playback command.".into()); }
-        if let Some(source) = crate::viewing::external_source(app) {
-            let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
-            let script = include_str!("../../resources/playback.js");
-            let script = format!("(() => {{ if (!document.querySelector('video')) return null; ({script})({action}); return true; }})()");
-            let result = crate::commands::services::evaluate(app, &source, &script).await?;
-            if !result.is_null() { return Ok(()); }
-        }
-        return Err("Use this window's own playback controls.".into());
+        return crate::viewing::external_source(app)
+            .map(PlayerTarget::Service)
+            .unwrap_or(PlayerTarget::External);
     }
     if let Some(window) = crate::viewing::selected(app) {
-        if window.label() == "sports" { return crate::commands::sports::control(app, action).await; }
-        if !matches!(action, "toggle" | "previous" | "next") { return Err("Unknown playback command.".into()); }
-        let script = include_str!("../../resources/playback.js");
-        let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
-        return window.eval(format!("({script})({action});")).map_err(|error| error.to_string());
+        return if window.label() == "sports" {
+            PlayerTarget::Sports
+        } else {
+            PlayerTarget::Embedded(window)
+        };
     }
-    if app
-        .get_webview_window("sports")
-        .is_some_and(|window| window.is_visible().unwrap_or(false))
-    {
-        return crate::commands::sports::control(app, action).await;
+    let mut windows: Vec<_> = ["sports", "youtube", "stremio"]
+        .into_iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .filter(|window| {
+            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+        })
+        .collect();
+    windows.sort_by_key(|window| !window.is_focused().unwrap_or(false));
+    if let Some(window) = windows.into_iter().next() {
+        return if window.label() == "sports" {
+            PlayerTarget::Sports
+        } else {
+            PlayerTarget::Embedded(window)
+        };
     }
+    #[cfg(windows)]
+    if let Some(executable) = crate::commands::session::native_executable(app) {
+        return PlayerTarget::Native(executable);
+    }
+    crate::commands::services::current_source(app)
+        .map(PlayerTarget::Service)
+        .unwrap_or(PlayerTarget::Music)
+}
+
+pub async fn control(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
     if !matches!(action, "toggle" | "previous" | "next") {
         return Err("Unknown playback command.".into());
     }
-    for label in ["youtube", "stremio"] {
-        if let Some(window) = app
-            .get_webview_window(label)
-            .filter(|window| window.is_visible().unwrap_or(false))
-        {
+    match player_target(app) {
+        PlayerTarget::Sports => crate::commands::sports::control(app, action).await,
+        PlayerTarget::Embedded(window) => {
             let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
-            let script = include_str!("../../resources/playback.js");
-            return window
-                .eval(format!("({script})({action});"))
-                .map_err(|error| error.to_string());
+            window
+                .eval(format!(
+                    "({})({action});",
+                    include_str!("../../resources/playback.js")
+                ))
+                .map_err(|error| error.to_string())
         }
+        PlayerTarget::Service(source) => {
+            let action = serde_json::to_string(action).map_err(|error| error.to_string())?;
+            let script = format!("(async () => {{ if (!document.querySelector('video')) return null; await ({})({action}); return true; }})()", include_str!("../../resources/playback.js"));
+            let result = crate::commands::services::evaluate(app, &source, &script).await?;
+            if result.as_bool() == Some(true) {
+                Ok(())
+            } else {
+                Err("This player is not exposing playback controls.".into())
+            }
+        }
+        #[cfg(windows)]
+        PlayerTarget::Native(executable) => {
+            let action = action.to_owned();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                native_playback(&executable, None, Some(&action))
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            if result.get("accepted").and_then(serde_json::Value::as_bool) == Some(true) {
+                Ok(())
+            } else {
+                Err("This app is not exposing that playback control.".into())
+            }
+        }
+        PlayerTarget::External => Err("Use this window's own playback controls.".into()),
+        PlayerTarget::Music => music(app, action).await,
     }
-    let auth = app.state::<Auth>();
-    spotify::control(app, &auth, action, None).await
-}
-
-fn visible_player(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    ["youtube", "stremio"]
-        .into_iter()
-        .filter_map(|label| app.get_webview_window(label))
-        .find(|window| {
-            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
-        })
 }
 
 pub fn has_video(app: &tauri::AppHandle) -> bool {
-    crate::viewing::external_selected(app) || visible_player(app).is_some()
-        || app
-            .get_webview_window("sports")
-            .is_some_and(|window| window.is_visible().unwrap_or(false))
+    !matches!(player_target(app), PlayerTarget::Music)
 }
 
 pub async fn music(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
@@ -78,59 +113,45 @@ pub async fn timeline(
     app: &tauri::AppHandle,
     position: Option<f64>,
 ) -> Result<serde_json::Value, String> {
-    crate::viewing::refresh_external_focus(app);
-    if crate::viewing::external_selected(app) {
-        if let Some(source) = crate::viewing::external_source(app) {
-            let script = format!("({})({})", include_str!("../../resources/timeline.js"), serde_json::to_string(&position).map_err(|error| error.to_string())?);
-            return crate::commands::services::evaluate(app, &source, &script).await;
-        }
-        return if position.is_some() { Err("Use this window's own timeline controls.".into()) } else { Ok(serde_json::Value::Null) };
-    }
-    let selected = crate::viewing::selected(app);
-    if selected.as_ref().is_some_and(|window| window.label() == "sports") || (selected.is_none() && app.get_webview_window("sports").is_some_and(|window| window.is_visible().unwrap_or(false))) {
-        return crate::commands::sports::timeline(app, position).await;
-    }
     let script = format!(
         "({})({})",
         include_str!("../../resources/timeline.js"),
         serde_json::to_string(&position).map_err(|error| error.to_string())?
     );
-    let mut windows: Vec<_> = ["youtube", "stremio"]
-        .into_iter()
-        .filter_map(|label| app.get_webview_window(label))
-        .filter(|window| {
-            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
-        })
-        .collect();
-    if let Some(selected) = selected { windows.retain(|window| window.label() == selected.label()); }
-    windows.sort_by_key(|window| !window.is_focused().unwrap_or(false));
-    if let Some(window) = windows.first() {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let sender = std::sync::Mutex::new(Some(sender));
-        window
-            .eval_with_callback(script, move |result| {
-                if let Ok(mut sender) = sender.lock() {
-                    if let Some(sender) = sender.take() {
-                        let _ = sender.send(result);
-                    }
-                }
-            })
-            .map_err(|error| error.to_string())?;
-        let result = tokio::time::timeout(std::time::Duration::from_secs(2), receiver)
-            .await
-            .map_err(|_| "The player did not respond. Try again.".to_string())?
-            .map_err(|_| "The player closed before responding.".to_string())?;
-        return serde_json::from_str(&result).map_err(|error| error.to_string());
-    }
-    #[cfg(windows)]
-    if let Some(executable) = crate::commands::session::native_executable(app) {
-        return tauri::async_runtime::spawn_blocking(move || {
-            native_timeline(&executable, position)
+    match player_target(app) {
+        PlayerTarget::Sports => crate::commands::sports::timeline(app, position).await,
+        PlayerTarget::Service(source) => {
+            crate::commands::services::evaluate(app, &source, &script).await
+        }
+        #[cfg(windows)]
+        PlayerTarget::Native(executable) => tauri::async_runtime::spawn_blocking(move || {
+            native_playback(&executable, position, None)
         })
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?,
+        PlayerTarget::External if position.is_some() => {
+            Err("Use this window's own timeline controls.".into())
+        }
+        PlayerTarget::External | PlayerTarget::Music => Ok(serde_json::Value::Null),
+        PlayerTarget::Embedded(window) => {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let sender = std::sync::Mutex::new(Some(sender));
+            window
+                .eval_with_callback(script, move |result| {
+                    if let Ok(mut sender) = sender.lock() {
+                        if let Some(sender) = sender.take() {
+                            let _ = sender.send(result);
+                        }
+                    }
+                })
+                .map_err(|error| error.to_string())?;
+            let result = tokio::time::timeout(std::time::Duration::from_secs(2), receiver)
+                .await
+                .map_err(|_| "The player did not respond. Try again.".to_string())?
+                .map_err(|_| "The player closed before responding.".to_string())?;
+            serde_json::from_str(&result).map_err(|error| error.to_string())
+        }
     }
-    crate::commands::services::timeline(app, &script).await
 }
 
 #[cfg(windows)]
@@ -150,7 +171,11 @@ fn matches_source(executable: &str, source: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn native_timeline(executable: &str, position: Option<f64>) -> Result<serde_json::Value, String> {
+fn native_playback(
+    executable: &str,
+    position: Option<f64>,
+    action: Option<&str>,
+) -> Result<serde_json::Value, String> {
     use windows::{
         Media::Control::GlobalSystemMediaTransportControlsSessionManager,
         Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
@@ -178,6 +203,36 @@ fn native_timeline(executable: &str, position: Option<f64>) -> Result<serde_json
             let session = sessions.GetAt(index)?;
             if !matches_source(executable, &session.SourceAppUserModelId()?.to_string()) {
                 continue;
+            }
+            if let Some(action) = action {
+                let controls = session.GetPlaybackInfo()?.Controls()?;
+                let operation = match action {
+                    "toggle" if controls.IsPlayPauseToggleEnabled()? => {
+                        session.TryTogglePlayPauseAsync()?
+                    }
+                    "previous" | "next" if controls.IsPlaybackPositionEnabled()? => {
+                        let timeline = session.GetTimelineProperties()?;
+                        let delta = if action == "next" {
+                            100_000_000
+                        } else {
+                            -100_000_000
+                        };
+                        let target = timeline.Position()?.Duration.saturating_add(delta).clamp(
+                            timeline.StartTime()?.Duration,
+                            timeline
+                                .EndTime()?
+                                .Duration
+                                .max(timeline.StartTime()?.Duration),
+                        );
+                        session.TryChangePlaybackPositionAsync(target)?
+                    }
+                    "previous" if controls.IsPreviousEnabled()? => {
+                        session.TrySkipPreviousAsync()?
+                    }
+                    "next" if controls.IsNextEnabled()? => session.TrySkipNextAsync()?,
+                    _ => return Ok(serde_json::json!({ "accepted": false })),
+                };
+                return Ok(serde_json::json!({ "accepted": operation.get()? }));
             }
             if !session
                 .GetPlaybackInfo()?

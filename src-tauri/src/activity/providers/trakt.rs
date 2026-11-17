@@ -28,7 +28,7 @@ fn item(value: &Value, fallback: &str) -> Option<ActivityItem> {
             let movie = value.get("movie")?;
             let title = text(movie, "title")?;
             let ids = movie.get("ids").unwrap_or(&Value::Null);
-            let id = text(ids, "trakt")?.to_string();
+            let id = ids.get("trakt")?.as_u64()?.to_string();
             let slug = text(ids, "slug");
             Some(ActivityItem {
                 id: format!("trakt:movie:{id}"),
@@ -60,7 +60,7 @@ fn item(value: &Value, fallback: &str) -> Option<ActivityItem> {
             let show = value.get("show")?;
             let title = text(show, "title")?;
             let ids = episode.get("ids").unwrap_or(&Value::Null);
-            let id = text(ids, "trakt")?.to_string();
+            let id = ids.get("trakt")?.as_u64()?.to_string();
             let season = number(episode, "season").unwrap_or(0.0) as u32;
             let index = number(episode, "number").unwrap_or(0.0) as u32;
             let episode_title =
@@ -123,15 +123,49 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         .json::<Value>()
         .await
         .map_err(|error| format!("Trakt returned an unreadable response: {error}"))?;
+    history(&value, &now())
+}
+
+fn history(value: &Value, now: &str) -> Result<Vec<ActivityItem>, String> {
     let entries = value
         .as_array()
         .ok_or("Trakt returned an unexpected history response.")?;
-    let now = now();
-    let mut items = BTreeMap::new();
+    let mut items: BTreeMap<String, ActivityItem> = BTreeMap::new();
     for entry in entries {
-        if let Some(item) = item(entry, &now) {
-            items.insert(item.id.clone(), item);
+        if let Some(item) = item(entry, now) {
+            if items.get(&item.id).map_or(true, |previous| {
+                previous.last_activity_at < item.last_activity_at
+            }) {
+                items.insert(item.id.clone(), item);
+            }
         }
     }
     Ok(items.into_values().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn numeric_movie_and_episode_ids_are_imported() {
+        let movie = json!({"type": "movie", "watched_at": "2026-01-01T00:00:00.000Z",
+            "movie": {"title": "Example", "year": 2025, "ids": {"trakt": 123, "slug": "example"}}});
+        let episode = json!({"type": "episode", "episode": {"title": "Pilot", "season": 1,
+            "number": 1, "ids": {"trakt": 456}}, "show": {"title": "Example Show", "ids": {"slug": "example-show"}}});
+        assert_eq!(item(&movie, "now").unwrap().id, "trakt:movie:123");
+        assert_eq!(item(&episode, "now").unwrap().id, "trakt:episode:456");
+    }
+    #[test]
+    fn repeated_watches_keep_the_latest_activity_in_either_order() {
+        let older = json!({"type": "movie", "watched_at": "2026-01-01T00:00:00.000Z", "movie": {"title": "Example", "ids": {"trakt": 123}}});
+        let mut newer = older.clone();
+        newer["watched_at"] = json!("2026-01-02T00:00:00.000Z");
+        for entries in [json!([newer, older]), json!([older, newer])] {
+            let items = history(&entries, "now").unwrap();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].last_activity_at, "2026-01-02T00:00:00.000Z");
+        }
+    }
 }

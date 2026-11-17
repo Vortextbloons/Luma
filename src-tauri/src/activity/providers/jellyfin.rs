@@ -149,7 +149,19 @@ fn item(value: &Value, user: &str, base: &str, fallback: &str) -> Option<Activit
     })
 }
 
-pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, String> {
+fn resume_ids(value: &Value, user: &str, base: &str, now: &str) -> Option<Vec<String>> {
+    let entries = value.get("Items")?.as_array()?;
+    let total = value.get("TotalRecordCount")?.as_u64()?;
+    if total > entries.len() as u64 {
+        return None;
+    }
+    entries
+        .iter()
+        .map(|value| item(value, user, base, now).map(|item| item.id))
+        .collect()
+}
+
+pub async fn refresh(config: &ProviderConfig) -> Result<super::ProviderRefresh, String> {
     let base = validated_base(config.server_url.as_deref().unwrap_or(""))?;
     let token = config
         .token
@@ -177,12 +189,16 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         ]),
         token,
     );
-    let resume = json(resume, "Jellyfin").await;
-    let played = json(played, "Jellyfin").await;
+    let (resume, played) = tokio::join!(json(resume, "Jellyfin"), json(played, "Jellyfin"));
 
     if let (Err(resume_error), Err(_)) = (&resume, &played) {
         return Err(resume_error.clone());
     }
+
+    let resume_ids = resume
+        .as_ref()
+        .ok()
+        .and_then(|value| resume_ids(value, &user, &base, &now));
 
     for value in [resume.ok(), played.ok()].into_iter().flatten() {
         if let Some(entries) = value.get("Items").and_then(Value::as_array) {
@@ -194,5 +210,51 @@ pub async fn refresh(config: &ProviderConfig) -> Result<Vec<ActivityItem>, Strin
         }
     }
 
-    Ok(items.into_values().collect())
+    Ok(super::ProviderRefresh {
+        items: items.into_values().collect(),
+        resume_ids,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_complete_resume_responses_can_clear_old_progress() {
+        let entry = json!({"Id": "42", "Name": "Example", "Type": "Movie", "RunTimeTicks": 100000000,
+            "UserData": {"PlaybackPositionTicks": 50000000}});
+        assert_eq!(
+            resume_ids(
+                &json!({"Items": [entry], "TotalRecordCount": 1}),
+                "user",
+                "base",
+                "now"
+            ),
+            Some(vec!["jellyfin:user:42".into()])
+        );
+        assert_eq!(
+            resume_ids(
+                &json!({"Items": [entry], "TotalRecordCount": 51}),
+                "user",
+                "base",
+                "now"
+            ),
+            None
+        );
+        assert_eq!(
+            resume_ids(
+                &json!({"Items": [], "TotalRecordCount": 0}),
+                "user",
+                "base",
+                "now"
+            ),
+            Some(vec![])
+        );
+        assert_eq!(
+            resume_ids(&json!({"Items": []}), "user", "base", "now"),
+            None
+        );
+    }
 }
