@@ -68,9 +68,27 @@ export function createSpotify() {
   let tick = $state(Date.now());
   let initialized = false;
   let homeLoadedAt = 0;
+  let accountRevision = 0;
   const stops: (() => void)[] = [];
   let timer: ReturnType<typeof setInterval> | undefined;
   let stopVisibility: (() => void) | undefined;
+
+  function resetAccountData() {
+    accountRevision++;
+    home = emptyHome();
+    homeLoadedAt = 0;
+    homeLoading = false;
+    queue = null;
+    queueError = '';
+    devices = [];
+    devicesError = '';
+    devicesLoading = false;
+  }
+
+  function applyConnection(state: SpotifyConnection) {
+    if (state.authenticated !== connection.authenticated || state.displayName !== connection.displayName) resetAccountData();
+    connection = state;
+  }
 
   function updateTimer() {
     const active = playback.playing && appVisible();
@@ -93,13 +111,14 @@ export function createSpotify() {
       updateTimer();
     }));
     stops.push(await onSpotifyArtwork(value => { artwork = value; }));
-    stops.push(await onSpotifyConnection(state => { connection = state; }));
+    stops.push(await onSpotifyConnection(applyConnection));
     stopVisibility = onAppVisible(updateTimer);
     try { clientId = await spotifyClientId(); } catch { clientId = ''; }
     await refresh();
   }
 
   function dispose() {
+    resetAccountData();
     for (const stop of stops.splice(0)) stop();
     stopVisibility?.();
     stopVisibility = undefined;
@@ -110,33 +129,40 @@ export function createSpotify() {
 
   async function refresh() {
     if (!native) return;
+    const revision = accountRevision;
     loading = true;
     try {
       const previous = playback;
-      [playback, connection] = await Promise.all([spotifyPlayback(), spotifyStatus()]);
+      const [nextPlayback, nextConnection] = await Promise.all([spotifyPlayback(), spotifyStatus()]);
+      if (revision !== accountRevision) return;
+      playback = nextPlayback;
+      applyConnection(nextConnection);
       updateTimer();
       if (playback.artworkUrl) artwork = playback.artworkUrl;
       else if (playback.title !== previous.title || playback.artist !== previous.artist) artwork = '';
       error = '';
     } catch (cause) {
-      error = String(cause);
+      if (revision === accountRevision) error = String(cause);
     } finally {
       loading = false;
     }
   }
 
   async function loadHome(force = false) {
-    if (!native || !connection.authenticated || homeLoading) return;
+    if (!native || !connection.authenticated || connecting || homeLoading) return;
     if (!force && homeLoadedAt && Date.now() - homeLoadedAt < 60_000) return;
+    const revision = accountRevision;
     homeLoading = true;
     try {
-      home = await spotifyHome();
+      const data = await spotifyHome();
+      if (revision !== accountRevision) return;
+      home = data;
       homeLoadedAt = Date.now();
       error = '';
     } catch (cause) {
-      error = String(cause);
+      if (revision === accountRevision) error = String(cause);
     } finally {
-      homeLoading = false;
+      if (revision === accountRevision) homeLoading = false;
     }
   }
 
@@ -199,12 +225,14 @@ export function createSpotify() {
   }
 
   async function connect() {
-    if (!native) return false;
+    if (!native || connecting) return false;
+    resetAccountData();
     connecting = true;
     error = '';
     try {
-      connection = await spotifyConnect();
+      applyConnection(await spotifyConnect());
       await refresh();
+      connecting = false;
       void loadHome(true);
       return true;
     } catch (cause) {
@@ -216,22 +244,20 @@ export function createSpotify() {
   }
 
   async function disconnect() {
-    if (!native) return false;
+    if (!native || connecting) return false;
+    resetAccountData();
+    connecting = true;
     try {
-      connection = await spotifyDisconnect();
-      home = emptyHome();
+      applyConnection(await spotifyDisconnect());
       artwork = '';
-      queue = null;
-      queueError = '';
-      devices = [];
-      devicesError = '';
-      homeLoadedAt = 0;
       await refresh();
       error = '';
       return true;
     } catch (cause) {
       error = String(cause);
       return false;
+    } finally {
+      connecting = false;
     }
   }
 
@@ -240,7 +266,7 @@ export function createSpotify() {
       await spotifySetClientId(value.trim());
       clientId = value.trim();
       connection.clientIdConfigured = true;
-      connection = await spotifyStatus();
+      applyConnection(await spotifyStatus());
       error = '';
       return true;
     } catch (cause) {
@@ -255,22 +281,30 @@ export function createSpotify() {
   }
 
   async function loadQueue() {
-    if (!native || !connection.authenticated) return;
+    if (!native || !connection.authenticated || connecting) return;
+    const revision = accountRevision;
     try {
       queueError = '';
-      queue = await spotifyQueue();
+      const data = await spotifyQueue();
+      if (revision === accountRevision) queue = data;
     } catch (cause) {
-      queueError = String(cause);
+      if (revision === accountRevision) queueError = String(cause);
     }
   }
 
   async function loadDevices() {
-    if (!native || !connection.authenticated || devicesLoading) return;
+    if (!native || !connection.authenticated || connecting || devicesLoading) return;
+    const revision = accountRevision;
     devicesLoading = true;
     devicesError = '';
-    try { devices = await spotifyDevices(); }
-    catch (cause) { devicesError = String(cause); }
-    finally { devicesLoading = false; }
+    try {
+      const data = await spotifyDevices();
+      if (revision === accountRevision) devices = data;
+    } catch (cause) {
+      if (revision === accountRevision) devicesError = String(cause);
+    } finally {
+      if (revision === accountRevision) devicesLoading = false;
+    }
   }
 
   return {

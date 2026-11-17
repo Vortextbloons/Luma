@@ -10,6 +10,7 @@
   let error = $state('');
   let note = $state('');
   let timer: number | undefined;
+  let disposed = false;
 
   const waiting = $derived(status?.linking ?? null);
   const stateLabel = $derived(!native ? 'Desktop only' : !status ? 'Checking' : status.connected ? 'Connected' : status.linking ? 'Pairing' : 'Not connected');
@@ -20,7 +21,7 @@
   }
 
   function startPolling() {
-    if (timer !== undefined) return;
+    if (disposed || timer !== undefined) return;
     timer = window.setInterval(() => void poll(), 3000);
   }
 
@@ -32,13 +33,14 @@
     if (!native) return;
     try {
       status = await stremioStatus();
+      if (disposed) return;
       if (status.linking) startPolling();
       else if (autoConnect && !status.connected) await connect();
     } catch (cause) { error = String(cause); }
   }
 
   async function connect() {
-    if (busy) return;
+    if (disposed || busy) return;
     busy = true; error = ''; note = '';
     try {
       status = await stremioLinkStart();
@@ -48,10 +50,11 @@
   }
 
   async function poll() {
-    if (busy || !status?.linking) return;
+    if (disposed || busy || !status?.linking) return;
     busy = true;
     try {
       status = await stremioLinkPoll();
+      if (disposed) return;
       error = '';
       if (status.connected) {
         stopPolling();
@@ -59,6 +62,7 @@
         onconnected?.();
       }
     } catch (cause) {
+      if (disposed) return;
       error = String(cause);
       stopPolling();
       try { status = await stremioStatus(); } catch { /* keep the last known state */ }
@@ -104,7 +108,10 @@
     finally { busy = false; }
   }
 
-  onMount(() => { void refresh(); return stopPolling; });
+  onMount(() => {
+    void refresh();
+    return () => { disposed = true; stopPolling(); };
+  });
 </script>
 
 <section class="settings-group">

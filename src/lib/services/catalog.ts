@@ -8,7 +8,7 @@ interface CinemetaMeta {
 }
 
 async function load(id: string, kind = 'movie'): Promise<MediaItem[]> {
-  const response = await fetch(`${endpoint}/${kind}/${id}.json`);
+  const response = await fetch(`${endpoint}/${kind}/${id}.json`, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Movie catalog request failed (${response.status}).`);
   const data = await response.json() as { metas?: CinemetaMeta[] };
   return (data.metas ?? []).slice(0, 10).map(meta => ({
@@ -24,8 +24,14 @@ async function load(id: string, kind = 'movie'): Promise<MediaItem[]> {
 }
 
 export async function loadCatalog() {
-  const [popular, featured, shows] = await Promise.all([load('top'), load('imdbRating'), load('top', 'series')]);
-  return { popular, featured, shows };
+  const results = await Promise.allSettled([load('top'), load('imdbRating'), load('top', 'series')]);
+  const names = ['Popular movies', 'Top-rated movies', 'Popular shows'];
+  return {
+    popular: results[0].status === 'fulfilled' ? results[0].value : undefined,
+    featured: results[1].status === 'fulfilled' ? results[1].value : undefined,
+    shows: results[2].status === 'fulfilled' ? results[2].value : undefined,
+    unavailable: results.flatMap((result, index) => result.status === 'rejected' ? [names[index]] : []),
+  };
 }
 
 export const searchMovies = (query: string) => load(`top/search=${encodeURIComponent(query.trim())}`);

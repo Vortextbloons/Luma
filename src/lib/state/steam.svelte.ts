@@ -6,17 +6,27 @@ class SteamStore {
   recommendations = $state.raw<SteamGame[]>([]);
   recommendationSource = $state.raw<SteamGame | null>(null);
   private refreshing = false;
+  private refreshedAt = 0;
 
-  async refresh() {
-    if (!native || this.refreshing) return;
+  async refresh(force = false) {
+    if (!native || this.refreshing || (!force && this.refreshedAt && Date.now() - this.refreshedAt < 60_000)) return;
     this.refreshing = true;
-    this.games = await steamRecentGames().catch(() => this.games);
-    const source = this.games[0];
-    if (source && (source.appid !== this.recommendationSource?.appid || !this.recommendations.length)) {
-      this.recommendationSource = source;
-      this.recommendations = await steamStoreRecommendations(source.appid).catch(() => []);
+    try {
+      this.games = await steamRecentGames();
+      this.refreshedAt = Date.now();
+      const source = this.games[0];
+      if (!source) {
+        this.recommendationSource = null;
+        this.recommendations = [];
+      } else if (source.appid !== this.recommendationSource?.appid || !this.recommendations.length) {
+        this.recommendationSource = source;
+        this.recommendations = await steamStoreRecommendations(source.appid).catch(() => []);
+      }
+    } catch {
+      return;
+    } finally {
+      this.refreshing = false;
     }
-    this.refreshing = false;
   }
 
   openGame(appid: number) {

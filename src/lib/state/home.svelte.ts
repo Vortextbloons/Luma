@@ -47,6 +47,7 @@ export function createHome(options: {
   let featured = $state.raw<MediaItem[]>([]);
   let popularShows = $state.raw<MediaItem[]>([]);
   let error = $state('');
+  let loading = $state(false);
   let previewApp = $state<AppId | null>(null);
   let heroPick = $state<HeroSlide | null>(null);
   let hoveredGame = $state.raw<GameScore | null>(null);
@@ -92,14 +93,16 @@ export function createHome(options: {
   });
 
   async function start() {
+    if (loading) return;
+    loading = true;
     try {
       const data = await loadCatalog();
-      popular = data.popular;
-      featured = data.featured;
-      popularShows = data.shows;
-      error = '';
-    } catch {
-      error = 'Movie catalog could not be loaded. Check your internet connection.';
+      if (data.popular) popular = data.popular;
+      if (data.featured) featured = data.featured;
+      if (data.shows) popularShows = data.shows;
+      error = data.unavailable.length ? `Could not refresh: ${data.unavailable.join(', ')}. Check your internet connection and retry.` : '';
+    } finally {
+      loading = false;
     }
   }
 
@@ -275,6 +278,7 @@ export function createHome(options: {
     get featured() { return featured; },
     get popularShows() { return popularShows; },
     get error() { return error; },
+    get loading() { return loading; },
     get previewApp() { return previewApp; },
     get heroSlides() { return heroSlides; },
     get heroSource() { return heroSource; },

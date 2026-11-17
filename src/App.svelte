@@ -169,6 +169,15 @@
   const stremioRecent = $derived(homeState.stremioRecent);
   const previewActivity = $derived(homeState.previewActivity);
   const previewMusic = $derived(homeState.previewMusic);
+  async function retryCatalog(event: MouseEvent) {
+    const control = event.currentTarget as HTMLElement;
+    const focused = document.activeElement === control;
+    await homeState.start();
+    await tick();
+    if (focused && (document.activeElement === control || document.activeElement === document.body)) {
+      navigation.focus(control.isConnected ? control : document.querySelector<HTMLElement>(tab === 'Search' ? '#movie-search' : '#home-button') ?? undefined);
+    }
+  }
   function previewActivityItem(item: ActivityItem | null) { homeState.previewActivityItem(item); }
   function previewMovie(item: MediaItem | null, eyebrow?: string) { homeState.previewMovie(item, eyebrow); }
   function preview(id: AppId) { homeState.preview(id); }
@@ -206,7 +215,6 @@
   $effect(() => {
     if (preferences.notice) { message = preferences.notice; preferences.notice = ''; }
   });
-  $effect(() => { if (homeState.error) message = homeState.error; });
   $effect(() => { if (stremioState.error) message = stremioState.error; });
   $effect(() => {
     if (activity.error) message = activity.error;
@@ -229,7 +237,10 @@
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
-        track(await listen<boolean>('window-visibility', event => setAppVisible(event.payload)));
+        track(await listen<boolean>('window-visibility', event => {
+          setAppVisible(event.payload);
+          if (event.payload && !disposed) void steamState.refresh(true);
+        }));
         track(await listen<string>('open-sports', async event => {
           if (disposed) return;
           navigate('Sports');
@@ -548,6 +559,12 @@
   <TopNav viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
+  {#if (showHome || tab === 'Search') && homeState.error}
+    <section class="content-row" aria-label="Catalog status">
+      <p role="status">{homeState.error}</p>
+      <button class="text-link" disabled={homeState.loading} onclick={retryCatalog}>{homeState.loading ? 'Retrying catalog...' : 'Retry catalog'}</button>
+    </section>
+  {/if}
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
       data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading }}

@@ -14,17 +14,30 @@ export interface ApiResult<T> {
 export async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {
   const headers = new Headers(options.headers);
   if (options.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    cache: "no-store",
-    ...options,
-    headers,
-  });
-  let data: T | null = null;
+  const controller = new AbortController();
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(), path === "/phone/search" ? 30_000 : 15_000);
   try {
-    data = (await response.json()) as T;
-  } catch (_) {}
-  return { response, data };
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      cache: "no-store",
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    let data: T | null = null;
+    try {
+      data = (await response.json()) as T;
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+    }
+    return { response, data };
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
+  }
 }
 
 const post = (body: unknown): RequestInit => ({
