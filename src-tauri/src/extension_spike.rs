@@ -76,6 +76,7 @@ impl Lifecycle {
 struct PendingCommand {
     command: String,
     version: String,
+    invocation_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1248,23 +1249,29 @@ pub(crate) async fn dispatch_command(
     app: &AppHandle,
     plugin_id: &str,
     command: &str,
+    invocation_id: Option<String>,
 ) -> Result<(), DispatchError> {
     let store = app
         .try_state::<Store>()
         .ok_or_else(|| DispatchError::new("storage", "Plugin storage is unavailable."))?;
     let spec = plugin::command_spec(&store, plugin_id, command)
         .map_err(|error| DispatchError::new(error.code, error.message))?;
-    dispatch(app, &spec, true).await
+    dispatch(app, &spec, true, invocation_id).await
 }
 
 pub(crate) async fn dispatch_remote_command(
     app: &AppHandle,
     spec: CommandSpec,
 ) -> Result<(), DispatchError> {
-    dispatch(app, &spec, false).await
+    dispatch(app, &spec, false, None).await
 }
 
-async fn dispatch(app: &AppHandle, spec: &CommandSpec, surface: bool) -> Result<(), DispatchError> {
+async fn dispatch(
+    app: &AppHandle,
+    spec: &CommandSpec,
+    surface: bool,
+    invocation_id: Option<String>,
+) -> Result<(), DispatchError> {
     ensure_current(app, spec, surface)?;
     let Some(supervisor) = supervisor_of(app) else {
         return Err(DispatchError::new(
@@ -1278,7 +1285,7 @@ async fn dispatch(app: &AppHandle, spec: &CommandSpec, surface: bool) -> Result<
             "That plugin is already starting a command. Try again when it finishes.",
         ));
     }
-    let result = dispatch_command_inner(app, spec, surface).await;
+    let result = dispatch_command_inner(app, spec, surface, invocation_id).await;
     if let Some(supervisor) = supervisor_of(app) {
         supervisor.end_dispatch(&spec.plugin_id);
     }
@@ -1289,6 +1296,7 @@ async fn dispatch_command_inner(
     app: &AppHandle,
     spec: &CommandSpec,
     surface: bool,
+    invocation_id: Option<String>,
 ) -> Result<(), DispatchError> {
     let existing = {
         let Some(supervisor) = supervisor_of(app) else {
@@ -1372,6 +1380,7 @@ async fn dispatch_command_inner(
     *session.pending_lock() = Some(PendingCommand {
         command: spec.command.clone(),
         version: spec.version.clone(),
+        invocation_id,
     });
     if !is_current(app, &session) {
         session.revoke();
@@ -1627,6 +1636,8 @@ enum Op {
     SurfaceClose,
     #[serde(rename = "commands.pending")]
     CommandPending,
+    #[serde(rename = "development.report")]
+    DevelopmentReport,
 }
 
 impl Op {
@@ -1644,6 +1655,7 @@ impl Op {
             Self::SurfaceReady => "surface.ready",
             Self::SurfaceClose => "surface.close",
             Self::CommandPending => "commands.pending",
+            Self::DevelopmentReport => "development.report",
         }
     }
 
@@ -1655,7 +1667,8 @@ impl Op {
             Self::PlaybackToggle | Self::PlaybackNext | Self::PlaybackPrevious => {
                 Some(Permission::PlaybackControl)
             }
-            Self::Identity | Self::SurfaceReady | Self::SurfaceClose | Self::CommandPending => None,
+            Self::Identity | Self::SurfaceReady | Self::SurfaceClose | Self::CommandPending
+            | Self::DevelopmentReport => None,
         }
     }
 
@@ -2140,13 +2153,23 @@ where
                             ));
                         }
                         Some(command) => {
-                            resolver.resolve(json!({ "command": command.command }));
+                            let mut delivery = json!({ "command": command.command });
+                            if let Some(id) = command.invocation_id {
+                                delivery["invocationId"] = json!(id);
+                            }
+                            resolver.resolve(delivery);
                         }
                         None => resolver.resolve(Value::Null),
                     }
                 }
                 Err(error) => resolver.reject(error),
             },
+            Op::DevelopmentReport => {
+                match crate::developer::report_command(&app, &session.plugin_id, request.args) {
+                    Ok(()) => resolver.resolve(json!({ "accepted": true })),
+                    Err(error) => resolver.reject(failure(error.code, error.message)),
+                }
+            }
             Op::PlaybackRead => match no_args(request.args) {
                 Ok(()) => resolver.resolve(playback_snapshot(&app)),
                 Err(error) => {
@@ -2491,16 +2514,19 @@ mod tests {
         *session.pending_lock() = Some(PendingCommand {
             command: "openForecast".into(),
             version: "1.0.0".into(),
+            invocation_id: Some("dev-run".into()),
         });
         let command = session
             .take_command()
             .expect("the pending command is available");
         assert_eq!(command.command, "openForecast");
         assert_eq!(command.version, "1.0.0");
+        assert_eq!(command.invocation_id.as_deref(), Some("dev-run"));
         assert!(session.take_command().is_none());
         *session.pending_lock() = Some(PendingCommand {
             command: "openForecast".into(),
             version: "1.0.0".into(),
+            invocation_id: None,
         });
         session.revoke();
         assert!(session.pending_lock().is_none());

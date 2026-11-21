@@ -71,7 +71,7 @@ function createPage(options = {}) {
   const identity = options.identity ?? {
     id: "com.example.weather",
     name: "Weather",
-    version: "1.1.0",
+    version: manifest.version,
     apiVersion: 3,
     runtime: "isolated-ui",
     surface: "desktop",
@@ -127,10 +127,10 @@ function createPage(options = {}) {
     calls,
     pending,
     press,
-    command(name) {
+    command(name, invocationId) {
       const listener = listeners.get("luma:command");
       assert.ok(listener, "the package listens for Home commands");
-      listener({ detail: { command: name } });
+      return listener({ detail: { command: name, invocationId } });
     },
     click: id => nodes.get(id).listeners.get("click")(),
     netCalls: () => calls.filter(call => call.args.op === "net.get"),
@@ -173,7 +173,7 @@ test("the package reads its identity, settings, and readiness before one weather
   assert.deepEqual(page.callsFor("surface.ready"), [
     { command: "extension_bridge", args: { op: "surface.ready" } },
   ]);
-  assert.equal(page.node("identity").textContent, "com.example.weather 1.1.0 · API 3");
+  assert.equal(page.node("identity").textContent, `com.example.weather ${manifest.version} · API 3`);
   assert.equal(page.node("surface").dataset.state, "loading");
   assert.equal(page.node("state").textContent, "Loading");
   assert.equal(page.node("place").textContent, "Seattle");
@@ -319,6 +319,20 @@ test("openForecast commands never add a second forecast request", async () => {
   page.command("somethingElse");
   assert.equal(page.netCalls().length, 1);
   assert.equal(page.node("temperature").textContent, "11°C");
+});
+
+test("development commands report the forecast outcome after the request resolves", async () => {
+  for (const success of [true, false]) {
+    const page = await settled();
+    const report = page.command("openForecast", "dev-invocation");
+    assert.equal(page.callsFor("development.report").length, 0);
+    page.resolveNet(success ? payload() : {});
+    await report;
+    assert.equal(page.netCalls().length, 1);
+    const [call] = page.callsFor("development.report");
+    assert.equal(call.args.args.invocationId, "dev-invocation");
+    assert.equal(call.args.args.success, success);
+  }
 });
 
 test("focus stays on controls and Escape or BrowserBack closes the host surface", async () => {

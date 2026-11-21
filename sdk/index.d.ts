@@ -23,7 +23,8 @@ export type BridgeOperation =
   | "playback.previous"
   | "surface.ready"
   | "surface.close"
-  | "commands.pending";
+  | "commands.pending"
+  | "development.report";
 
 export const BRIDGE_OPERATIONS: readonly BridgeOperation[];
 
@@ -96,6 +97,13 @@ export interface SurfaceClosedResult {
 
 export interface CommandDelivery {
   command: string;
+  invocationId?: string;
+}
+
+export interface DevelopmentOutcome {
+  invocationId: string;
+  success: boolean;
+  message?: string;
 }
 
 export type CommandListener = (delivery: CommandDelivery) => void;
@@ -121,6 +129,7 @@ export interface LumaBridge {
   ready(): Promise<SurfaceReadyResult>;
   close(): Promise<SurfaceClosedResult>;
   pendingCommand(): Promise<CommandDelivery | null>;
+  reportDevelopmentOutcome(outcome: DevelopmentOutcome): Promise<{ accepted: true }>;
 }
 
 export class LumaBridgeError extends Error {

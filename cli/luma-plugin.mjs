@@ -29,7 +29,7 @@ function usage() {
   console.log(`Luma plugin CLI
 
 Usage:
-  luma-plugin init <directory> [--template typescript|weather|<path>]
+  luma-plugin init <directory> [--template typescript|svelte|weather|<path>]
   luma-plugin validate <package-directory-or-zip> [--json]
   luma-plugin pack <package-directory> [--out <directory-or-zip>] [--json]
   luma-plugin dev [project-directory] [options]
@@ -283,6 +283,7 @@ async function commandInit(directory, flags) {
   const templateName = typeof flags.template === "string" ? flags.template : "typescript";
   const known = {
     typescript: path.join(repoRoot, "starters", "typescript"),
+    svelte: path.join(repoRoot, "starters", "svelte"),
     weather: path.join(repoRoot, "examples", "plugins", "com.example.weather"),
   };
   const source = known[templateName] ?? path.resolve(templateName);
@@ -297,7 +298,7 @@ async function commandInit(directory, flags) {
     name,
     version: "0.1.0",
   });
-  if (templateName === "typescript") {
+  if (templateName === "typescript" || templateName === "svelte") {
     const sdk = path.join(target, "vendor", "plugin-sdk");
     await mkdir(sdk, { recursive: true });
     for (const file of ["package.json", "index.js", "index.d.ts", "README.md"]) {

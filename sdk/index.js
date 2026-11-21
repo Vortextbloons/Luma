@@ -23,6 +23,7 @@ export const BRIDGE_OPERATIONS = Object.freeze([
   "surface.ready",
   "surface.close",
   "commands.pending",
+  "development.report",
 ]);
 
 export const OPERATION_PERMISSIONS = Object.freeze({
@@ -38,6 +39,7 @@ export const OPERATION_PERMISSIONS = Object.freeze({
   "surface.ready": null,
   "surface.close": null,
   "commands.pending": null,
+  "development.report": null,
 });
 
 export const BRIDGE_ERROR_CODES = Object.freeze([
@@ -112,7 +114,9 @@ function detailListener(eventName, listener) {
 export function onCommand(listener) {
   return detailListener(COMMAND_EVENT, detail => {
     if (typeof detail.command === "string") {
-      listener({ command: detail.command });
+      listener(typeof detail.invocationId === "string"
+        ? { command: detail.command, invocationId: detail.invocationId }
+        : { command: detail.command });
     }
   });
 }
@@ -161,6 +165,7 @@ export function createBridge(invoke = hostInvoke) {
     ready: () => request("surface.ready"),
     close: () => request("surface.close"),
     pendingCommand: () => request("commands.pending"),
+    reportDevelopmentOutcome: args => request("development.report", args),
   });
 }
 

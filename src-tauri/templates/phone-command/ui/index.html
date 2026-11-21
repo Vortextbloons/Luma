@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phone controls</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="surface" id="surface" data-state="starting">
+      <header>
+        <p class="package">Phone command package</p>
+        <h1>Playback controls</h1>
+      </header>
+
+      <p class="status" id="status" role="status">Starting the command surface…</p>
+
+      <div class="actions">
+        <button type="button" id="toggle" class="primary">Play or pause</button>
+        <button type="button" id="next">Next</button>
+        <button type="button" id="close">Close</button>
+      </div>
+
+      <p class="hint">
+        A paired phone shows the host-rendered labels from <code>remote.commands</code>. Each action
+        starts this hidden runtime on demand and delivers its declared command.
+      </p>
+      <p class="identity" id="identity"></p>
+    </main>
+    <script src="./main.js"></script>
+  </body>
+</html>

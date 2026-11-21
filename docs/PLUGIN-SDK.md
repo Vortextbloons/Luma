@@ -99,6 +99,8 @@ const stop = onCommand(({ command }: CommandDelivery) => {
 
 The event name is `luma:command` and its `detail` is `{ command }`. `onCommand()` returns an unsubscribe function. Register the listener before calling `ready()`. The host sends one pending command per dispatch; a stale or revoked session rejects `commands.pending` instead of delivering it.
 
+An MCP development invocation also includes an `invocationId`. After the handler finishes, call `bridge.reportDevelopmentOutcome({ invocationId, success, message })` to record the result. The optional message is bounded and appears in the agent's status response. Report a short result without secrets or request data. The host accepts one report for the current invocation from its active plugin. Regular Home and phone actions carry no invocation ID.
+
 API v3 packages can also declare a paired-phone panel with `remote.commands`. The remote sends the version of the panel it displayed, and Luma rejects actions from replaced versions. Register `onCommand()` before `ready()` so the same handler can run in a visible surface or a hidden session. The action response carries `status: "pending" | "success" | "failure"`. A pending response means another command is still starting.
 
 ## Settings and playback notifications
@@ -156,7 +158,7 @@ Do not add a `$schema` property to the manifest. The native manifest rejects unk
 
 ## Starter
 
-`starters/typescript` is an API v2 `isolated-ui` package. It imports the SDK, builds `dist/`, and includes schema completion plus a VS Code launch configuration.
+`starters/svelte` is the recommended starter using Svelte 5 runes, Tailwind CSS, TypeScript, and Vite. `starters/typescript` provides a minimal plain TypeScript starter. Both build an API v2 `isolated-ui` package, import `@luma/plugin-sdk`, and output to `dist/` with schema completion and a VS Code launch configuration.
 
 The launch configuration expects the CLI command `luma-plugin dev` from the plugin developer platform milestone. The CLI owns the development host, reload loop, and session diagnostics. The starter consumes only its built package directory:
 

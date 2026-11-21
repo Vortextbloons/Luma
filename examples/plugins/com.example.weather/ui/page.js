@@ -73,6 +73,7 @@ let reading = null;
 let error = null;
 let busy = false;
 let attempted = false;
+let pendingWeather = null;
 
 const unitName = units => (units === "f" ? "Fahrenheit" : "Celsius");
 const unitMark = units => (units === "f" ? "°F" : "°C");
@@ -176,7 +177,12 @@ function toReading(value, current) {
   };
 }
 
-async function loadWeather() {
+function loadWeather() {
+  pendingWeather ??= fetchWeather().finally(() => { pendingWeather = null; });
+  return pendingWeather;
+}
+
+async function fetchWeather() {
   const current = selection();
   if (busy || !settings) return;
   attempted = true;
@@ -284,8 +290,18 @@ async function initialize() {
 
 refresh.addEventListener("click", loadWeather);
 close.addEventListener("click", exit);
-window.addEventListener("luma:command", event => {
-  if (event?.detail?.command === "openForecast" && !attempted) void loadWeather();
+window.addEventListener("luma:command", async event => {
+  if (event?.detail?.command !== "openForecast") return;
+  const invocationId = event.detail.invocationId;
+  await (attempted ? pendingWeather : loadWeather());
+  if (typeof invocationId === "string") {
+    const success = Boolean(reading && !error && !settingsError);
+    await bridge("development.report", {
+      invocationId,
+      success,
+      message: success ? "Forecast loaded." : settingsError ?? error?.message ?? "Forecast unavailable.",
+    }).catch(() => {});
+  }
 });
 history.pushState({ surface: "weather" }, "");
 window.addEventListener("popstate", exit);

@@ -145,9 +145,13 @@ test("command events use the host event contract", () => {
 
   try {
     const received = [];
-    const stop = onCommand(delivery => received.push(delivery.command));
+    const stop = onCommand(delivery => received.push(delivery));
     listeners.get(COMMAND_EVENT)({ detail: { command: "openForecast" } });
-    assert.deepEqual(received, ["openForecast"]);
+    listeners.get(COMMAND_EVENT)({ detail: { command: "openForecast", invocationId: "run" } });
+    assert.deepEqual(received, [
+      { command: "openForecast" },
+      { command: "openForecast", invocationId: "run" },
+    ]);
     stop();
     assert.equal(listeners.has("luma:command"), false);
   } finally {

@@ -2117,7 +2117,7 @@ pub(super) fn restore_snapshot(
     Ok(notices)
 }
 
-pub(super) fn validate_submission(value: &Value) -> Result<PreparedPackage, Error> {
+pub(crate) fn validate_submission(value: &Value) -> Result<PreparedPackage, Error> {
     let submission: Submission = serde_json::from_value(value.clone())
         .map_err(|error| Error::new("validation", format!("Invalid plugin submission: {error}")))?;
     let manifest: Manifest = serde_json::from_value(submission.manifest.clone())

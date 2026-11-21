@@ -1,0 +1,8 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["/luma-extension.json"],
+      "url": "../../schemas/luma-extension.schema.json"
+    }
+  ]
+}

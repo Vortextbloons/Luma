@@ -1,0 +1,30 @@
+{
+  "id": "com.example.luma-starter-svelte",
+  "name": "Luma Svelte starter",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Svelte 5 and Tailwind starter for an isolated Luma plugin surface.",
+  "author": "Luma",
+  "runtime": {
+    "kind": "isolated-ui",
+    "entry": "ui/index.html"
+  },
+  "permissions": [
+    "settings.read"
+  ],
+  "settings": [
+    {
+      "key": "greeting",
+      "label": "Greeting",
+      "description": "Text shown on the starter surface.",
+      "type": "string",
+      "default": "Hello from Luma",
+      "minLength": 1,
+      "maxLength": 40
+    }
+  ],
+  "assets": [
+    "ui/index.js",
+    "ui/index.css"
+  ]
+}

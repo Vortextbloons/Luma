@@ -1,6 +1,19 @@
 # Luma plugin development
 
-The `luma-plugin` CLI builds, validates, packs, and runs an executable plugin package in a disposable Luma instance. The shipped plugin contract remains in [PLUGINS.md](PLUGINS.md); [PLUGIN-DEVELOPER-PLATFORM-SPEC.md](PLUGIN-DEVELOPER-PLATFORM-SPEC.md) describes the wider platform plan.
+Use Luma MCP to author plugins with an agent. The `luma-plugin` CLI provides the same package checks and a disposable development instance for local terminal and VS Code workflows. See [PLUGINS.md](PLUGINS.md) for the package contract and [PLUGIN-DEVELOPER-PLATFORM-SPEC.md](PLUGIN-DEVELOPER-PLATFORM-SPEC.md) for the wider plan.
+
+## Develop with an MCP agent
+
+1. Read `luma_capabilities_get` and the plugin resources in the MCP resource list. Choose a complete example and give your draft a stable plugin ID.
+2. Call `luma_plugin_validate` with the manifest and built package files. A coding agent can edit and build its sources in its own workspace and send the resulting files to Luma.
+3. For an executable draft, call `luma_plugin_dev_start` with the validated package. Review and enable it in **Settings → Plugins** in the development window. The development profile has its own settings and grants. An approval there applies to that session.
+4. For packages with commands, call `luma_plugin_dev_invoke` with a declared command. Use `luma_plugin_dev_status` to inspect readiness and diagnostics. When a plugin reports its feature outcome, match `commandRun.invocationId` to the ID returned by invoke and read `commandRun.outcome`. Weather reports whether the forecast loaded.
+5. Edit and validate the package again, then call `luma_plugin_dev_reload` for the same session. A failed validation leaves the last working draft available. A change to requested access requires another review.
+6. Call `luma_plugin_stage` with the final package and `luma_plugin_dev_stop` to close the development instance. Review and enable the final package in your everyday launcher. Declarative packages can go straight from validation to staging and preview.
+
+An example request to an agent is “Build a Weather Home card from the Luma MCP template. Open a development session for me to review its access, test the forecast command, then stage the working package for approval.”
+
+Use `luma://plugins/templates/svelte` for a standalone source project with Svelte, Tailwind, TypeScript, and the SDK. Write its files into a coding workspace, run its install and build commands there, then send the built package in `dist` to Luma. The declarative, Weather, and phone-command templates return packages ready for MCP submission without a build step.
 
 ## Setup
 
@@ -17,10 +30,20 @@ Scaffold a plugin or start from the Weather example:
 
 ```powershell
 luma-plugin init ..\my-luma-plugin
+luma-plugin init ..\my-svelte-plugin --template svelte
 luma-plugin init ..\luma-weather --template weather
 ```
 
-The TypeScript starter includes a build script, the editor manifest mapping, and a VS Code launch configuration. Install its dependencies with `npm install` in the new project.
+The recommended Svelte starter (`starters/svelte`) pairs Svelte 5 runes, Tailwind CSS, TypeScript, and Vite. The plain TypeScript starter (`starters/typescript`) uses esbuild. Both starters include local SDK/schema vendoring for out-of-checkout projects, an editor manifest mapping, and a VS Code launch configuration. Install dependencies with `npm install` in the new project.
+
+### Source template build and file boundaries
+
+Compiled source templates (`starters/svelte` and `examples/plugins/com.example.weather-svelte`) distinguish between development sources and the validated distribution package:
+
+* **Source project root**: Holds source files, build config, and dependencies (`src/`, `ui/`, `vite.config.ts`, `svelte.config.js`, `package.json`, `tsconfig.json`, `luma-extension.json`).
+* **Build boundary**: `npm run build` runs Vite to emit module scripts and extracted stylesheets into `dist/`, along with `dist/ui/index.html` and `dist/luma-extension.json`.
+* **Package boundary**: The `dist/` directory forms the self-contained static package passed to `luma-plugin validate`, `luma-plugin pack`, `luma-plugin dev`, or MCP staging.
+* **Shell-free templates**: Plain JavaScript packages like `examples/plugins/com.example.weather` require no build tooling and remain directly runnable from source.
 
 ## Validate and pack
 
@@ -59,7 +82,7 @@ Build and validation errors appear in the terminal. The last working snapshot st
 
 The development window title starts with **Luma Development**. The session uses its own app data, plugin settings, grants, and identity under the system temporary directory. It does not start the normal tray, autostart, updater checks, web/phone remote listeners, or MCP server. The normal Luma instance can keep running.
 
-The first package loaded into a session is approved with exactly the access it declares. A later reload that changes permissions or network origins disables the package and requires review in the development window under **Settings > Plugins**. A package ID change stops the previous runtime, revokes its grant, and requires review for the new package. The previous package remains installed and disabled in the session. Reloads that keep the same identity and access reuse the existing approval. Same-version reloads are supported in the disposable profile. Settings import requires a version increment for changed content.
+The CLI approves the first package in its own development session with exactly the access it declares. An MCP development session starts with the draft disabled for user review. A later reload that changes permissions or network origins disables the package and requires review in the development window under **Settings → Plugins**. A package ID change stops the previous runtime, revokes its grant, and requires review for the new package. The previous package remains installed and disabled in the session. Reloads that keep the same identity and access reuse the existing approval. Same-version reloads are supported in the disposable profile. Settings import requires a version increment for changed content.
 
 Only executable `isolated-ui` and `background` packages run in the development host. Declarative packages can be validated and packed, and continue to install through Settings.
 

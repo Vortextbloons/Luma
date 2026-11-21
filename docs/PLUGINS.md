@@ -130,7 +130,7 @@ An `isolated-ui` package can declare up to eight commands and eight static Home 
 
 Place these fields in `contributes`. IDs are unique within each list, start with a lowercase ASCII letter, and contain up to 32 ASCII letters, digits, hyphens, or underscores. A card title has 1–48 characters after trimming. Each card references a command from the same package. Luma renders the card only while the package is enabled under a current on-demand grant. Selecting it starts the isolated surface and delivers the command after `surface.ready`. See the [SDK command contract](PLUGIN-SDK.md#commands).
 
-The [Weather example](../examples/plugins/com.example.weather) uses API v3, two settings, and a single network origin.
+The [Weather example](../examples/plugins/com.example.weather) uses API v3, two settings, and a single network origin. A Svelte 5 + Tailwind equivalent is available in [com.example.weather-svelte](../examples/plugins/com.example.weather-svelte).
 
 ### API v3 phone commands
 
@@ -208,7 +208,9 @@ Resources:
 - `luma://plugins/schema` — exact manifest, binding, runtime, and limit contract.
 - `luma://plugins/example` — complete example manifest.
 - `luma://customization/capabilities` — capability document including plugin support and limits.
-- `luma://customization/guidance` — read → validate → stage → user Keep workflow.
+- `luma://customization/guidance` — agent workflows for appearance changes and plugin development.
+- `luma://plugins/templates/{declarative,weather,phone-command}` — complete, editable package submissions.
+- `luma://plugins/templates/svelte` — source project with a local SDK. Build it in a coding workspace and submit the files from `dist`.
 
 Tools:
 
@@ -218,8 +220,13 @@ Tools:
 | `luma_plugin_validate` | Validate manifest plus optional text/base64 files. No write. |
 | `luma_plugin_stage` | Install the package disabled. Never enables, keeps, activates, executes, removes, or exports. |
 | `luma_plugin_settings_stage` | Validate declared setting values and stage them as the single pending review. The user must press Keep. |
+| `luma_plugin_dev_start` | Open a disposable instance with an executable draft disabled for user review. |
+| `luma_plugin_dev_reload` | Validate and replace the active draft. Review changes to requested access before running again. |
+| `luma_plugin_dev_invoke` | Deliver a declared command to the approved draft in its development instance. |
+| `luma_plugin_dev_status` | Read the draft's access and runtime state, command delivery, and diagnostics. |
+| `luma_plugin_dev_stop` | Close the disposable instance. |
 
-No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Staging settings requires a visible launcher for review, matching candidate preview.
+Development uses its own app data and grants. You approve access inside the development window. Staging installs the final package disabled in the everyday launcher for separate approval. Staging settings requires a visible launcher for review. See [the agent development workflow](PLUGIN-DEVELOPMENT.md#develop-with-an-mcp-agent).
 
 ## Limits and archive checks
 
@@ -244,7 +251,7 @@ Before activation, Luma rejects absolute paths, `..`, backslashes, drive/UNC pat
 
 ## Executable lifecycle
 
-In Settings > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP cannot approve grants or execute packages. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
+In Settings > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP development tools use the grant from the disposable instance. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
 
 - API v2 `isolated-ui` uses `launcher-open`. API v3 Home packages use `on-demand`. **Open** in Settings shows either desktop surface after `surface.ready`.
 - `background` supports `launcher-open`, `startup`, and `always`. Launcher-open services stop when Luma hides to tray. Startup/always services can start without a launcher and continue in the tray until disabled or Luma exits.

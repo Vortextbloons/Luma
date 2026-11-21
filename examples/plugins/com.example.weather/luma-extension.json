@@ -1,7 +1,7 @@
 {
   "id": "com.example.weather",
   "name": "Weather",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "apiVersion": 3,
   "minHostVersion": "0.8.0",
   "description": "A package-owned weather surface for a fixed city, backed by the host network bridge.",

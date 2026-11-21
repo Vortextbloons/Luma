@@ -1036,7 +1036,7 @@ pub async fn customization_plugin_command(
     plugin_id: String,
     command_id: String,
 ) -> Result<CommandOutcome, Error> {
-    crate::extension_spike::dispatch_command(&app, &plugin_id, &command_id)
+    crate::extension_spike::dispatch_command(&app, &plugin_id, &command_id, None)
         .await
         .map_err(|error| Error::new(error.code, error.message))?;
     Ok(CommandOutcome { delivered: true })

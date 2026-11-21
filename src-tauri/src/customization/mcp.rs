@@ -29,7 +29,23 @@ const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
 const METHOD_HEADER: &str = "mcp-method";
 const NAME_HEADER: &str = "mcp-name";
-const INSTRUCTIONS: &str = "Luma exposes a read, validate, preview plugin-authoring flow. Start with luma_capabilities_get, luma_plugins_list, and luma_config_get. A plugin is a declarative appearance and Home package with manifest-declared settings; isolated-ui and background packages are executable runtimes that only the user can enable after reviewing their permissions. Author the manifest and files with your coding tools, then call luma_plugin_validate and luma_plugin_stage. Staged plugins are installed disabled. For declarative plugins the user must open Luma > Settings > Plugins, preview the plugin, enable it, then press Keep. Executable runtimes require the user to approve their declared permissions, network origins, and trigger. No MCP tool can enable, keep, disable, remove, export, commit, restore, reset, launch, or execute a plugin. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
+const DECLARATIVE_TEMPLATE: &str = "luma://plugins/templates/declarative";
+const WEATHER_TEMPLATE: &str = "luma://plugins/templates/weather";
+const PHONE_COMMAND_TEMPLATE: &str = "luma://plugins/templates/phone-command";
+const SVELTE_TEMPLATE: &str = "luma://plugins/templates/svelte";
+const WEATHER_MANIFEST: &str =
+    include_str!("../../../examples/plugins/com.example.weather/luma-extension.json");
+const WEATHER_HTML: &str =
+    include_str!("../../../examples/plugins/com.example.weather/ui/index.html");
+const WEATHER_SCRIPT: &str =
+    include_str!("../../../examples/plugins/com.example.weather/ui/page.js");
+const WEATHER_STYLE: &str =
+    include_str!("../../../examples/plugins/com.example.weather/ui/page.css");
+const PHONE_MANIFEST: &str = include_str!("../../templates/phone-command/luma-extension.json");
+const PHONE_HTML: &str = include_str!("../../templates/phone-command/ui/index.html");
+const PHONE_SCRIPT: &str = include_str!("../../templates/phone-command/ui/main.js");
+const PHONE_STYLE: &str = include_str!("../../templates/phone-command/ui/style.css");
+const INSTRUCTIONS: &str = "Luma is a Windows TV launcher with an agent-first authoring contract for customization and plugins. Start with luma_capabilities_get, luma_plugins_list, and luma_status, then read the resource that matches the task. For customization, call luma_config_get, build a complete candidate, call luma_candidate_validate, then luma_candidate_preview; the user must press Keep in Luma. For a plugin, read luma://plugins/schema and one complete template from luma://plugins/templates/declarative, luma://plugins/templates/weather, or luma://plugins/templates/phone-command. Edit the template in your workspace and pass its submission object to luma_plugin_validate. luma_plugin_stage installs a package disabled for production review: declarative packages are then previewed and enabled by the user with Keep, while executable isolated-ui and background packages require the user to review their exact permissions, network origins, and trigger in Settings > Plugins before anything runs. For an executable draft, call luma_plugin_dev_start with the validated submission; it returns a sessionId and starts a disposable Luma profile with separate app data and grants. The draft stays disabled until the user approves access in the development window. Use luma_plugin_dev_invoke for a declared command, luma_plugin_dev_status for readiness and diagnostics, luma_plugin_dev_reload for the same session, and luma_plugin_dev_stop when finished. Development tools never change the production profile. No MCP tool can approve access, enable, keep, commit, disable, remove, export, restore, reset, launch, or execute a package in production. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
 const THEMES: [&str; 6] = [
     "violet-night",
@@ -96,6 +112,11 @@ trait Backend: Send + Sync + 'static {
         expected_revision: u64,
         values: BTreeMap<String, Value>,
     ) -> BackendFuture<'a, Preview>;
+    fn dev_start<'a>(&'a self, submission: Value) -> BackendFuture<'a, Value>;
+    fn dev_reload<'a>(&'a self, session_id: String, submission: Value) -> BackendFuture<'a, Value>;
+    fn dev_invoke<'a>(&'a self, session_id: String, command: String) -> BackendFuture<'a, Value>;
+    fn dev_status<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value>;
+    fn dev_stop<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value>;
 }
 
 #[derive(Clone)]
@@ -202,6 +223,31 @@ impl Backend for AppBackend {
             .map_err(|error| failure("storage", error))?
         })
     }
+
+    fn dev_start<'a>(&'a self, submission: Value) -> BackendFuture<'a, Value> {
+        let app = self.0.clone();
+        Box::pin(async move { crate::developer::mcp_start(&app, submission).await })
+    }
+
+    fn dev_reload<'a>(&'a self, session_id: String, submission: Value) -> BackendFuture<'a, Value> {
+        let app = self.0.clone();
+        Box::pin(async move { crate::developer::mcp_reload(&app, &session_id, submission).await })
+    }
+
+    fn dev_invoke<'a>(&'a self, session_id: String, command: String) -> BackendFuture<'a, Value> {
+        let app = self.0.clone();
+        Box::pin(async move { crate::developer::mcp_invoke(&app, &session_id, &command).await })
+    }
+
+    fn dev_status<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value> {
+        let app = self.0.clone();
+        Box::pin(async move { crate::developer::mcp_status(&app, &session_id).await })
+    }
+
+    fn dev_stop<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value> {
+        let app = self.0.clone();
+        Box::pin(async move { crate::developer::mcp_stop(&app, &session_id).await })
+    }
 }
 
 struct Access {
@@ -210,6 +256,7 @@ struct Access {
     token: Option<String>,
     generation: u64,
     owned: Option<OwnedPreview>,
+    dev_sessions: Vec<String>,
     start_error: Option<String>,
 }
 
@@ -233,6 +280,7 @@ impl McpAccess {
                 token: None,
                 generation: 0,
                 owned: None,
+                dev_sessions: Vec::new(),
                 start_error: None,
             })),
         }
@@ -311,16 +359,17 @@ impl McpServer {
     }
 
     async fn disable(&self) -> Result<Status, Error> {
-        let owned = {
+        let (owned, dev_sessions) = {
             let mut state = self.access.state.lock().await;
             state.enabled = false;
             state.token = None;
             state.generation = state.generation.saturating_add(1);
-            state.owned.take()
+            (state.owned.take(), std::mem::take(&mut state.dev_sessions))
         };
         if let Some(preview) = owned {
             let _ = self.backend.cancel_preview(&preview.id).await;
         }
+        self.stop_dev_sessions(dev_sessions).await;
         Ok(Status {
             enabled: false,
             endpoint: ENDPOINT,
@@ -328,7 +377,7 @@ impl McpServer {
     }
 
     async fn rotate(&self) -> Result<Credentials, Error> {
-        let (token, owned) = {
+        let (token, owned, dev_sessions) = {
             let mut state = self.access.state.lock().await;
             if !state.available {
                 let message = state.start_error.clone().unwrap_or_else(|| {
@@ -347,11 +396,16 @@ impl McpServer {
             let token = random_token()?;
             state.generation = state.generation.saturating_add(1);
             state.token = Some(token.clone());
-            (token, state.owned.take())
+            (
+                token,
+                state.owned.take(),
+                std::mem::take(&mut state.dev_sessions),
+            )
         };
         if let Some(preview) = owned {
             let _ = self.backend.cancel_preview(&preview.id).await;
         }
+        self.stop_dev_sessions(dev_sessions).await;
         Ok(Credentials {
             enabled: true,
             endpoint: ENDPOINT,
@@ -374,6 +428,61 @@ impl McpServer {
             ));
         }
         Ok(state.generation)
+    }
+
+    async fn ensure_write(&self, generation: u64) -> Result<(), Error> {
+        let state = self.access.state.lock().await;
+        if !state.enabled || !state.available {
+            return Err(failure(
+                "grant_revoked",
+                "Agent access was disabled before this change could start.",
+            ));
+        }
+        if state.generation != generation {
+            return Err(failure(
+                "grant_revoked",
+                "Agent access was rotated before this change could start.",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn start_dev(&self, submission: Value, generation: u64) -> Result<Value, Error> {
+        let result = self.backend.dev_start(submission).await?;
+        let session = result
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        {
+            let mut state = self.access.state.lock().await;
+            if state.enabled && state.available && state.generation == generation {
+                if let Some(session) = session {
+                    state.dev_sessions.clear();
+                    state.dev_sessions.push(session);
+                }
+                return Ok(result);
+            }
+        }
+        if let Some(session) = session {
+            let _ = self.backend.dev_stop(session).await;
+        }
+        Err(failure(
+            "grant_revoked",
+            "Agent access changed before the development session could start.",
+        ))
+    }
+
+    async fn stop_dev(&self, session_id: &str) -> Result<Value, Error> {
+        let result = self.backend.dev_stop(session_id.to_string()).await;
+        let mut state = self.access.state.lock().await;
+        state.dev_sessions.retain(|known| known != session_id);
+        result
+    }
+
+    async fn stop_dev_sessions(&self, sessions: Vec<String>) {
+        for session in sessions {
+            let _ = self.backend.dev_stop(session).await;
+        }
     }
 
     async fn read(&self) -> Result<Option<Document>, Error> {
@@ -538,17 +647,21 @@ async fn start_with(app: tauri::AppHandle, access: McpAccess) -> Result<(), Stri
     }
     let server = McpServer::app(&app, access.clone());
     let result = axum::serve(listener, router(server)).await;
-    let owned = {
+    let (owned, dev_sessions) = {
         let mut state = access.state.lock().await;
         state.available = false;
         state.enabled = false;
         state.token = None;
         state.generation = state.generation.saturating_add(1);
         state.start_error = Some(format!("Agent access stopped listening on {ADDRESS}."));
-        state.owned.take()
+        (state.owned.take(), std::mem::take(&mut state.dev_sessions))
     };
+    let backend = AppBackend(app);
     if let Some(preview) = owned {
-        let _ = AppBackend(app).cancel_preview(&preview.id).await;
+        let _ = backend.cancel_preview(&preview.id).await;
+    }
+    for session in dev_sessions {
+        let _ = backend.dev_stop(session).await;
     }
     result.map_err(|error| error.to_string())
 }
@@ -1111,6 +1224,11 @@ fn known_tool(name: &str) -> bool {
             | "luma_plugin_validate"
             | "luma_plugin_stage"
             | "luma_plugin_settings_stage"
+            | "luma_plugin_dev_start"
+            | "luma_plugin_dev_reload"
+            | "luma_plugin_dev_invoke"
+            | "luma_plugin_dev_status"
+            | "luma_plugin_dev_stop"
     )
 }
 
@@ -1121,7 +1239,7 @@ pub(crate) fn known_tool_for_test(name: &str) -> bool {
 
 fn unknown_tool_message(name: &str) -> String {
     format!(
-        "Unknown tool: {name}. Luma exposes only discover, read, validate, preview, plugin validation, disabled plugin staging, plugin settings staging, candidate status, candidate cancellation, and service status. It never exposes enable, keep, commit, disable, remove, export, restore, reset, launch, install-active, or execute. Ask the user to perform those actions in Luma."
+        "Unknown tool: {name}. Luma exposes discover, read, validate, preview, plugin validation, disabled plugin staging, plugin settings staging, disposable executable plugin development, candidate status, candidate cancellation, and service status. It never exposes production access approval, enable, keep, commit, disable, remove, export, restore, reset, launch, install-active, or unapproved execution. Ask the user to perform those actions in Luma."
     )
 }
 
@@ -1232,7 +1350,8 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                     "plugins": state.plugins,
                     "effective": state.effective,
                     "enable": "Installed plugins start disabled. The user must open Luma > Settings > Plugins, preview the plugin, and press Keep to enable it.",
-                    "settingsReview": "Use luma_plugin_settings_stage to stage setting values. The user must press Keep."
+                    "settingsReview": "Use luma_plugin_settings_stage to stage setting values. The user must press Keep.",
+                    "development": "Use luma_plugin_dev_start for an executable draft. Development sessions are disposable, keep separate app data and grants, and require the user to approve access in the development window."
                 })),
                 Err(error) => tool_failure(error),
             },
@@ -1246,23 +1365,142 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
             Err(message) => tool_protocol_error(message),
         },
         "luma_plugin_stage" => match plugin_submission_arguments(arguments) {
-            Ok(submission) => match server.backend.stage_plugin(submission).await {
-                Ok(result) => tool_success(json!({
-                    "plugin": result.plugin,
-                    "alreadyInstalled": result.already_installed,
-                    "replacedVersion": result.replaced_version,
-                    "enabled": result.plugin.enabled,
-                    "status": if result.already_installed { "already_installed" } else { "installed_disabled" },
-                    "next": if result.already_installed && result.plugin.enabled {
-                        "The same package is already installed and enabled. No change was made."
-                    } else {
-                        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview it, and press Keep to enable it. No MCP tool can enable or keep it."
-                    }
-                })),
-                Err(error) => tool_failure(error),
-            },
+            Ok(submission) => {
+                let package = match plugin::validate_submission(&submission) {
+                    Ok(package) => package,
+                    Err(error) => return tool_failure(error),
+                };
+                let declared = submission_details(&package);
+                let review = staging_review(&package);
+                match server.backend.stage_plugin(submission).await {
+                    Ok(result) => tool_success(json!({
+                        "plugin": result.plugin,
+                        "alreadyInstalled": result.already_installed,
+                        "replacedVersion": result.replaced_version,
+                        "enabled": result.plugin.enabled,
+                        "status": if result.already_installed { "already_installed" } else { "installed_disabled" },
+                        "declared": declared,
+                        "review": review,
+                        "next": staging_next(&package, result.already_installed, result.plugin.enabled)
+                    })),
+                    Err(error) => tool_failure(error),
+                }
+            }
             Err(message) => tool_protocol_error(message),
         },
+        "luma_plugin_dev_start" => match plugin_submission_arguments(arguments) {
+            Ok(submission) => {
+                let package = match plugin::validate_submission(&submission) {
+                    Ok(package) => package,
+                    Err(error) => return tool_failure(error),
+                };
+                if !package.manifest.runtime.kind.is_executable() {
+                    return tool_failure(failure(
+                        "plugin_unsupported",
+                        "Development sessions run only executable isolated-ui or background packages. Validate and stage a declarative package, then ask the user to preview and enable it in Settings > Plugins.",
+                    ));
+                }
+                if let Err(error) = server.ensure_write(generation).await {
+                    return tool_failure(error);
+                }
+                let declared = submission_details(&package);
+                let review = development_review(&package);
+                match server.start_dev(submission, generation).await {
+                    Ok(result) => tool_success(with_dev_review(
+                        result,
+                        declared,
+                        review,
+                        "Ask the user to review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. Use luma_plugin_dev_status to check readiness. MCP cannot approve access.",
+                    )),
+                    Err(error) => tool_failure(error),
+                }
+            }
+            Err(message) => tool_protocol_error(message),
+        },
+        "luma_plugin_dev_reload" => {
+            let arguments = match dev_reload_arguments(arguments) {
+                Ok(arguments) => arguments,
+                Err(message) => return tool_protocol_error(message),
+            };
+            let submission = json!({
+                "manifest": arguments.manifest,
+                "files": arguments.files
+            });
+            let package = match plugin::validate_submission(&submission) {
+                Ok(package) => package,
+                Err(error) => return tool_failure(error),
+            };
+            if !package.manifest.runtime.kind.is_executable() {
+                return tool_failure(failure(
+                    "plugin_unsupported",
+                    "Development sessions run only executable isolated-ui or background packages. Declarative packages are staged for user preview and Keep.",
+                ));
+            }
+            if let Err(error) = server.ensure_write(generation).await {
+                return tool_failure(error);
+            }
+            let declared = submission_details(&package);
+            let review = development_review(&package);
+            match server
+                .backend
+                .dev_reload(arguments.session_id, submission)
+                .await
+            {
+                Ok(result) => tool_success(with_dev_review(
+                    result,
+                    declared,
+                    review,
+                    "If the edit changed permissions or network origins, the draft is disabled again until the user reviews it in the Luma Development window. Otherwise the same session keeps its existing approval. Use luma_plugin_dev_status to verify readiness.",
+                )),
+                Err(error) => tool_failure(error),
+            }
+        }
+        "luma_plugin_dev_invoke" => {
+            let arguments = match dev_command_arguments(arguments) {
+                Ok(arguments) => arguments,
+                Err(message) => return tool_protocol_error(message),
+            };
+            if let Err(error) = server.ensure_write(generation).await {
+                return tool_failure(error);
+            }
+            match server
+                .backend
+                .dev_invoke(arguments.session_id, arguments.command)
+                .await
+            {
+                Ok(result) => tool_success(with_next(
+                    result,
+                    "Call luma_plugin_dev_status and match commandRun.invocationId to the returned invocationId. A plugin can report its feature result in commandRun.outcome. Until then, delivery is the only confirmed result.",
+                )),
+                Err(error) => tool_failure(error),
+            }
+        }
+        "luma_plugin_dev_status" => {
+            let arguments = match dev_session_arguments(arguments) {
+                Ok(arguments) => arguments,
+                Err(message) => return tool_protocol_error(message),
+            };
+            match server.backend.dev_status(arguments.session_id).await {
+                Ok(result) => tool_success(without_dev_paths(result)),
+                Err(error) => tool_failure(error),
+            }
+        }
+        "luma_plugin_dev_stop" => {
+            let arguments = match dev_session_arguments(arguments) {
+                Ok(arguments) => arguments,
+                Err(message) => return tool_protocol_error(message),
+            };
+            if let Err(error) = server.ensure_write(generation).await {
+                return tool_failure(error);
+            }
+            match server.stop_dev(&arguments.session_id).await {
+                Ok(result) => tool_success(with_next(
+                    result,
+                    "The disposable development window closes. Call luma_plugin_stage with the final submission and ask the user to review the installed package in Settings > Plugins.",
+                )),
+                Err(error) => tool_failure(error),
+            }
+        }
         "luma_plugin_settings_stage" => {
             let arguments: PluginSettingsArguments = match serde_json::from_value(arguments) {
                 Ok(arguments) => arguments,
@@ -1360,11 +1598,148 @@ async fn status_value(server: &McpServer) -> Result<Value, Error> {
             "keep": "The user must press Keep in Luma.",
             "keepToolAvailable": false
         },
+        "development": {
+            "supported": true,
+            "disposable": true,
+            "approvalRequired": true,
+            "tools": [
+                "luma_plugin_dev_start",
+                "luma_plugin_dev_reload",
+                "luma_plugin_dev_invoke",
+                "luma_plugin_dev_status",
+                "luma_plugin_dev_stop"
+            ]
+        },
         "protocols": {
             "modern": MODERN_PROTOCOL,
             "legacy": LEGACY_PROTOCOL
         }
     }))
+}
+
+fn submission_details(package: &plugin::PreparedPackage) -> Value {
+    let manifest = &package.manifest;
+    let permissions: Vec<&str> = manifest
+        .permissions
+        .iter()
+        .map(|permission| permission.label())
+        .collect();
+    let network: Vec<String> = manifest
+        .network
+        .as_ref()
+        .map(|network| network.allow.clone())
+        .unwrap_or_default();
+    json!({
+        "apiVersion": manifest.api_version,
+        "runtime": manifest.runtime.kind.label(),
+        "executable": manifest.runtime.kind.is_executable(),
+        "permissions": permissions,
+        "network": network,
+        "homeCards": manifest.contributes.cards,
+        "commands": manifest.contributes.commands,
+        "remote": manifest.remote,
+        "files": package.files.len(),
+        "bytes": package.size,
+        "contentHash": package.hash
+    })
+}
+
+fn staging_review(package: &plugin::PreparedPackage) -> Value {
+    let executable = package.manifest.runtime.kind.is_executable();
+    json!({
+        "kind": if executable { "executable" } else { "declarative" },
+        "requiresExplicitAccessApproval": executable,
+        "permissions": package.manifest.permissions.iter().map(|permission| permission.label()).collect::<Vec<_>>(),
+        "network": package.manifest.network.as_ref().map(|network| network.allow.clone()).unwrap_or_default(),
+        "homeCards": package.manifest.contributes.cards,
+        "commands": package.manifest.contributes.commands,
+        "remote": package.manifest.remote,
+        "trigger": if package.manifest.api_version == plugin::HOME_API_VERSION {
+            json!("on-demand")
+        } else if executable {
+            json!("chosen during access review")
+        } else {
+            Value::Null
+        },
+        "approval": if executable {
+            "The user must open Luma > Settings > Plugins, review the exact permissions, network origins, and trigger, then choose Allow and enable. MCP cannot approve access."
+        } else {
+            "The user must open Luma > Settings > Plugins, preview the plugin, and press Keep. MCP cannot enable or keep it."
+        }
+    })
+}
+
+fn development_review(package: &plugin::PreparedPackage) -> Value {
+    json!({
+        "kind": "executable",
+        "scope": "disposable",
+        "productionChanged": false,
+        "requiresExplicitAccessApproval": true,
+        "permissions": package.manifest.permissions.iter().map(|permission| permission.label()).collect::<Vec<_>>(),
+        "network": package.manifest.network.as_ref().map(|network| network.allow.clone()).unwrap_or_default(),
+        "homeCards": package.manifest.contributes.cards,
+        "commands": package.manifest.contributes.commands,
+        "remote": package.manifest.remote,
+        "trigger": if package.manifest.api_version == plugin::HOME_API_VERSION {
+            json!("on-demand")
+        } else {
+            json!("chosen by the user during access review")
+        },
+        "approval": "The user must review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. This approval belongs only to the disposable session. MCP cannot approve access."
+    })
+}
+
+fn staging_next(
+    package: &plugin::PreparedPackage,
+    already_installed: bool,
+    enabled: bool,
+) -> String {
+    if already_installed && enabled {
+        return "The same package is already installed and enabled. No change was made.".into();
+    }
+    if already_installed {
+        return if package.manifest.runtime.kind.is_executable() {
+            "The same package is already installed and still disabled. Ask the user to review its exact permissions, network origins, and trigger in Luma > Settings > Plugins before enabling it.".into()
+        } else {
+            "The same package is already installed and still disabled. Ask the user to preview it and press Keep in Luma > Settings > Plugins.".into()
+        };
+    }
+    if package.manifest.runtime.kind.is_executable() {
+        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, review its exact permissions, network origins, and trigger, then choose Allow and enable. No MCP tool can approve access or enable it.".into()
+    } else {
+        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview the plugin, and press Keep. No MCP tool can enable or keep it.".into()
+    }
+}
+
+fn with_dev_review(mut result: Value, declared: Value, review: Value, next: &str) -> Value {
+    if !result.is_object() {
+        result = json!({ "session": result });
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.remove("appDataDir");
+        object.insert("declared".into(), declared);
+        object.insert("review".into(), review);
+        object.insert("next".into(), json!(next));
+    }
+    result
+}
+
+fn with_next(mut result: Value, next: &str) -> Value {
+    if !result.is_object() {
+        result = json!({ "result": result });
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.remove("appDataDir");
+        object.insert("next".into(), json!(next));
+    }
+    result
+}
+
+fn without_dev_paths(mut result: Value) -> Value {
+    if let Some(object) = result.as_object_mut() {
+        object.remove("appDataDir");
+    }
+    result
 }
 
 fn no_arguments(arguments: Value) -> Result<(), String> {
@@ -1399,15 +1774,81 @@ struct PluginSettingsArguments {
     settings: BTreeMap<String, Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DevReloadArguments {
+    session_id: String,
+    manifest: Value,
+    #[serde(default)]
+    files: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DevCommandArguments {
+    session_id: String,
+    command: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DevSessionArguments {
+    session_id: String,
+}
+
 fn plugin_submission_arguments(arguments: Value) -> Result<Value, String> {
-    let object = arguments
+    let mut object = arguments
         .as_object()
+        .cloned()
         .ok_or_else(|| "Arguments must be an object.".to_string())?;
-    if object.contains_key("manifest") {
-        Ok(arguments)
-    } else {
-        Err("Plugin submission requires manifest and optional files.".into())
+    if !object.contains_key("manifest") {
+        return Err("Plugin submission requires manifest and optional files.".into());
     }
+    if !object.contains_key("files") {
+        object.insert("files".into(), json!([]));
+    }
+    Ok(Value::Object(object))
+}
+
+fn dev_reload_arguments(arguments: Value) -> Result<DevReloadArguments, String> {
+    let arguments: DevReloadArguments =
+        serde_json::from_value(arguments).map_err(|error| format!("Invalid arguments: {error}"))?;
+    if arguments.session_id.trim().is_empty() {
+        return Err("sessionId must not be empty.".into());
+    }
+    Ok(arguments)
+}
+
+fn dev_command_arguments(arguments: Value) -> Result<DevCommandArguments, String> {
+    let arguments: DevCommandArguments =
+        serde_json::from_value(arguments).map_err(|error| format!("Invalid arguments: {error}"))?;
+    if arguments.session_id.trim().is_empty() {
+        return Err("sessionId must not be empty.".into());
+    }
+    if !valid_local_id(&arguments.command) {
+        let limit = plugin::limits()["localId"].as_u64().unwrap_or(32);
+        return Err(format!(
+            "command must be 1 to {limit} characters, start with a lowercase letter, and use only letters, digits, '-', or '_'."
+        ));
+    }
+    Ok(arguments)
+}
+
+fn dev_session_arguments(arguments: Value) -> Result<DevSessionArguments, String> {
+    let arguments: DevSessionArguments =
+        serde_json::from_value(arguments).map_err(|error| format!("Invalid arguments: {error}"))?;
+    if arguments.session_id.trim().is_empty() {
+        return Err("sessionId must not be empty.".into());
+    }
+    Ok(arguments)
+}
+
+fn valid_local_id(value: &str) -> bool {
+    let limit = plugin::limits()["localId"].as_u64().unwrap_or(32) as usize;
+    let mut bytes = value.bytes();
+    matches!(bytes.next(), Some(byte) if byte.is_ascii_lowercase())
+        && value.len() <= limit
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 #[derive(Deserialize)]
@@ -1497,10 +1938,49 @@ fn action(code: &str) -> &'static str {
             "Another enabled plugin already controls one of these fields. Ask the user to disable or remove it, or choose different contributions."
         }
         "plugin_unsupported" => {
-            "This package uses an unsupported runtime (main-page). Report the limitation and do not claim the plugin can be enabled."
+            "Use an executable isolated-ui or background package for a development session. Declarative packages are staged and enabled by the user in Settings > Plugins. Report main-page limitations without claiming the package can run."
+        }
+        "plugin_runtime" => {
+            "Use an executable package for a development session. Declarative packages are staged for user preview and Keep."
         }
         "plugin_settings" | "immutable_version" => {
             "Correct the declared setting or package version, then validate again."
+        }
+        "developer" | "dev_unavailable" => {
+            "Development sessions require a running desktop Luma. Ask the user to open Luma, then start the session again."
+        }
+        "dev_session" => {
+            "That development session is not active. Call luma_plugin_dev_start again and use the returned sessionId."
+        }
+        "dev_approval" | "plugin_grant" | "plugin_denied" => {
+            "Ask the user to open the Luma Development window, review Settings > Plugins, and allow the exact access. Do not retry until the user approves."
+        }
+        "dev_command" | "plugin_command" => {
+            "Use a command declared by the active package. Read luma_plugin_dev_status for the current declaration."
+        }
+        "dev_busy" | "plugin_busy" => {
+            "Wait for the current development command or reload to finish, then call luma_plugin_dev_status."
+        }
+        "developer_session" => {
+            "That development session is not active or its host exited. Call luma_plugin_dev_start again and use the returned sessionId."
+        }
+        "developer_start" | "developer_reload" => {
+            "The development host could not complete the last step. Check the returned message, keep the last working draft, and retry or start a new session."
+        }
+        "plugin_disabled" => {
+            "Ask the user to approve and enable the draft in the Luma Development window before invoking a command."
+        }
+        "plugin_not_ready" => {
+            "Wait for the runtime to become ready, then call luma_plugin_dev_status and retry the declared command."
+        }
+        "plugin_command_timeout" | "stale" => {
+            "The runtime did not finish in time. Call luma_plugin_dev_status, check the development window, then retry if the draft is still active."
+        }
+        "incompatible" => {
+            "Check the package apiVersion and runtime pairing. Development sessions run only executable isolated-ui or background packages; declarative packages are staged for user preview and Keep."
+        }
+        "denied" => {
+            "The package's declared permissions did not allow that action. Ask the user to review access instead of bypassing it."
         }
         "storage" => {
             "Luma could not reach customization storage. Ask the user to check Luma before retrying."
@@ -1605,7 +2085,7 @@ fn tool_list() -> Value {
             tool(
                 "luma_capabilities_get",
                 "Get Luma customization capabilities",
-                "Return the supported appearance, layout, widget, app-order, discovery, and review contract. Start here.",
+                "Return the supported appearance, layout, widget, app-order, plugin, development, discovery, and review contract. Start here.",
                 empty_schema(),
                 true
             ),
@@ -1657,7 +2137,7 @@ fn tool_list() -> Value {
             tool(
                 "luma_status",
                 "Get Luma agent access status",
-                "Return whether agent access is enabled, whether the launcher is visible, the current revision, and this grant's pending preview. No credential is returned.",
+                "Return whether agent access is enabled, whether the launcher is visible, the current revision, this grant's pending preview, and the available development tools. No credential is returned.",
                 empty_schema(),
                 true
             ),
@@ -1687,6 +2167,41 @@ fn tool_list() -> Value {
                 "Stage plugin settings for user review",
                 "Validate declared plugin setting values and stage them as the single pending Keep review. This cannot keep, enable, or apply the settings.",
                 plugin_settings_schema(),
+                false
+            ),
+            tool(
+                "luma_plugin_dev_start",
+                "Start a disposable plugin development session",
+                "Start a separate Luma development profile for an executable isolated-ui or background package. The draft installs disabled and starts only after the user approves its exact permissions, network origins, and trigger in the development window. Production settings and grants are never changed. Returns the sessionId used by the other development tools.",
+                plugin_submission_schema(),
+                false
+            ),
+            tool(
+                "luma_plugin_dev_reload",
+                "Reload a disposable plugin development session",
+                "Validate a complete package against the same limits and replace the active snapshot in an existing development session. A failed validation leaves the last working draft available. A change to requested access requires another explicit user approval.",
+                plugin_dev_reload_schema(),
+                false
+            ),
+            tool(
+                "luma_plugin_dev_invoke",
+                "Invoke a declared command in a development session",
+                "Deliver a command declared by the active package to its development runtime. The user must already have approved the draft's access. Delivery is separate from the plugin's feature outcome; use luma_plugin_dev_status for readiness and diagnostics.",
+                dev_command_schema(),
+                false
+            ),
+            tool(
+                "luma_plugin_dev_status",
+                "Get development session status",
+                "Return the active plugin, runtime readiness, approval state, and bounded diagnostics for one disposable development session. No credential is returned.",
+                dev_session_schema(),
+                true
+            ),
+            tool(
+                "luma_plugin_dev_stop",
+                "Stop a disposable plugin development session",
+                "Close one development window and discard its disposable profile. The running production launcher, installed plugins, settings, and grants are unchanged.",
+                dev_session_schema(),
                 false
             ),
         ]
@@ -1727,6 +2242,61 @@ fn plugin_submission_schema() -> Value {
             }
         },
         "required": ["manifest"]
+    })
+}
+
+fn plugin_dev_reload_schema() -> Value {
+    let mut schema = plugin_submission_schema();
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.insert(
+            "sessionId".into(),
+            json!({
+                "type": "string",
+                "minLength": 1,
+                "description": "The sessionId returned by luma_plugin_dev_start."
+            }),
+        );
+    }
+    if let Some(object) = schema.as_object_mut() {
+        object.insert("required".into(), json!(["sessionId", "manifest"]));
+    }
+    schema
+}
+
+fn dev_session_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "sessionId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The sessionId returned by luma_plugin_dev_start."
+            }
+        },
+        "required": ["sessionId"]
+    })
+}
+
+fn dev_command_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "sessionId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The sessionId returned by luma_plugin_dev_start."
+            },
+            "command": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": plugin::limits()["localId"],
+                "pattern": "^[a-z][A-Za-z0-9_-]*$",
+                "description": "A command declared in the active package's contributes.commands."
+            }
+        },
+        "required": ["sessionId", "command"]
     })
 }
 
@@ -1934,7 +2504,7 @@ fn capabilities() -> Value {
                 "declarative": true,
                 "executable": true,
                 "homeCards": true,
-                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts. API version 3 isolated-ui packages can register host-rendered Home cards and paired-phone panels backed by on-demand commands."
+                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts. API version 3 isolated-ui packages can register host-rendered Home cards and paired-phone panels backed by on-demand commands. Executable drafts may run in a disposable development session after explicit user approval; MCP cannot approve access or change production."
             },
             "plugins": {
                 "supported": true,
@@ -1965,7 +2535,48 @@ fn capabilities() -> Value {
                 "executableNetwork": "An executable package may declare network.get with up to eight public HTTPS origins. The host resolves the name, rejects non-public targets, and pins the request to the resolved address.",
                 "importFormats": ["luma-extension.zip", "manifest plus text/base64 files"],
                 "limits": plugin::limits(),
-                "review": "MCP installs plugins disabled. Only the user can preview and enable a declarative plugin or approve an executable runtime grant; both require an explicit user action in Luma. Settings staged by MCP also require user Keep."
+                "review": "MCP installs plugins disabled. Only the user can preview and enable a declarative plugin or approve an executable runtime grant; both require an explicit user action in Luma. Settings staged by MCP also require user Keep.",
+                "development": {
+                    "supported": true,
+                    "disposable": true,
+                    "scope": "Executable isolated-ui and background packages only. Declarative packages use luma_plugin_stage and a user preview.",
+                    "submission": "The same manifest plus text/base64 files used by luma_plugin_validate and luma_plugin_stage.",
+                    "isolation": "Each session has separate temporary app data, settings, grants, and identity. It never changes the running production profile.",
+                    "approval": "The draft starts disabled. Only the user can review the exact permissions, network origins, and trigger in the development window and choose Allow and enable. MCP cannot approve access.",
+                    "tools": [
+                        "luma_plugin_dev_start",
+                        "luma_plugin_dev_reload",
+                        "luma_plugin_dev_invoke",
+                        "luma_plugin_dev_status",
+                        "luma_plugin_dev_stop"
+                    ],
+                    "commandApi": "luma_plugin_dev_invoke accepts a command declared in contributes.commands. Delivery is checked against the active enabled package and grant, and is separate from the plugin's feature outcome.",
+                    "templates": {
+                        "declarative": {
+                            "uri": DECLARATIVE_TEMPLATE,
+                            "apiVersion": plugin::API_VERSION,
+                            "runtime": "declarative",
+                            "description": "Complete editable appearance and Home package with enum, boolean, and number settings. Use luma_plugin_validate and luma_plugin_stage; the user previews and presses Keep."
+                        },
+                        "weather": {
+                            "uri": WEATHER_TEMPLATE,
+                            "apiVersion": plugin::HOME_API_VERSION,
+                            "runtime": "isolated-ui",
+                            "description": "Complete editable Weather Home card with settings.read, network.get for api.open-meteo.com, and an on-demand openForecast command. Use luma_plugin_dev_start."
+                        },
+                        "phoneCommand": {
+                            "uri": PHONE_COMMAND_TEMPLATE,
+                            "apiVersion": plugin::HOME_API_VERSION,
+                            "runtime": "isolated-ui",
+                            "description": "Complete editable paired-phone command panel with host-rendered playback controls and remote.commands labels. Use luma_plugin_dev_start."
+                        },
+                        "svelte": {
+                            "uri": SVELTE_TEMPLATE,
+                            "kind": "source-project",
+                            "description": "Standalone Svelte, Tailwind, and TypeScript source with a local SDK. Build it in your coding workspace and submit dist."
+                        }
+                    }
+                }
             }
         },
         "appearance": {
@@ -2018,14 +2629,19 @@ fn capabilities() -> Value {
             "maxRequestBodyBytes": MAX_BODY,
             "homeRows": 7,
             "apps": 12,
-            "pendingPreviews": 1
+            "pendingPreviews": 1,
+            "pluginSubmission": plugin::limits()
         },
         "tools": tool_summaries,
         "resources": [
             "luma://customization/capabilities",
             "luma://customization/guidance",
             plugin::SCHEMA_RESOURCE,
-            plugin::EXAMPLE_RESOURCE
+            plugin::EXAMPLE_RESOURCE,
+            DECLARATIVE_TEMPLATE,
+            WEATHER_TEMPLATE,
+            PHONE_COMMAND_TEMPLATE,
+            SVELTE_TEMPLATE
         ],
         "review": {
             "keep": "The user must press Keep in Luma. No MCP tool can keep, enable, commit, restore, reset, launch, or install-active.",
@@ -2033,14 +2649,16 @@ fn capabilities() -> Value {
             "readsWorkInTray": true,
             "agentCanCancelOnlyOwnPreview": true,
             "pluginStage": "Installs disabled only.",
-            "pluginSettingsStage": "Requires user Keep."
+            "pluginSettingsStage": "Requires user Keep.",
+            "executableDevelopment": "The user must approve the draft's exact permissions, network origins, and trigger in the disposable development window. MCP cannot approve access.",
+            "declarativeReview": "The user must preview the staged declarative plugin and press Keep in Settings > Plugins."
         },
         "unavailable": [
             "Seeing or committing without user Keep.",
-            "Enabling, keeping, disabling, removing, or exporting a plugin.",
+            "Approving plugin access, enabling, keeping, disabling, removing, or exporting a plugin in production.",
             "Restoring history or resetting appearance.",
             "Launching apps, changing app paths, or reading account credentials.",
-            "Running executable plugin source, scripts, HTML, or native code.",
+            "Running executable plugin source outside a user-approved disposable development session.",
             "Custom screens."
         ]
     })
@@ -2076,6 +2694,34 @@ fn resource_list() -> Value {
                 "title": "Luma plugin example",
                 "description": "A complete declarative manifest with enum, boolean, and number settings bound to appearance and Home contributions.",
                 "mimeType": "application/json"
+            },
+            {
+                "uri": DECLARATIVE_TEMPLATE,
+                "name": "Luma declarative plugin template",
+                "title": "Declarative plugin template",
+                "description": "A complete editable API v1 declarative package bundle. Its manifest binds enum, boolean, and number settings to appearance and Home. Validate and stage it; the user previews and presses Keep in Settings > Plugins.",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": WEATHER_TEMPLATE,
+                "name": "Luma Weather v3 plugin template",
+                "title": "Weather v3 plugin template",
+                "description": "A complete editable API v3 isolated-ui Weather package from the repository example. It declares an openForecast command, a Home card, settings.read, network.get for api.open-meteo.com, and the on-demand trigger. Run it through luma_plugin_dev_start.",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": PHONE_COMMAND_TEMPLATE,
+                "name": "Luma phone command plugin template",
+                "title": "Phone command plugin template",
+                "description": "A complete editable API v3 isolated-ui package with host-rendered paired-phone controls. It declares playback commands, a Home card, remote.commands labels, and playback.control. Run it through luma_plugin_dev_start.",
+                "mimeType": "application/json"
+            },
+            {
+                "uri": SVELTE_TEMPLATE,
+                "name": "Luma Svelte plugin source template",
+                "title": "Svelte plugin source template",
+                "description": "Svelte, Tailwind, TypeScript, and Vite project with the Luma SDK. Requires a build workspace. Submit only its built package.",
+                "mimeType": "application/json"
             }
         ]
     })
@@ -2098,47 +2744,205 @@ fn read_resource(uri: &str) -> Result<(&'static str, String), String> {
             serde_json::to_string_pretty(&plugin::example_manifest())
                 .unwrap_or_else(|_| "{}".into()),
         )),
+        DECLARATIVE_TEMPLATE | WEATHER_TEMPLATE | PHONE_COMMAND_TEMPLATE | SVELTE_TEMPLATE => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&template_bundle(uri)?).unwrap_or_else(|_| "{}".into()),
+        )),
         _ => Err(format!("Resource not found: {uri}.")),
     }
 }
 
+fn template_bundle(uri: &str) -> Result<Value, String> {
+    match uri {
+        SVELTE_TEMPLATE => Ok(json!({
+            "kind": "source-project",
+            "name": "Svelte plugin starter",
+            "installCommand": "npm install",
+            "checkCommand": "npm run check",
+            "buildCommand": "npm run build",
+            "outputDirectory": "dist",
+            "files": [
+                { "path": "package.json", "text": include_str!("../../../starters/svelte/package.json").replace("file:../../sdk", "file:./vendor/plugin-sdk") },
+                { "path": "luma-extension.json", "text": include_str!("../../../starters/svelte/luma-extension.json") },
+                { "path": "vite.config.ts", "text": include_str!("../../../starters/svelte/vite.config.ts") },
+                { "path": "svelte.config.js", "text": include_str!("../../../starters/svelte/svelte.config.js") },
+                { "path": "tsconfig.json", "text": include_str!("../../../starters/svelte/tsconfig.json") },
+                { "path": "src/App.svelte", "text": include_str!("../../../starters/svelte/src/App.svelte") },
+                { "path": "src/main.ts", "text": include_str!("../../../starters/svelte/src/main.ts") },
+                { "path": "src/style.css", "text": include_str!("../../../starters/svelte/src/style.css") },
+                { "path": "ui/index.html", "text": include_str!("../../../starters/svelte/ui/index.html") },
+                { "path": "vendor/plugin-sdk/package.json", "text": include_str!("../../../sdk/package.json") },
+                { "path": "vendor/plugin-sdk/index.js", "text": include_str!("../../../sdk/index.js") },
+                { "path": "vendor/plugin-sdk/index.d.ts", "text": include_str!("../../../sdk/index.d.ts") }
+            ],
+            "next": [
+                "Write these source files to your coding workspace and edit the manifest and UI.",
+                "Install dependencies, check the project, and run the build command in that workspace.",
+                "Submit dist/luma-extension.json as manifest and the other dist files as package-relative files to luma_plugin_validate.",
+                "Start or reload a disposable development session with the built package."
+            ]
+        })),
+        DECLARATIVE_TEMPLATE => Ok(json!({
+            "kind": "declarative",
+            "name": "Declarative appearance and Home package",
+            "description": "A complete editable API v1 declarative package. Its manifest declares enum, boolean, and number settings bound to the theme, Home columns, and the featured Home row. Copy and edit the submission, then call luma_plugin_validate and luma_plugin_stage. The user previews the staged plugin and presses Keep; MCP cannot enable it.",
+            "source": plugin::EXAMPLE_RESOURCE,
+            "requiresUserReview": true,
+            "mcpCanEnable": false,
+            "submission": {
+                "manifest": plugin::example_manifest(),
+                "files": []
+            },
+            "next": [
+                "Call luma_plugin_validate with submission.",
+                "Call luma_plugin_stage with the same submission.",
+                "Ask the user to open Luma > Settings > Plugins, preview the plugin, and press Keep."
+            ]
+        })),
+        WEATHER_TEMPLATE => Ok(json!({
+            "kind": "executable",
+            "name": "Weather v3 Home card",
+            "description": "A complete editable API v3 isolated-ui Weather package from the repository example. It declares an openForecast command, a Weather Home card, settings.read, network.get for https://api.open-meteo.com, and the on-demand trigger. Start a disposable development session to review and test it.",
+            "source": "examples/plugins/com.example.weather",
+            "requiresUserReview": true,
+            "mcpCanApproveAccess": false,
+            "submission": {
+                "manifest": template_manifest(WEATHER_MANIFEST),
+                "files": [
+                    { "path": "ui/index.html", "text": WEATHER_HTML },
+                    { "path": "ui/page.js", "text": WEATHER_SCRIPT },
+                    { "path": "ui/page.css", "text": WEATHER_STYLE }
+                ]
+            },
+            "next": [
+                "Edit the manifest and files in your workspace.",
+                "Call luma_plugin_validate with submission.",
+                "Call luma_plugin_dev_start with the same submission.",
+                "Ask the user to review access in the development window and choose Allow and enable.",
+                "Call luma_plugin_dev_invoke with command openForecast, then luma_plugin_dev_status.",
+                "Edit, call luma_plugin_dev_reload, and call luma_plugin_dev_stop when finished.",
+                "Call luma_plugin_stage with the final submission for the user's production review."
+            ]
+        })),
+        PHONE_COMMAND_TEMPLATE => Ok(json!({
+            "kind": "executable",
+            "name": "Paired-phone command panel",
+            "description": "A complete editable API v3 isolated-ui package with host-rendered paired-phone controls. It declares togglePlayback and nextTrack commands, a Phone controls Home card, remote.commands labels, and playback.control. Start a disposable development session to review and test it.",
+            "source": "src-tauri/templates/phone-command",
+            "requiresUserReview": true,
+            "mcpCanApproveAccess": false,
+            "submission": {
+                "manifest": template_manifest(PHONE_MANIFEST),
+                "files": [
+                    { "path": "ui/index.html", "text": PHONE_HTML },
+                    { "path": "ui/main.js", "text": PHONE_SCRIPT },
+                    { "path": "ui/style.css", "text": PHONE_STYLE }
+                ]
+            },
+            "next": [
+                "Edit the manifest and files in your workspace.",
+                "Call luma_plugin_validate with submission.",
+                "Call luma_plugin_dev_start with the same submission.",
+                "Ask the user to review playback.control access in the development window and choose Allow and enable.",
+                "Call luma_plugin_dev_invoke with togglePlayback or nextTrack, then luma_plugin_dev_status.",
+                "Edit, call luma_plugin_dev_reload, and call luma_plugin_dev_stop when finished.",
+                "Call luma_plugin_stage with the final submission for the user's production review."
+            ]
+        })),
+        _ => Err(format!("Template not found: {uri}.")),
+    }
+}
+
+fn template_manifest(source: &str) -> Value {
+    serde_json::from_str(source).unwrap_or_else(|_| json!({}))
+}
+
 fn guidance() -> &'static str {
-    "# Luma customization guidance\n\n\
-Luma is a Windows TV launcher. Use MCP to inspect the committed customization, validate a complete candidate, and stage it for the user to review. Theme, Home layout, and widgets are Luma's own settings under Settings > Appearance & Home; external declarative plugins can override those fields.\n\n\
-## Required flow\n\n\
-1. Call `luma_capabilities_get`, `luma_plugins_list`, and read `luma://plugins/schema` and `luma://plugins/example`.\n\
-2. Call `luma_config_get` and keep its `revision`.\n\
-3. For a configuration change, build a complete effective configuration, not a patch.\n\
-4. Call `luma_candidate_validate` with `expectedRevision` and `config`.\n\
-5. If it is valid, call `luma_candidate_preview` with the same `expectedRevision` and `config`.\n\
-6. Tell the user that the change is waiting in Luma and that they must press Keep. Stop there.\n\n\
-## Authoring a declarative plugin\n\n\
-1. Write `luma-extension.json` with a stable id, `major.minor.patch` version, `apiVersion: 1`, bounded settings, and declarative contributions. Use only `runtime.kind: \"declarative\"` for an enableable plugin.\n\
-2. Put package-relative source and assets in `files`; never use absolute paths, `..`, backslashes, symlinks, credentials, or machine paths.\n\
-3. Call `luma_plugin_validate` with `manifest` and optional `files` (`text` or `base64`).\n\
-4. Call `luma_plugin_stage` with the same submission. Luma installs it disabled.\n\
-5. Tell the user to open Luma > Settings > Plugins > Installed plugins and press Preview and enable, then Keep. No MCP tool can enable it.\n\n\
-## Plugin settings\n\n\
-A manifest can declare boolean, enum, number, or string settings with validated defaults. Bind settings to supported fields, for example `theme: {\"setting\":\"theme\"}`, `homeColumns: {\"setting\":\"columns\"}`, or `home.rows.featured.visible: {\"setting\":\"showFeatured\"}`. Stage new values with `luma_plugin_settings_stage`; the user must press Keep. Settings for disabled plugins remain stored and apply again when the plugin is enabled.\n\n\
-## Home card packages\n\n\
-An isolated-ui package can use `apiVersion: 3` with `minHostVersion`, `contributes.commands`, and one or more `contributes.cards`. Each card references a command declared by the same package. The host renders the card and starts the package only when the user selects it; rendering Home never starts a runtime. The user approves the on-demand runtime grant in Settings > Plugins. The same package can declare `remote.commands` with host-rendered labels for a paired phone; each entry must reference a command declared by the package.\n\n\
-## Examples\n\n\
-### Change the theme\n\n\
-Read the current document. Change only `config.theme` to a value listed by `luma_capabilities_get`. Keep every other field unchanged, including the full `home` array and `order`. Validate and preview the complete document.\n\n\
-### Rearrange Home\n\n\
-Read the current document. Reorder `config.home` while keeping exactly one row for each of the seven components. Keep each row's `id`, `component`, `visible`, and `span`. Validate and preview the complete document.\n\n\
-### Change the app order\n\n\
-Read the current document. Reorder `config.order` so every app appears exactly once and `Custom` remains last. Validate and preview the complete document.\n\n\
-## Rules\n\n\
-- Preview requires the Luma launcher to be open and visible. If it is in the tray, ask the user to open Luma.\n\
-- Keep is a user action in Luma. The MCP tools cannot keep, enable, disable, remove, export, commit, restore, reset, launch, or execute anything.\n\
-- A preview creates one pending review. If another review is already pending, ask the user to Keep or Reject it before staging another.\n\
-- If a configuration candidate changes a field controlled by an enabled plugin, the preview reports the detached fields and Keep preserves the user's value while detaching that field. Do not describe this as applying the plugin.\n\
-- Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.\n\
-- Revoking or rotating access stops the next request and cancels this grant's pending preview.\n\
-- Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.\n\
-- Executable plugin runtimes require explicit user approval in Settings > Plugins. An `isolated-ui` package uses `apiVersion: 2`, or `apiVersion: 3` for Home cards and commands, and declares exact `permissions` plus, for `network.get`, a `network.allow` list. It installs disabled; only the user can approve its permissions, network origins, and trigger. API version 3 packages use the on-demand trigger and start only when the user selects their Home card or a paired-phone panel command.\n\
-- Do not ask for or print tokens, passwords, pairing codes, or account credentials. Luma never returns them through these tools.\n"
+    r#"# Luma authoring guidance
+
+Luma is a Windows TV launcher. This MCP server is the agent-first authoring contract for customization and plugin packages. Discovery belongs to the contract: call `luma_capabilities_get`, read `luma://plugins/schema`, and choose a complete template before writing a package.
+
+## Start here
+
+1. Call `luma_capabilities_get`, `luma_plugins_list`, and `luma_status`.
+2. Read `luma://plugins/schema` for the manifest and limit contract.
+3. Choose one template bundle:
+   - `luma://plugins/templates/declarative` for appearance and Home.
+   - `luma://plugins/templates/weather` for an API v3 Home card with network access.
+   - `luma://plugins/templates/phone-command` for API v3 paired-phone command controls.
+   - `luma://plugins/templates/svelte` for a Svelte, Tailwind, and TypeScript source project. Build it locally and submit only the package in `dist`.
+4. Each bundle returns a `submission` object in the exact shape used by `luma_plugin_validate`, `luma_plugin_stage`, and `luma_plugin_dev_start`. Edit it in your workspace, then validate the complete package.
+
+## Customization flow
+
+1. Call `luma_config_get` and keep its `revision`.
+2. Build a complete effective configuration, not a patch.
+3. Call `luma_candidate_validate` with `expectedRevision` and `config`.
+4. If valid, call `luma_candidate_preview` with the same values.
+5. Tell the user the change is waiting in Luma and that they must press Keep. Stop there.
+
+## Declarative plugins
+
+1. Start from the declarative template or write `luma-extension.json` with a stable id, `major.minor.patch` version, `apiVersion: 1`, bounded settings, and declared contributions.
+2. Call `luma_plugin_validate`.
+3. Call `luma_plugin_stage`. It installs disabled.
+4. Tell the user to open Luma > Settings > Plugins, preview the plugin, and press Keep. No MCP tool can enable it.
+
+## Executable plugin development
+
+1. Start from the Weather v3 or phone command template, or write an `isolated-ui` package with `apiVersion: 2` (or 3 for Home cards and commands), exact `permissions`, and, for `network.get`, a `network.allow` list.
+2. Call `luma_plugin_validate`.
+3. Call `luma_plugin_dev_start` with the validated submission. The response includes `sessionId`, `declared` permissions and origins, and a `review` action.
+4. Ask the user to review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. The session is disposable and has separate app data and grants.
+5. Call `luma_plugin_dev_status` to inspect readiness. The draft stays disabled until the user approves it.
+6. Call `luma_plugin_dev_invoke` with a command declared in `contributes.commands`. Delivery is not the feature outcome; check status and the development window.
+7. Edit and call `luma_plugin_dev_reload` for the same session. A failed validation leaves the last working draft available. A change to requested access requires another user review.
+8. Call `luma_plugin_dev_stop` when finished.
+9. Call `luma_plugin_stage` with the final package, then ask the user to review the installed package in the production launcher.
+
+## Staging and review
+
+`luma_plugin_stage` returns the installed plugin, `declared` permissions and network origins, `homeCards`, `commands`, `remote` phone contributions, and a `review` object. For a declarative package the user previews and presses Keep. For an executable package the user must review the exact permissions, network origins, and trigger and choose Allow and enable. MCP never approves access, enables, keeps, or executes anything in production.
+
+## Plugin settings
+
+A manifest can declare boolean, enum, number, or string settings with validated defaults. Bind settings to supported fields, for example `theme: {"setting":"theme"}`, `homeColumns: {"setting":"columns"}`, or `home.rows.featured.visible: {"setting":"showFeatured"}`. Stage new values with `luma_plugin_settings_stage`; the user must press Keep. Settings for disabled plugins remain stored and apply again when the plugin is enabled.
+
+## Home cards and phone commands
+
+An isolated-ui package can use `apiVersion: 3` with `minHostVersion`, `contributes.commands`, and one or more `contributes.cards`. Each card references a command declared by the same package. The host renders the card and starts the package only when the user selects it; rendering Home never starts a runtime. The user approves the on-demand grant in Settings > Plugins. The same package can declare `remote.commands` with host-rendered labels for a paired phone; each entry must reference a command declared by the package. Phone actions start a hidden runtime and never open or focus a desktop surface.
+
+## Examples
+
+### Change the theme
+
+Read the current document. Change only `config.theme` to a value listed by `luma_capabilities_get`. Keep every other field unchanged, including the full `home` array and `order`. Validate and preview the complete document.
+
+### Rearrange Home
+
+Read the current document. Reorder `config.home` while keeping exactly one row for each of the seven components. Keep each row's `id`, `component`, `visible`, and `span`. Validate and preview the complete document.
+
+### Change the app order
+
+Read the current document. Reorder `config.order` so every app appears exactly once and `Custom` remains last. Validate and preview the complete document.
+
+### Add a Home card
+
+Read `luma://plugins/templates/weather` or `luma://plugins/templates/phone-command`. Edit the manifest id, name, version, commands, and card. Validate, start a development session, ask the user to approve access, invoke a declared command, then stage the final package.
+
+## Rules
+
+- Preview requires the Luma launcher to be open and visible. If it is in the tray, ask the user to open Luma.
+- Keep is a user action in Luma. The MCP tools cannot keep, enable, disable, remove, export, commit, restore, reset, launch, or execute anything in production.
+- A preview creates one pending review. If another is pending, ask the user to Keep or Reject it before staging another.
+- If a candidate changes a field controlled by an enabled plugin, the preview reports the detached fields and Keep preserves the user's value while detaching that field. Do not describe this as applying the plugin.
+- Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.
+- Revoking or rotating access stops the next request and cancels this grant's pending preview.
+- Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.
+- Executable packages install disabled. The user must approve the exact permissions, network origins, and trigger. API version 3 packages use the on-demand trigger and start only for a selected Home card or paired-phone command.
+- Development sessions are disposable. The user's approval applies only to that session; a production package still needs its own review.
+- Do not ask for or print tokens, passwords, pairing codes, or account credentials. Luma never returns them through these tools.
+"#
 }
 
 #[tauri::command]
@@ -2193,6 +2997,11 @@ mod tests {
         next: usize,
         reads: usize,
         cancels: Vec<String>,
+        dev_starts: usize,
+        dev_reloads: usize,
+        dev_invokes: Vec<String>,
+        dev_statuses: usize,
+        dev_stops: Vec<String>,
     }
 
     struct TestBackend {
@@ -2213,6 +3022,11 @@ mod tests {
                     next: 0,
                     reads: 0,
                     cancels: Vec::new(),
+                    dev_starts: 0,
+                    dev_reloads: 0,
+                    dev_invokes: Vec::new(),
+                    dev_statuses: 0,
+                    dev_stops: Vec::new(),
                 }),
                 visible: AtomicBool::new(false),
             })
@@ -2250,6 +3064,26 @@ mod tests {
 
         fn cancels(&self) -> Vec<String> {
             self.state.lock().unwrap().cancels.clone()
+        }
+
+        fn dev_starts(&self) -> usize {
+            self.state.lock().unwrap().dev_starts
+        }
+
+        fn dev_reloads(&self) -> usize {
+            self.state.lock().unwrap().dev_reloads
+        }
+
+        fn dev_invokes(&self) -> Vec<String> {
+            self.state.lock().unwrap().dev_invokes.clone()
+        }
+
+        fn dev_statuses(&self) -> usize {
+            self.state.lock().unwrap().dev_statuses
+        }
+
+        fn dev_stops(&self) -> Vec<String> {
+            self.state.lock().unwrap().dev_stops.clone()
         }
 
         fn read_sync(&self) -> Result<Option<Document>, Error> {
@@ -2389,6 +3223,75 @@ mod tests {
                     "storage",
                     "The test backend does not have plugin storage.",
                 ))
+            })
+        }
+
+        fn dev_start<'a>(&'a self, submission: Value) -> BackendFuture<'a, Value> {
+            Box::pin(async move {
+                self.state.lock().unwrap().dev_starts += 1;
+                Ok(json!({
+                    "sessionId": "dev-session",
+                    "pluginId": submission["manifest"]["id"],
+                    "status": "installed_disabled",
+                    "enabled": false,
+                    "appDataDir": "C:\\Temp\\luma-dev"
+                }))
+            })
+        }
+
+        fn dev_reload<'a>(
+            &'a self,
+            session_id: String,
+            _submission: Value,
+        ) -> BackendFuture<'a, Value> {
+            Box::pin(async move {
+                self.state.lock().unwrap().dev_reloads += 1;
+                Ok(json!({
+                    "sessionId": session_id,
+                    "status": "reloaded",
+                    "reviewRequired": false
+                }))
+            })
+        }
+
+        fn dev_invoke<'a>(
+            &'a self,
+            session_id: String,
+            command: String,
+        ) -> BackendFuture<'a, Value> {
+            Box::pin(async move {
+                self.state.lock().unwrap().dev_invokes.push(command.clone());
+                Ok(json!({
+                    "sessionId": session_id,
+                    "command": command,
+                    "delivered": true
+                }))
+            })
+        }
+
+        fn dev_status<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value> {
+            Box::pin(async move {
+                self.state.lock().unwrap().dev_statuses += 1;
+                Ok(json!({
+                    "sessionId": session_id,
+                    "ready": true,
+                    "enabled": true,
+                    "appDataDir": "C:\\Temp\\luma-dev"
+                }))
+            })
+        }
+
+        fn dev_stop<'a>(&'a self, session_id: String) -> BackendFuture<'a, Value> {
+            Box::pin(async move {
+                self.state
+                    .lock()
+                    .unwrap()
+                    .dev_stops
+                    .push(session_id.clone());
+                Ok(json!({
+                    "sessionId": session_id,
+                    "stopped": true
+                }))
             })
         }
     }
@@ -2576,6 +3479,11 @@ mod tests {
         assert!(names.contains(&"luma_plugin_stage"));
         assert!(names.contains(&"luma_plugin_settings_stage"));
         assert!(names.contains(&"luma_plugins_list"));
+        assert!(names.contains(&"luma_plugin_dev_start"));
+        assert!(names.contains(&"luma_plugin_dev_reload"));
+        assert!(names.contains(&"luma_plugin_dev_invoke"));
+        assert!(names.contains(&"luma_plugin_dev_status"));
+        assert!(names.contains(&"luma_plugin_dev_stop"));
         assert!(!names.iter().any(|name| {
             [
                 "keep", "commit", "restore", "reset", "launch", "install", "enable", "remove",
@@ -2601,6 +3509,10 @@ mod tests {
         assert!(uris.contains(&"luma://customization/guidance"));
         assert!(uris.contains(&plugin::SCHEMA_RESOURCE));
         assert!(uris.contains(&plugin::EXAMPLE_RESOURCE));
+        assert!(uris.contains(&DECLARATIVE_TEMPLATE));
+        assert!(uris.contains(&WEATHER_TEMPLATE));
+        assert!(uris.contains(&PHONE_COMMAND_TEMPLATE));
+        assert!(uris.contains(&SVELTE_TEMPLATE));
 
         let read = json!({
             "jsonrpc": "2.0",
@@ -2632,6 +3544,14 @@ mod tests {
         assert_eq!(
             capabilities["layers"]["plugins"]["runtimes"]["supported"][0],
             "declarative"
+        );
+        assert_eq!(
+            capabilities["layers"]["plugins"]["development"]["templates"]["weather"]["uri"],
+            WEATHER_TEMPLATE
+        );
+        assert_eq!(
+            capabilities["layers"]["plugins"]["development"]["templates"]["phoneCommand"]["uri"],
+            PHONE_COMMAND_TEMPLATE
         );
 
         let read = json!({
@@ -3099,6 +4019,9 @@ mod tests {
             "luma_plugin_keep",
             "luma_plugin_remove",
             "luma_plugin_export",
+            "luma_plugin_dev_approve",
+            "luma_plugin_dev_enable",
+            "luma_plugin_dev_execute",
         ] {
             let response = call_rpc(port, AUTH, name, json!({}));
             assert_eq!(response["error"]["code"], -32602);
@@ -3169,6 +4092,258 @@ mod tests {
         assert!(!same(&first, &second));
         assert!(!same(&first, &first[..63]));
         assert!(!same(&first, &format!("{first}x")));
+    }
+
+    fn template(uri: &str) -> Value {
+        let (mime, text) = read_resource(uri).unwrap();
+        assert_eq!(mime, "application/json");
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn svelte_template_includes_a_standalone_build_and_sdk() {
+        let source = template(SVELTE_TEMPLATE);
+        assert_eq!(source["kind"], "source-project");
+        assert_eq!(source["outputDirectory"], "dist");
+        assert!(source.get("submission").is_none());
+        let files = source["files"].as_array().unwrap();
+        let get = |path: &str| {
+            files.iter().find(|file| file["path"] == path).unwrap()["text"]
+                .as_str()
+                .unwrap()
+        };
+        let package: Value = serde_json::from_str(get("package.json")).unwrap();
+        assert_eq!(
+            package["dependencies"]["@luma/plugin-sdk"],
+            "file:./vendor/plugin-sdk"
+        );
+        assert!(get("vendor/plugin-sdk/index.js").contains("extension_bridge"));
+        assert!(!get("vendor/plugin-sdk/index.d.ts").is_empty());
+        assert!(!get("src/App.svelte").is_empty());
+    }
+
+    #[test]
+    fn template_bundles_are_complete_and_use_the_shared_validator() {
+        let declarative = template(DECLARATIVE_TEMPLATE);
+        let weather = template(WEATHER_TEMPLATE);
+        let phone = template(PHONE_COMMAND_TEMPLATE);
+
+        for bundle in [&declarative, &weather, &phone] {
+            let submission = bundle["submission"].clone();
+            let package = plugin::validate_submission(&submission).unwrap();
+            assert_eq!(
+                bundle["kind"],
+                if package.manifest.runtime.kind.is_executable() {
+                    "executable"
+                } else {
+                    "declarative"
+                }
+            );
+            assert_eq!(bundle["submission"]["manifest"]["id"], package.manifest.id);
+            assert_eq!(
+                bundle["submission"]["manifest"]["version"],
+                package.manifest.version
+            );
+            assert!(!bundle["next"].as_array().unwrap().is_empty());
+        }
+
+        assert_eq!(declarative["submission"]["manifest"]["apiVersion"], 1);
+        assert!(declarative["submission"]["files"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        assert_eq!(weather["submission"]["manifest"]["apiVersion"], 3);
+        assert_eq!(
+            weather["submission"]["manifest"]["runtime"]["kind"],
+            "isolated-ui"
+        );
+        assert_eq!(
+            weather["submission"]["manifest"]["contributes"]["cards"][0]["command"],
+            "openForecast"
+        );
+        assert!(weather["submission"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "ui/index.html"));
+
+        assert_eq!(phone["submission"]["manifest"]["apiVersion"], 3);
+        assert_eq!(
+            phone["submission"]["manifest"]["remote"]["commands"][0]["command"],
+            "togglePlayback"
+        );
+        assert_eq!(
+            phone["submission"]["manifest"]["permissions"][0],
+            "playback.control"
+        );
+    }
+
+    #[test]
+    fn staging_review_names_access_contributions_and_the_user_action() {
+        let weather = template(WEATHER_TEMPLATE);
+        let package = plugin::validate_submission(&weather["submission"]).unwrap();
+        let review = staging_review(&package);
+        assert_eq!(
+            review["permissions"],
+            json!(["settings.read", "network.get"])
+        );
+        assert_eq!(review["network"], json!(["https://api.open-meteo.com"]));
+        assert_eq!(review["homeCards"][0]["command"], "openForecast");
+        assert_eq!(review["trigger"], "on-demand");
+        assert_eq!(review["requiresExplicitAccessApproval"], true);
+        assert!(staging_next(&package, false, false).contains("Allow and enable"));
+
+        let declarative = template(DECLARATIVE_TEMPLATE);
+        let package = plugin::validate_submission(&declarative["submission"]).unwrap();
+        let review = staging_review(&package);
+        assert_eq!(review["requiresExplicitAccessApproval"], false);
+        assert!(staging_next(&package, false, false).contains("press Keep"));
+        assert!(staging_next(&package, true, true).contains("No change was made"));
+    }
+
+    #[test]
+    fn development_tools_require_executable_packages_and_explicit_review() {
+        let backend = TestBackend::new();
+        let (port, server) = serve(access(true), backend.clone());
+        let weather = template(WEATHER_TEMPLATE);
+        let submission = weather["submission"].clone();
+
+        let start = call(port, "luma_plugin_dev_start", submission.clone());
+        assert_eq!(start["isError"], false);
+        assert_eq!(start["structuredContent"]["sessionId"], "dev-session");
+        assert_eq!(
+            start["structuredContent"]["declared"]["permissions"],
+            json!(["settings.read", "network.get"])
+        );
+        assert_eq!(
+            start["structuredContent"]["declared"]["network"],
+            json!(["https://api.open-meteo.com"])
+        );
+        assert_eq!(
+            start["structuredContent"]["declared"]["homeCards"][0]["command"],
+            "openForecast"
+        );
+        assert_eq!(
+            start["structuredContent"]["review"]["requiresExplicitAccessApproval"],
+            true
+        );
+        assert_eq!(
+            start["structuredContent"]["review"]["productionChanged"],
+            false
+        );
+        let next = start["structuredContent"]["next"].as_str().unwrap();
+        assert!(next.contains("Settings > Plugins"));
+        assert!(next.contains("MCP cannot approve access"));
+        assert!(start["structuredContent"]["appDataDir"].is_null());
+        assert_eq!(backend.dev_starts(), 1);
+
+        let mut reload_arguments = submission.clone();
+        reload_arguments["sessionId"] = json!("dev-session");
+        let reload = call(port, "luma_plugin_dev_reload", reload_arguments);
+        assert_eq!(reload["isError"], false);
+        assert_eq!(reload["structuredContent"]["sessionId"], "dev-session");
+        assert_eq!(backend.dev_reloads(), 1);
+
+        let invoke = call(
+            port,
+            "luma_plugin_dev_invoke",
+            json!({ "sessionId": "dev-session", "command": "openForecast" }),
+        );
+        assert_eq!(invoke["isError"], false);
+        assert_eq!(invoke["structuredContent"]["delivered"], true);
+        assert_eq!(backend.dev_invokes(), vec!["openForecast"]);
+
+        let status = call(
+            port,
+            "luma_plugin_dev_status",
+            json!({ "sessionId": "dev-session" }),
+        );
+        assert_eq!(status["isError"], false);
+        assert_eq!(status["structuredContent"]["ready"], true);
+        assert!(status["structuredContent"]["appDataDir"].is_null());
+        assert_eq!(backend.dev_statuses(), 1);
+
+        let stop = call(
+            port,
+            "luma_plugin_dev_stop",
+            json!({ "sessionId": "dev-session" }),
+        );
+        assert_eq!(stop["isError"], false);
+        assert_eq!(backend.dev_stops(), vec!["dev-session"]);
+
+        let second = call(port, "luma_plugin_dev_start", weather["submission"].clone());
+        assert_eq!(second["isError"], false);
+        assert_eq!(backend.dev_starts(), 2);
+
+        let declarative = template(DECLARATIVE_TEMPLATE);
+        let refused = call(
+            port,
+            "luma_plugin_dev_start",
+            declarative["submission"].clone(),
+        );
+        assert_eq!(legacy_tool_error(&refused), "plugin_unsupported");
+        assert_eq!(backend.dev_starts(), 2);
+
+        let generation = tauri::async_runtime::block_on(server.authorize(TOKEN)).unwrap();
+        tauri::async_runtime::block_on(server.rotate()).unwrap();
+        assert_eq!(backend.dev_stops(), vec!["dev-session", "dev-session"]);
+        let stale = tauri::async_runtime::block_on(call_tool(
+            &server,
+            generation,
+            "luma_plugin_dev_start",
+            weather["submission"].clone(),
+        ));
+        assert_eq!(legacy_tool_error(&stale), "grant_revoked");
+        assert_eq!(backend.dev_starts(), 2);
+    }
+
+    #[test]
+    fn development_arguments_are_strict_and_require_declared_commands() {
+        let backend = TestBackend::new();
+        let (port, _) = serve(access(true), backend.clone());
+        let weather = template(WEATHER_TEMPLATE);
+
+        let missing_session = call(port, "luma_plugin_dev_status", json!({ "sessionId": "" }));
+        assert_eq!(legacy_tool_error(&missing_session), "invalid_arguments");
+
+        let unknown_field = call(
+            port,
+            "luma_plugin_dev_invoke",
+            json!({ "sessionId": "dev-session", "command": "openForecast", "extra": true }),
+        );
+        assert_eq!(legacy_tool_error(&unknown_field), "invalid_arguments");
+
+        let bad_command = call(
+            port,
+            "luma_plugin_dev_invoke",
+            json!({ "sessionId": "dev-session", "command": "Not A Command" }),
+        );
+        assert_eq!(legacy_tool_error(&bad_command), "invalid_arguments");
+
+        let missing_files = call(
+            port,
+            "luma_plugin_dev_start",
+            json!({
+                "manifest": weather["submission"]["manifest"].clone()
+            }),
+        );
+        assert_eq!(missing_files["isError"], true);
+        assert_eq!(backend.dev_starts(), 0);
+    }
+
+    #[test]
+    fn development_command_ids_use_the_shared_local_id_limit() {
+        assert!(valid_local_id("openForecast"));
+        assert!(valid_local_id("next-track_2"));
+        assert!(!valid_local_id(""));
+        assert!(!valid_local_id("OpenForecast"));
+        assert!(!valid_local_id("open Forecast"));
+        assert!(!valid_local_id(&"a".repeat(33)));
+        assert_eq!(
+            dev_command_schema()["properties"]["command"]["maxLength"],
+            plugin::limits()["localId"]
+        );
     }
 
     #[test]
