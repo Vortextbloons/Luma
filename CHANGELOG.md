@@ -2,6 +2,25 @@
 
 Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
+## [0.9.0] - 2026-11-20
+
+### Added
+
+- **Plugin Developer Platform & SDK**: Build custom plugins for Luma using the new `@luma/plugin-sdk`, `luma-plugin` CLI, and starter templates for TypeScript and Svelte 5. Test live with an isolated dev host, DevTools inspection, hot reloading, and automated manifest validation.
+- **Executable Plugin Runtime & Remote Panels**: Run isolated-ui and background plugins under sandboxed capability grants and supervision. Plugins can declare remote commands and host-rendered panels directly on the web phone remote for interactive living-room control.
+- **MCP Plugin Development Tools**: AI coding agents can manage plugin dev sessions, reload code, inspect state, and test command invocations through dedicated MCP developer tools.
+- **Progressive Catalog Streaming**: Home screen catalog rows now stream in progressively as each source responds, avoiding long blocking spinners.
+
+### Changed
+
+- The Search tab loads popular shows lazily on demand, and poster images use responsive srcsets to save bandwidth and memory.
+- Remote API requests use bounded timeouts (15s standard, 30s search) with automatic recovery to keep the phone remote responsive during network drops.
+- Activity synchronization safely isolates settings updates, avoids clearing resume progress prematurely, and fetches Plex and Jellyfin libraries concurrently.
+
+### Fixed
+
+- Single-mode viewing arrangement and external window detachment properly manage window state and restore window placement.
+
 ## [0.8.0] - 2026-11-15
 
 ### Added
