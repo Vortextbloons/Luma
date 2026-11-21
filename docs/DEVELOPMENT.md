@@ -20,6 +20,8 @@ npm run tauri build
 
 `npm run dev` runs a frontend browser preview. Native features require `npm run tauri dev`. Stop a separately running Vite process on port 1420 before starting the Tauri dev command. `npm run tauri build -- --no-bundle` produces the standalone executable without an installer.
 
+Plugin authoring uses the `luma-plugin` CLI for scaffolding, validation, packing, and isolated development sessions. See [plugin development](PLUGIN-DEVELOPMENT.md).
+
 Rust builds use the toolchain pinned in `rust-toolchain.toml`, so a `rustup update` no longer invalidates the compiled dependencies. Cargo never prunes its own artifacts, so `npm run dev` sweeps them once `src-tauri/target` passes 20 GB (`cargo install cargo-sweep` once); `npm run clean` runs the same sweep on demand.
 
 The `window_handoff` regression check opens isolated Windows test windows. It checks stationary-pointer hover targets and 40 fullscreen window handoffs, including WebView input focus, without starting the remote server.

@@ -72,6 +72,7 @@ let identityError = null;
 let reading = null;
 let error = null;
 let busy = false;
+let attempted = false;
 
 const unitName = units => (units === "f" ? "Fahrenheit" : "Celsius");
 const unitMark = units => (units === "f" ? "°F" : "°C");
@@ -178,6 +179,7 @@ function toReading(value, current) {
 async function loadWeather() {
   const current = selection();
   if (busy || !settings) return;
+  attempted = true;
   if (!current) {
     error = { message: "Choose a location in Luma Settings > Plugins." };
     render();
@@ -282,6 +284,9 @@ async function initialize() {
 
 refresh.addEventListener("click", loadWeather);
 close.addEventListener("click", exit);
+window.addEventListener("luma:command", event => {
+  if (event?.detail?.command === "openForecast" && !attempted) void loadWeather();
+});
 history.pushState({ surface: "weather" }, "");
 window.addEventListener("popstate", exit);
 initialize();

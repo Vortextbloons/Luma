@@ -1,0 +1,17 @@
+{
+  "name": "luma-plugin-typescript-starter",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@luma/plugin-sdk": "file:../../sdk"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.3"
+  }
+}

@@ -36,8 +36,9 @@ function fixture() {
     heroSource: 'catalog', previewApp: null, stremioRecent: [], stremio: null, steamGames: [], activityItems: [], trackingEnabled: true,
     order: ['YouTube', 'Spotify', 'Custom'], launching: null, catalogVisible: true, youTubeFeed: [], previewMusic: [], steamRecommendations: [], steamRecommendationSource: null,
     previewActivity: [], musicLoading: false, popular: [], featured: [], previewLeague: null, leagueGames: [], leagueGamesLoading: false,
+    homeCards: [], pluginCardPending: null, pluginCardFailure: null,
   };
-  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'watchLeagueGame', 'previewLeagueGame', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie'].map(key => [key, () => {}]));
+  const actions = Object.fromEntries(['openStremio', 'openStremioPairing', 'previewStremio', 'openSteamGame', 'previewSteamGame', 'openItem', 'removeItem', 'previewActivityItem', 'launch', 'preview', 'watchLeagueGame', 'previewLeagueGame', 'openYouTubeItem', 'previewVideo', 'playMusic', 'previewMusicItem', 'openSteamStore', 'previewSteamRecommendation', 'select', 'previewMovie', 'openPluginCard', 'retryPluginCard'].map(key => [key, () => {}]));
   return { rows: defaultHomeRows(), data, actions };
 }
 
@@ -103,6 +104,34 @@ test('sports app previews show the league games instead of unrelated Continue Wa
   props.data.leagueGamesLoading = false;
   assert.match(render(HomeRenderer, { props }).body, /No MLB games listed right now/);
   assert.doesNotMatch(render(HomeRenderer, { props }).body, /Boston Celtics|Nothing in progress/);
+});
+
+test('plugin cards use a stable host section with pending and retry feedback', () => {
+  const props = fixture();
+  const card = { id: 'com.example.weather:forecast', pluginId: 'com.example.weather', title: 'Weather', commandId: 'openForecast' };
+  props.data.homeCards = [card];
+  let html = render(HomeRenderer, { props }).body;
+  assert.ok(html.indexOf('data-home-instance="recentApps"') < html.indexOf('data-home-instance="plugins"'));
+  assert.match(html, /From your plugins/);
+  assert.match(html, /data-plugin-card="com.example.weather:forecast"/);
+  assert.match(html, /data-focus-key="com.example.weather:forecast"/);
+  assert.match(html, />Weather</);
+
+  props.data.pluginCardPending = card.id;
+  html = render(HomeRenderer, { props }).body;
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /Opening Weather…/);
+
+  props.data.pluginCardPending = null;
+  props.data.pluginCardFailure = { card, message: 'Weather did not start in time. Try again.' };
+  html = render(HomeRenderer, { props }).body;
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Weather couldn't open\. Weather did not start in time\. Try again\./);
+  assert.match(html, />Retry</);
+
+  props.data.homeCards = [];
+  html = render(HomeRenderer, { props }).body;
+  assert.doesNotMatch(html, /data-home-instance="plugins"|data-plugin-card|From your plugins/);
 });
 
 test('hidden sections and unavailable hero content do not leave interactive copies', () => {

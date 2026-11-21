@@ -1,7 +1,7 @@
 mod net;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -11,7 +11,7 @@ use std::{
 
 use crate::{
     customization::{
-        plugin::{self, Grant, Permission, RuntimeKind, RuntimeStatus, Trigger},
+        plugin::{self, CommandSpec, Grant, Permission, RuntimeKind, RuntimeStatus, Trigger},
         Store,
     },
     integrations::spotify::{auth::Auth, player},
@@ -32,6 +32,8 @@ pub(crate) const SCHEME: &str = "luma-extension";
 const PROTOCOL_POOL: usize = 16;
 
 const BRIDGE: &str = "extension_bridge";
+const SETTINGS_EVENT: &str = "luma:settings";
+const PLAYBACK_EVENT: &str = "luma:playback";
 const MAX_TEXT: usize = 200;
 const MAX_ARGS: usize = 16 * 1024;
 const MAX_ORIGIN: usize = 128;
@@ -41,6 +43,8 @@ const MAX_QUERY_KEY: usize = 64;
 const MAX_QUERY_VALUE: usize = 512;
 const MAX_QUERY_BYTES: usize = 2048;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
+const READY_POLL: Duration = Duration::from_millis(50);
+const DELIVERY_TIMEOUT: Duration = Duration::from_millis(1500);
 const REMOVE_RETRIES: u32 = 10;
 const REMOVE_RETRY_DELAY: Duration = Duration::from_millis(200);
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
@@ -69,15 +73,94 @@ impl Lifecycle {
 }
 
 #[derive(Clone)]
+struct PendingCommand {
+    command: String,
+    version: String,
+}
+
+#[derive(Clone)]
 struct Session {
     plugin_id: String,
+    version: String,
     label: String,
     token: String,
     slot: usize,
     generation: u64,
+    permissions: BTreeSet<Permission>,
     cancel: tokio::sync::watch::Receiver<bool>,
     network_busy: Arc<AtomicBool>,
     control_busy: Arc<AtomicBool>,
+    pending: Arc<Mutex<Option<PendingCommand>>>,
+    delivered: Arc<tokio::sync::watch::Sender<u64>>,
+}
+
+impl Session {
+    fn pending_lock(&self) -> std::sync::MutexGuard<'_, Option<PendingCommand>> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn revoke(&self) {
+        self.pending_lock().take();
+        self.delivered
+            .send_modify(|value| *value = value.wrapping_add(1));
+    }
+
+    fn take_command(&self) -> Option<PendingCommand> {
+        let command = self.pending_lock().take();
+        if command.is_some() {
+            self.delivered
+                .send_modify(|value| *value = value.wrapping_add(1));
+        }
+        command
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Subscription {
+    Settings,
+    Playback,
+}
+
+impl Subscription {
+    fn event(self) -> &'static str {
+        match self {
+            Self::Settings => SETTINGS_EVENT,
+            Self::Playback => PLAYBACK_EVENT,
+        }
+    }
+}
+
+#[derive(Default)]
+struct Subscriptions {
+    settings: Option<String>,
+    playback: Option<String>,
+}
+
+impl Subscriptions {
+    fn slot(&mut self, subscription: Subscription) -> &mut Option<String> {
+        match subscription {
+            Subscription::Settings => &mut self.settings,
+            Subscription::Playback => &mut self.playback,
+        }
+    }
+
+    fn register(&mut self, subscription: Subscription, payload: &Value) -> bool {
+        let serialized = serde_json::to_string(payload).ok();
+        *self.slot(subscription) = serialized;
+        true
+    }
+
+    fn accept(&mut self, subscription: Subscription, payload: &Value) -> bool {
+        let serialized = serde_json::to_string(payload).ok();
+        let slot = self.slot(subscription);
+        if serialized.is_some() && *slot == serialized {
+            return false;
+        }
+        *slot = serialized;
+        true
+    }
 }
 
 struct Runtime {
@@ -91,6 +174,7 @@ struct Runtime {
     crashes: Vec<Instant>,
     pending_visible: bool,
     surface_visible: bool,
+    subscriptions: Subscriptions,
 }
 
 impl Runtime {
@@ -117,6 +201,7 @@ impl Runtime {
 pub(crate) struct Supervisor {
     runtimes: Mutex<BTreeMap<String, Runtime>>,
     epochs: Mutex<BTreeMap<String, u64>>,
+    dispatching: Mutex<BTreeSet<String>>,
     closed: AtomicBool,
 }
 
@@ -125,6 +210,20 @@ impl Supervisor {
         self.runtimes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn begin_dispatch(&self, plugin_id: &str) -> bool {
+        self.dispatching
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(plugin_id.to_string())
+    }
+
+    fn end_dispatch(&self, plugin_id: &str) {
+        self.dispatching
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(plugin_id);
     }
 
     fn epoch(&self, plugin_id: &str) -> u64 {
@@ -380,6 +479,7 @@ fn take_runtime(app: &AppHandle, plugin_id: &str) -> Option<Runtime> {
         runtimes.remove(plugin_id)
     };
     if let Some(runtime) = &removed {
+        runtime.session.revoke();
         runtime.cancel.send_replace(true);
         plugin::notify_plugins(app);
     }
@@ -393,16 +493,26 @@ fn stop_runtime(app: &AppHandle, plugin_id: &str) {
 }
 
 fn close_surface(app: &AppHandle, plugin_id: &str) {
-    let surface = supervisor_of(app).is_some_and(|supervisor| {
-        supervisor
-            .lock()
-            .get(plugin_id)
-            .is_some_and(|runtime| runtime.kind.has_surface())
-    });
+    let (surface, visible) = supervisor_of(app)
+        .map(|supervisor| {
+            let runtimes = supervisor.lock();
+            runtimes
+                .get(plugin_id)
+                .map(|runtime| {
+                    (
+                        runtime.kind.has_surface(),
+                        runtime.surface_visible || runtime.pending_visible,
+                    )
+                })
+                .unwrap_or((false, false))
+        })
+        .unwrap_or((false, false));
     if surface {
         stop_runtime(app, plugin_id);
     }
-    focus_main(app);
+    if visible {
+        focus_main(app);
+    }
 }
 
 pub(crate) fn invalidate(app: &AppHandle, plugin_id: &str) {
@@ -430,7 +540,17 @@ pub(crate) fn sync(app: &AppHandle) {
             if grant.trigger == Trigger::LauncherOpen && !launcher_visible(&app) {
                 continue;
             }
-            start(&app, &plugin_id, grant, Vec::new(), 0, false, false, None);
+            start(
+                &app,
+                &plugin_id,
+                grant,
+                Vec::new(),
+                0,
+                false,
+                false,
+                false,
+                None,
+            );
         }
     });
 }
@@ -453,7 +573,17 @@ pub(crate) fn refresh(app: &AppHandle, plugin_id: &str) {
             stop_runtime(&app, &plugin_id);
             return;
         }
-        start(&app, &plugin_id, grant, Vec::new(), 0, false, false, None);
+        start(
+            &app,
+            &plugin_id,
+            grant,
+            Vec::new(),
+            0,
+            false,
+            false,
+            false,
+            None,
+        );
     });
 }
 
@@ -522,6 +652,7 @@ fn start(
     crashes: Vec<Instant>,
     restarts: u32,
     show: bool,
+    allow_hidden: bool,
     retry_failed: bool,
     expected_epoch: Option<u64>,
 ) {
@@ -545,7 +676,7 @@ fn start(
     if !package.kind.is_executable() {
         return;
     }
-    if package.kind == RuntimeKind::IsolatedUi && !show {
+    if package.kind == RuntimeKind::IsolatedUi && !show && !allow_hidden {
         return;
     }
     let show = show && package.kind.has_surface();
@@ -585,15 +716,20 @@ fn start(
         let (cancel, receiver) = tokio::sync::watch::channel(false);
         let session = Session {
             plugin_id: plugin_id.to_string(),
+            version: package.version.clone(),
             label: window_label.clone(),
             token: token.clone(),
             slot,
             generation,
+            permissions: package.permissions.clone(),
             cancel: receiver,
             network_busy: Arc::new(AtomicBool::new(false)),
             control_busy: Arc::new(AtomicBool::new(false)),
+            pending: Arc::new(Mutex::new(None)),
+            delivered: Arc::new(tokio::sync::watch::channel(0).0),
         };
         if let Some(previous) = runtimes.remove(plugin_id) {
+            previous.session.revoke();
             previous.cancel.send_replace(true);
             destroy_window(app, previous.session.label);
         }
@@ -610,10 +746,17 @@ fn start(
                 crashes,
                 pending_visible: show,
                 surface_visible: false,
+                subscriptions: Subscriptions::default(),
             },
         );
         (slot, session)
     };
+    crate::developer::runtime_event(
+        app,
+        plugin_id,
+        "starting",
+        format!("{} {}", package.name, package.version),
+    );
     let url = match format!("{}/{token}/{entry}", origin(slot), entry = package.entry)
         .parse::<tauri::Url>()
     {
@@ -811,6 +954,7 @@ fn handle_crash(app: &AppHandle, plugin_id: &str, generation: u64, reason: &str)
         }
         runtime.state = Lifecycle::Failed;
         runtime.reason = Some(reason.to_string());
+        runtime.session.revoke();
         runtime.cancel.send_replace(true);
         let restore_focus = runtime.surface_visible || runtime.pending_visible;
         runtime.pending_visible = false;
@@ -831,6 +975,7 @@ fn handle_crash(app: &AppHandle, plugin_id: &str, generation: u64, reason: &str)
         )
     };
     let (runtime_label, trigger, crashes, restarts, restore_focus, epoch) = prepared;
+    crate::developer::runtime_event(app, plugin_id, "failed", reason);
     destroy_window(app, runtime_label);
     plugin::notify_plugins(app);
     if restore_focus {
@@ -897,6 +1042,7 @@ fn handle_crash(app: &AppHandle, plugin_id: &str, generation: u64, reason: &str)
             crashes,
             restarts,
             restore_focus,
+            trigger == Trigger::OnDemand,
             true,
             Some(epoch),
         );
@@ -905,6 +1051,31 @@ fn handle_crash(app: &AppHandle, plugin_id: &str, generation: u64, reason: &str)
 
 fn restart_allowed(crashes: &[Instant]) -> bool {
     crashes.len() <= MAX_RESTARTS
+}
+
+pub(crate) fn open_devtools(app: &AppHandle) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        let Some(supervisor) = supervisor_of(app) else {
+            return Err("No plugin runtime is active.".into());
+        };
+        let label = supervisor
+            .lock()
+            .values()
+            .find(|runtime| runtime.surface_visible)
+            .map(|runtime| runtime.session.label.clone())
+            .ok_or("Open a plugin surface before opening its DevTools.")?;
+        let window = app
+            .get_webview_window(&label)
+            .ok_or("The plugin surface is not available.")?;
+        window.open_devtools();
+        Ok(())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        Err("DevTools are available only in a debug build.".into())
+    }
 }
 
 pub(crate) fn open(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
@@ -943,7 +1114,9 @@ pub(crate) fn open(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
     let (crashes, restarts) = existing
         .map(|(_, crashes, restarts)| (crashes, restarts))
         .unwrap_or_default();
-    start(app, plugin_id, grant, crashes, restarts, true, true, None);
+    start(
+        app, plugin_id, grant, crashes, restarts, true, false, true, None,
+    );
     let state = supervisor_of(app).and_then(|supervisor| {
         supervisor
             .lock()
@@ -978,6 +1151,273 @@ pub(crate) fn open(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
     }
 }
 
+pub(crate) struct DispatchError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl DispatchError {
+    fn new(code: &'static str, message: impl ToString) -> Self {
+        Self {
+            code,
+            message: message.to_string(),
+        }
+    }
+}
+
+fn stale() -> DispatchError {
+    DispatchError::new(
+        "stale",
+        "The package changed before the command could run. Try again.",
+    )
+}
+
+fn not_ready(plugin_name: &str) -> DispatchError {
+    DispatchError::new(
+        "plugin_not_ready",
+        format!("{plugin_name} did not start in time. Try again."),
+    )
+}
+
+fn ensure_current(app: &AppHandle, spec: &CommandSpec, surface: bool) -> Result<(), DispatchError> {
+    let store = app
+        .try_state::<Store>()
+        .ok_or_else(|| DispatchError::new("storage", "Plugin storage is unavailable."))?;
+    let current = if surface {
+        plugin::command_spec(&store, &spec.plugin_id, &spec.command)
+    } else {
+        match plugin::remote_invocation(app, &spec.plugin_id, &spec.command) {
+            Ok(plugin::RemoteInvocation::Command(current)) => Ok(current),
+            Ok(plugin::RemoteInvocation::Playback(_)) => return Err(stale()),
+            Err(error) => Err(error),
+        }
+    }
+    .map_err(|error| DispatchError::new(error.code, error.message))?;
+    if current.version != spec.version {
+        return Err(stale());
+    }
+    Ok(())
+}
+
+async fn wait_ready(
+    app: &AppHandle,
+    session: &Session,
+    plugin_name: &str,
+) -> Result<(), DispatchError> {
+    let deadline = Instant::now() + READY_TIMEOUT;
+    loop {
+        if *session.cancel.borrow() {
+            return Err(stale());
+        }
+        let state = {
+            let Some(supervisor) = supervisor_of(app) else {
+                return Err(DispatchError::new(
+                    "storage",
+                    "The plugin runtime is unavailable.",
+                ));
+            };
+            let runtimes = supervisor.lock();
+            match runtimes.get(&session.plugin_id) {
+                Some(runtime)
+                    if runtime.session.generation == session.generation
+                        && runtime.session.token == session.token =>
+                {
+                    (runtime.state, runtime.reason.clone())
+                }
+                _ => return Err(stale()),
+            }
+        };
+        match state {
+            (Lifecycle::Running, _) => return Ok(()),
+            (Lifecycle::Failed, reason) => {
+                return Err(DispatchError::new(
+                    "plugin_not_ready",
+                    reason.unwrap_or_else(|| format!("{plugin_name} could not start. Try again.")),
+                ))
+            }
+            (Lifecycle::Starting, _) => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(not_ready(plugin_name));
+        }
+        tokio::time::sleep(READY_POLL).await;
+    }
+}
+
+pub(crate) async fn dispatch_command(
+    app: &AppHandle,
+    plugin_id: &str,
+    command: &str,
+) -> Result<(), DispatchError> {
+    let store = app
+        .try_state::<Store>()
+        .ok_or_else(|| DispatchError::new("storage", "Plugin storage is unavailable."))?;
+    let spec = plugin::command_spec(&store, plugin_id, command)
+        .map_err(|error| DispatchError::new(error.code, error.message))?;
+    dispatch(app, &spec, true).await
+}
+
+pub(crate) async fn dispatch_remote_command(
+    app: &AppHandle,
+    spec: CommandSpec,
+) -> Result<(), DispatchError> {
+    dispatch(app, &spec, false).await
+}
+
+async fn dispatch(app: &AppHandle, spec: &CommandSpec, surface: bool) -> Result<(), DispatchError> {
+    ensure_current(app, spec, surface)?;
+    let Some(supervisor) = supervisor_of(app) else {
+        return Err(DispatchError::new(
+            "storage",
+            "The plugin runtime is unavailable.",
+        ));
+    };
+    if !supervisor.begin_dispatch(&spec.plugin_id) {
+        return Err(DispatchError::new(
+            "plugin_busy",
+            "That plugin is already starting a command. Try again when it finishes.",
+        ));
+    }
+    let result = dispatch_command_inner(app, spec, surface).await;
+    if let Some(supervisor) = supervisor_of(app) {
+        supervisor.end_dispatch(&spec.plugin_id);
+    }
+    result
+}
+
+async fn dispatch_command_inner(
+    app: &AppHandle,
+    spec: &CommandSpec,
+    surface: bool,
+) -> Result<(), DispatchError> {
+    let existing = {
+        let Some(supervisor) = supervisor_of(app) else {
+            return Err(DispatchError::new(
+                "storage",
+                "The plugin runtime is unavailable.",
+            ));
+        };
+        let runtimes = supervisor.lock();
+        runtimes.get(&spec.plugin_id).map(|runtime| {
+            (
+                runtime.state,
+                runtime.session.clone(),
+                runtime.crashes.clone(),
+                runtime.restarts,
+            )
+        })
+    };
+    let session = match existing {
+        Some((Lifecycle::Running, session, _, _)) => {
+            if surface {
+                show_surface(app, &spec.plugin_id);
+            }
+            session
+        }
+        Some((Lifecycle::Starting, session, _, _)) => {
+            if surface {
+                if let Some(supervisor) = supervisor_of(app) {
+                    if let Some(runtime) = supervisor.lock().get_mut(&spec.plugin_id) {
+                        runtime.pending_visible = true;
+                    }
+                }
+            }
+            wait_ready(app, &session, &spec.plugin_name).await?;
+            session
+        }
+        retry => {
+            let (crashes, restarts) = match retry {
+                Some((_, _, crashes, restarts)) => (crashes, restarts),
+                None => (Vec::new(), 0),
+            };
+            start(
+                app,
+                &spec.plugin_id,
+                spec.grant.clone(),
+                crashes,
+                restarts,
+                surface,
+                !surface,
+                true,
+                None,
+            );
+            let session = {
+                let Some(supervisor) = supervisor_of(app) else {
+                    return Err(DispatchError::new(
+                        "storage",
+                        "The plugin runtime is unavailable.",
+                    ));
+                };
+                let runtimes = supervisor.lock();
+                runtimes
+                    .get(&spec.plugin_id)
+                    .map(|runtime| runtime.session.clone())
+            }
+            .ok_or_else(|| {
+                DispatchError::new(
+                    "plugin_not_ready",
+                    format!("{} could not start. Try again.", spec.plugin_name),
+                )
+            })?;
+            wait_ready(app, &session, &spec.plugin_name).await?;
+            session
+        }
+    };
+    if !is_current(app, &session) {
+        return Err(stale());
+    }
+    ensure_current(app, spec, surface)?;
+    let mut delivered = session.delivered.subscribe();
+    let before = *delivered.borrow();
+    *session.pending_lock() = Some(PendingCommand {
+        command: spec.command.clone(),
+        version: spec.version.clone(),
+    });
+    if !is_current(app, &session) {
+        session.revoke();
+        return Err(stale());
+    }
+    if let Err(error) = ensure_current(app, spec, surface) {
+        session.revoke();
+        return Err(error);
+    }
+    let Some(window) = app.get_webview_window(&session.label) else {
+        session.revoke();
+        return Err(not_ready(&spec.plugin_name));
+    };
+    if let Err(error) = window.eval(PULL_COMMAND) {
+        let message = format!("{} could not accept the command: {error}", spec.plugin_name);
+        handle_crash(app, &session.plugin_id, session.generation, &message);
+        return Err(DispatchError::new("plugin_not_ready", message));
+    }
+    match tokio::time::timeout(DELIVERY_TIMEOUT, delivered.changed()).await {
+        Ok(Ok(())) => {}
+        _ => {
+            let message = format!(
+                "{} did not accept the command in time. Try again.",
+                spec.plugin_name
+            );
+            handle_crash(app, &session.plugin_id, session.generation, &message);
+            return Err(DispatchError::new("plugin_command_timeout", message));
+        }
+    }
+    if *delivered.borrow() == before {
+        session.revoke();
+        return Err(DispatchError::new(
+            "plugin_command_timeout",
+            format!(
+                "{} did not accept the command in time. Try again.",
+                spec.plugin_name
+            ),
+        ));
+    }
+    if !is_current(app, &session) {
+        return Err(stale());
+    }
+    ensure_current(app, spec, surface).map_err(|_| stale())?;
+    Ok(())
+}
+
 pub(crate) fn autostart(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Some(store) = app.try_state::<Store>() else {
@@ -987,10 +1427,20 @@ pub(crate) fn autostart(app: AppHandle) {
             return;
         };
         for (plugin_id, grant) in granted {
-            if grant.trigger == Trigger::LauncherOpen {
+            if !matches!(grant.trigger, Trigger::Startup | Trigger::Always) {
                 continue;
             }
-            start(&app, &plugin_id, grant, Vec::new(), 0, false, false, None);
+            start(
+                &app,
+                &plugin_id,
+                grant,
+                Vec::new(),
+                0,
+                false,
+                false,
+                false,
+                None,
+            );
         }
     });
 }
@@ -1008,7 +1458,17 @@ pub(crate) fn launcher_presented(app: &AppHandle) {
             if grant.trigger != Trigger::LauncherOpen {
                 continue;
             }
-            start(&app, &plugin_id, grant, Vec::new(), 0, true, false, None);
+            start(
+                &app,
+                &plugin_id,
+                grant,
+                Vec::new(),
+                0,
+                true,
+                false,
+                false,
+                None,
+            );
         }
     });
 }
@@ -1069,6 +1529,7 @@ pub(crate) fn shutdown(app: &AppHandle) {
         .collect::<Vec<_>>();
     for (plugin_id, runtime) in runtimes.iter() {
         supervisor.bump(plugin_id);
+        runtime.session.revoke();
         runtime.cancel.send_replace(true);
     }
     runtimes.clear();
@@ -1102,6 +1563,7 @@ const FOCUS_LEFT: &str =
 const FOCUS_RIGHT: &str =
     r#"window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));"#;
 const ACTIVATE: &str = r#"(() => { const target = document.activeElement; if (target instanceof HTMLElement && target.matches('button:not(:disabled)')) target.click(); })();"#;
+const PULL_COMMAND: &str = r#"(() => { const internals = window.__TAURI_INTERNALS__; if (!internals || typeof internals.invoke !== 'function') return; internals.invoke('extension_bridge', { op: 'commands.pending' }).then(command => { if (command) window.dispatchEvent(new CustomEvent('luma:command', { detail: command })); }).catch(() => {}); })();"#;
 
 fn relay(command: &str) -> Option<&'static str> {
     match command {
@@ -1145,10 +1607,14 @@ enum Op {
     Identity,
     #[serde(rename = "settings.read")]
     SettingsRead,
+    #[serde(rename = "settings.subscribe")]
+    SettingsSubscribe,
     #[serde(rename = "net.get")]
     NetGet,
     #[serde(rename = "playback.read")]
     PlaybackRead,
+    #[serde(rename = "playback.subscribe")]
+    PlaybackSubscribe,
     #[serde(rename = "playback.toggle")]
     PlaybackToggle,
     #[serde(rename = "playback.next")]
@@ -1159,18 +1625,37 @@ enum Op {
     SurfaceReady,
     #[serde(rename = "surface.close")]
     SurfaceClose,
+    #[serde(rename = "commands.pending")]
+    CommandPending,
 }
 
 impl Op {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::SettingsRead => "settings.read",
+            Self::SettingsSubscribe => "settings.subscribe",
+            Self::NetGet => "net.get",
+            Self::PlaybackRead => "playback.read",
+            Self::PlaybackSubscribe => "playback.subscribe",
+            Self::PlaybackToggle => "playback.toggle",
+            Self::PlaybackNext => "playback.next",
+            Self::PlaybackPrevious => "playback.previous",
+            Self::SurfaceReady => "surface.ready",
+            Self::SurfaceClose => "surface.close",
+            Self::CommandPending => "commands.pending",
+        }
+    }
+
     fn permission(self) -> Option<Permission> {
         match self {
-            Self::SettingsRead => Some(Permission::SettingsRead),
+            Self::SettingsRead | Self::SettingsSubscribe => Some(Permission::SettingsRead),
             Self::NetGet => Some(Permission::NetworkGet),
-            Self::PlaybackRead => Some(Permission::PlaybackRead),
+            Self::PlaybackRead | Self::PlaybackSubscribe => Some(Permission::PlaybackRead),
             Self::PlaybackToggle | Self::PlaybackNext | Self::PlaybackPrevious => {
                 Some(Permission::PlaybackControl)
             }
-            Self::Identity | Self::SurfaceReady | Self::SurfaceClose => None,
+            Self::Identity | Self::SurfaceReady | Self::SurfaceClose | Self::CommandPending => None,
         }
     }
 
@@ -1195,6 +1680,14 @@ struct NetArgs {
 
 fn failure(code: &'static str, message: impl ToString) -> Value {
     json!({ "code": code, "message": message.to_string() })
+}
+
+fn log_bridge(app: &AppHandle, plugin_id: &str, operation: &str, error: &Value) {
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("The bridge request was rejected.");
+    crate::developer::bridge_error(app, plugin_id, operation, message);
 }
 
 fn no_args(args: Option<Value>) -> Result<(), Value> {
@@ -1228,6 +1721,109 @@ fn playback_snapshot(app: &AppHandle) -> Value {
         current.clone()
     });
     playback(connected, music.as_ref())
+}
+
+fn subscribed(runtime: &Runtime, subscription: Subscription, permission: Permission) -> bool {
+    runtime.live()
+        && runtime.session.permissions.contains(&permission)
+        && match subscription {
+            Subscription::Settings => runtime.subscriptions.settings.is_some(),
+            Subscription::Playback => runtime.subscriptions.playback.is_some(),
+        }
+}
+
+fn subscribed_sessions(
+    app: &AppHandle,
+    subscription: Subscription,
+    permission: Permission,
+) -> Vec<Session> {
+    let Some(supervisor) = supervisor_of(app) else {
+        return Vec::new();
+    };
+    let runtimes = supervisor.lock();
+    runtimes
+        .values()
+        .filter(|runtime| subscribed(runtime, subscription, permission))
+        .map(|runtime| runtime.session.clone())
+        .collect()
+}
+
+fn register_subscription(
+    app: &AppHandle,
+    session: &Session,
+    subscription: Subscription,
+    payload: &Value,
+) -> bool {
+    let Some(supervisor) = supervisor_of(app) else {
+        return false;
+    };
+    let mut runtimes = supervisor.lock();
+    let Some(runtime) = runtimes.get_mut(&session.plugin_id) else {
+        return false;
+    };
+    if !runtime.accepts(session) {
+        return false;
+    }
+    runtime.subscriptions.register(subscription, payload);
+    true
+}
+
+fn push_subscription(
+    app: &AppHandle,
+    session: &Session,
+    subscription: Subscription,
+    payload: &Value,
+) -> bool {
+    let Some(supervisor) = supervisor_of(app) else {
+        return false;
+    };
+    let changed = {
+        let mut runtimes = supervisor.lock();
+        let Some(runtime) = runtimes.get_mut(&session.plugin_id) else {
+            return false;
+        };
+        runtime.accepts(session) && runtime.subscriptions.accept(subscription, payload)
+    };
+    if !changed {
+        return false;
+    }
+    let Some(window) = app.get_webview_window(&session.label) else {
+        return false;
+    };
+    let detail = payload.to_string();
+    let script = format!(
+        "window.dispatchEvent(new CustomEvent(\"{}\", {{ detail: {detail} }}));",
+        subscription.event()
+    );
+    window.eval(script).is_ok()
+}
+
+pub(crate) fn settings_changed(app: &AppHandle) {
+    for session in subscribed_sessions(app, Subscription::Settings, Permission::SettingsRead) {
+        let Some(package) = selected_package(app, &session) else {
+            continue;
+        };
+        if !package.allows(Permission::SettingsRead) {
+            continue;
+        }
+        push_subscription(
+            app,
+            &session,
+            Subscription::Settings,
+            &json!({ "values": package.settings }),
+        );
+    }
+}
+
+pub(crate) fn playback_changed(app: &AppHandle) {
+    let sessions = subscribed_sessions(app, Subscription::Playback, Permission::PlaybackRead);
+    if sessions.is_empty() {
+        return;
+    }
+    let payload = playback_snapshot(app);
+    for session in sessions {
+        push_subscription(app, &session, Subscription::Playback, &payload);
+    }
 }
 
 fn check_net_args(network: &[String], args: Option<Value>) -> Result<NetArgs, Value> {
@@ -1304,7 +1900,9 @@ fn is_current(app: &AppHandle, session: &Session) -> bool {
 
 fn selected_package(app: &AppHandle, session: &Session) -> Option<plugin::RuntimePackage> {
     let store = app.try_state::<Store>()?;
-    plugin::runtime_package(&store, &session.plugin_id).ok()
+    plugin::runtime_package(&store, &session.plugin_id)
+        .ok()
+        .filter(|package| package.version == session.version)
 }
 
 async fn apply_control(app: AppHandle, command: &'static str) -> Result<(), String> {
@@ -1326,6 +1924,12 @@ where
         let label = message.webview_ref().label().to_string();
         let app = message.webview_ref().window_ref().app_handle().clone();
         let Some(session) = session_for_label(&app, &label) else {
+            crate::developer::bridge_error(
+                &app,
+                "unknown",
+                "request",
+                "The package runtime is not active.",
+            );
             resolver.reject(failure("revoked", "The package runtime is not active."));
             return true;
         };
@@ -1335,10 +1939,22 @@ where
                 .url()
                 .is_ok_and(|url| permitted_url(&url, session.slot, &session.token))
         {
+            crate::developer::bridge_error(
+                &app,
+                &session.plugin_id,
+                "request",
+                "Extension bridge command denied.",
+            );
             resolver.reject(failure("denied", "Extension bridge command denied."));
             return true;
         }
         let Some(package) = selected_package(&app, &session) else {
+            crate::developer::bridge_error(
+                &app,
+                &session.plugin_id,
+                "request",
+                "The package runtime is no longer active.",
+            );
             resolver.reject(failure(
                 "revoked",
                 "The package runtime is no longer active.",
@@ -1353,20 +1969,42 @@ where
         let request = match request {
             Ok(request) => request,
             Err(error) => {
+                crate::developer::bridge_error(
+                    &app,
+                    &session.plugin_id,
+                    "request",
+                    "Unknown or malformed extension request.",
+                );
                 resolver.reject(error);
                 return true;
             }
         };
+        let operation = request.op.label();
         if request
             .args
             .as_ref()
             .is_some_and(|args| args.to_string().len() > MAX_ARGS)
         {
+            crate::developer::bridge_error(
+                &app,
+                &session.plugin_id,
+                operation,
+                "The request is too large.",
+            );
             resolver.reject(failure("invalid", "The request is too large."));
             return true;
         }
         if let Some(permission) = request.op.permission() {
             if !package.allows(permission) {
+                crate::developer::bridge_error(
+                    &app,
+                    &session.plugin_id,
+                    operation,
+                    format!(
+                        "This package has not been granted the {} permission.",
+                        permission.label()
+                    ),
+                );
                 resolver.reject(failure(
                     "denied",
                     format!(
@@ -1388,11 +2026,44 @@ where
                     "surface": if package.kind.has_surface() { Value::String("desktop".into()) } else { Value::Null },
                     "origin": format!("{}/{}", origin(session.slot), session.token),
                 })),
-                Err(error) => resolver.reject(error),
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
             },
             Op::SettingsRead => match no_args(request.args) {
                 Ok(()) => resolver.resolve(json!({ "values": package.settings })),
-                Err(error) => resolver.reject(error),
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
+            },
+            Op::SettingsSubscribe => match no_args(request.args) {
+                Ok(()) => {
+                    let payload = json!({ "values": package.settings });
+                    if !register_subscription(&app, &session, Subscription::Settings, &payload) {
+                        let error = failure(
+                            "revoked",
+                            "The package runtime is no longer active.",
+                        );
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error);
+                        return true;
+                    }
+                    resolver.resolve(payload);
+                    if let Some(package) = selected_package(&app, &session) {
+                        push_subscription(
+                            &app,
+                            &session,
+                            Subscription::Settings,
+                            &json!({ "values": package.settings }),
+                        );
+                    }
+                }
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
             },
             Op::SurfaceReady => match no_args(request.args) {
                 Ok(()) => {
@@ -1416,25 +2087,99 @@ where
                         show_surface(&app, &session.plugin_id);
                     }
                     plugin::notify_plugins(&app);
+                    crate::developer::runtime_event(
+                        &app,
+                        &session.plugin_id,
+                        "running",
+                        "surface ready",
+                    );
                     resolver.resolve(json!({ "ready": true }));
                 }
-                Err(error) => resolver.reject(error),
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
             },
             Op::SurfaceClose => match no_args(request.args) {
                 Ok(()) => {
                     resolver.resolve(json!({ "closed": true }));
                     close_surface(&app, &session.plugin_id);
                 }
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
+            },
+            Op::CommandPending => match no_args(request.args) {
+                Ok(()) => {
+                    if package.api_version != plugin::HOME_API_VERSION {
+                        resolver.reject(failure(
+                            "denied",
+                            "Command delivery is available to API version 3 packages.",
+                        ));
+                        return true;
+                    }
+                    let running = supervisor_of(&app).is_some_and(|supervisor| {
+                        supervisor
+                            .lock()
+                            .get(&session.plugin_id)
+                            .is_some_and(|runtime| {
+                                runtime.accepts(&session)
+                                    && runtime.state == Lifecycle::Running
+                            })
+                    });
+                    if !running {
+                        resolver.resolve(Value::Null);
+                        return true;
+                    }
+                    match session.take_command() {
+                        Some(command) if command.version != package.version => {
+                            resolver.reject(failure(
+                                "stale",
+                                "The package changed before the command was delivered.",
+                            ));
+                        }
+                        Some(command) => {
+                            resolver.resolve(json!({ "command": command.command }));
+                        }
+                        None => resolver.resolve(Value::Null),
+                    }
+                }
                 Err(error) => resolver.reject(error),
             },
             Op::PlaybackRead => match no_args(request.args) {
                 Ok(()) => resolver.resolve(playback_snapshot(&app)),
-                Err(error) => resolver.reject(error),
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
+            },
+            Op::PlaybackSubscribe => match no_args(request.args) {
+                Ok(()) => {
+                    let payload = playback_snapshot(&app);
+                    if !register_subscription(&app, &session, Subscription::Playback, &payload) {
+                        let error = failure(
+                            "revoked",
+                            "The package runtime is no longer active.",
+                        );
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error);
+                        return true;
+                    }
+                    resolver.resolve(payload);
+                    let latest = playback_snapshot(&app);
+                    push_subscription(&app, &session, Subscription::Playback, &latest);
+                }
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
             },
             Op::NetGet => {
                 let args = match check_net_args(&package.network, request.args) {
                     Ok(args) => args,
                     Err(error) => {
+                        log_bridge(&app, &session.plugin_id, operation, &error);
                         resolver.reject(error);
                         return true;
                     }
@@ -1444,10 +2189,12 @@ where
                     .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                     .is_err()
                 {
-                    resolver.reject(failure(
+                    let error = failure(
                         "busy",
                         "A network request is already running for this package.",
-                    ));
+                    );
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error);
                     return true;
                 }
                 let busy = session.network_busy.clone();
@@ -1461,25 +2208,34 @@ where
                     };
                     busy.store(false, Ordering::Release);
                     if !is_current(&app, &session) {
-                        resolver.reject(failure(
+                        let error = failure(
                             "stale",
                             "The package runtime changed before the request finished.",
-                        ));
+                        );
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error);
                         return;
                     }
                     match cancelled {
                         Ok(value) => resolver.resolve(value),
-                        Err(error) => resolver.reject(failure(error.code, error.message)),
+                        Err(error) => {
+                            let error = failure(error.code, error.message);
+                            log_bridge(&app, &session.plugin_id, operation, &error);
+                            resolver.reject(error)
+                        }
                     }
                 });
             }
             Op::PlaybackToggle | Op::PlaybackNext | Op::PlaybackPrevious => {
                 if let Err(error) = no_args(request.args) {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
                     resolver.reject(error);
                     return true;
                 }
                 let Some(command) = request.op.player_command() else {
-                    resolver.reject(failure("invalid", "Unknown playback command."));
+                    let error = failure("invalid", "Unknown playback command.");
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error);
                     return true;
                 };
                 if session
@@ -1487,10 +2243,12 @@ where
                     .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                     .is_err()
                 {
-                    resolver.reject(failure(
+                    let error = failure(
                         "busy",
                         "A playback control is already in flight. Try again once it finishes.",
-                    ));
+                    );
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error);
                     return true;
                 }
                 let busy = session.control_busy.clone();
@@ -1500,15 +2258,21 @@ where
                     let outcome = apply_control(app.clone(), command).await;
                     busy.store(false, Ordering::Release);
                     if !is_current(&app, &session) {
-                        resolver.reject(failure(
+                        let error = failure(
                             "stale",
                             "The package runtime changed before the command finished.",
-                        ));
+                        );
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error);
                         return;
                     }
                     match outcome {
                         Ok(()) => resolver.resolve(json!({ "accepted": true })),
-                        Err(error) => resolver.reject(failure("unavailable", error)),
+                        Err(error) => {
+                            let error = failure("unavailable", error);
+                            log_bridge(&app, &session.plugin_id, operation, &error);
+                            resolver.reject(error)
+                        }
                     }
                 });
             }
@@ -1521,13 +2285,14 @@ where
 mod tests {
     use super::{
         allocate_slot, check_net_args, content_type, host, label, no_args, origin,
-        permitted_request, permitted_url, playback, relay, restart_allowed, scheme, token,
-        BridgeRequest, Lifecycle, Op, Runtime, Session, Supervisor, Trigger, MAX_RESTARTS,
-        MAX_TEXT, PROTOCOL_POOL, SCHEME,
+        permitted_request, permitted_url, playback, relay, restart_allowed, scheme, subscribed,
+        token, BridgeRequest, Lifecycle, Op, PendingCommand, Permission, Runtime, Session,
+        Subscription, Subscriptions, Supervisor, Trigger, MAX_RESTARTS, MAX_TEXT, PROTOCOL_POOL,
+        SCHEME,
     };
     use crate::remote::server::MusicState;
     use serde_json::{json, Value};
-    use std::sync::{atomic::AtomicBool, Arc};
+    use std::sync::{atomic::AtomicBool, Arc, Mutex};
     use std::time::Instant;
 
     fn parsed(payload: Value) -> Result<BridgeRequest, serde_json::Error> {
@@ -1558,7 +2323,9 @@ mod tests {
             url.parse::<tauri::Url>()
                 .is_ok_and(|url| permitted_url(&url, slot, token))
         };
-        assert!(allowed(&format!("http://{origin_host}/{token}/ui/index.html")));
+        assert!(allowed(&format!(
+            "http://{origin_host}/{token}/ui/index.html"
+        )));
         assert!(allowed(&format!("http://{origin_host}/{token}")));
         assert!(!allowed(&format!(
             "http://{}/{token}/ui/index.html",
@@ -1567,8 +2334,12 @@ mod tests {
         assert!(!allowed(&format!(
             "http://{origin_host}/0123456789abcdef/ui/index.html"
         )));
-        assert!(!allowed(&format!("http://{origin_host}/{token}x/ui/index.html")));
-        assert!(!allowed(&format!("https://{origin_host}/{token}/ui/index.html")));
+        assert!(!allowed(&format!(
+            "http://{origin_host}/{token}x/ui/index.html"
+        )));
+        assert!(!allowed(&format!(
+            "https://{origin_host}/{token}/ui/index.html"
+        )));
         assert!(!allowed(&format!(
             "http://{origin_host}.evil.com/{token}/ui/index.html"
         )));
@@ -1660,13 +2431,17 @@ mod tests {
         (
             Session {
                 plugin_id: plugin_id.to_string(),
+                version: "1.0.0".into(),
                 label: label(&token),
                 token,
                 slot: 0,
                 generation,
+                permissions: Default::default(),
                 cancel: receiver,
                 network_busy: Arc::new(AtomicBool::new(false)),
                 control_busy: Arc::new(AtomicBool::new(false)),
+                pending: Arc::new(Mutex::new(None)),
+                delivered: Arc::new(tokio::sync::watch::channel(0).0),
             },
             cancel,
         )
@@ -1688,6 +2463,7 @@ mod tests {
             crashes: Vec::new(),
             pending_visible: false,
             surface_visible: false,
+            subscriptions: Subscriptions::default(),
         }
     }
 
@@ -1706,6 +2482,109 @@ mod tests {
 
         let (replacement, _) = session("com.example.alpha", 2);
         assert!(!current.accepts(&replacement));
+    }
+
+    #[test]
+    fn pending_commands_are_consumed_once_and_revoked_with_the_session() {
+        let (session, _) = session("com.example.alpha", 1);
+        assert!(session.take_command().is_none());
+        *session.pending_lock() = Some(PendingCommand {
+            command: "openForecast".into(),
+            version: "1.0.0".into(),
+        });
+        let command = session
+            .take_command()
+            .expect("the pending command is available");
+        assert_eq!(command.command, "openForecast");
+        assert_eq!(command.version, "1.0.0");
+        assert!(session.take_command().is_none());
+        *session.pending_lock() = Some(PendingCommand {
+            command: "openForecast".into(),
+            version: "1.0.0".into(),
+        });
+        session.revoke();
+        assert!(session.pending_lock().is_none());
+    }
+
+    #[test]
+    fn duplicate_command_dispatches_are_suppressed_while_pending() {
+        let supervisor = Supervisor::default();
+        assert!(supervisor.begin_dispatch("com.example.weather"));
+        assert!(!supervisor.begin_dispatch("com.example.weather"));
+        assert!(supervisor.begin_dispatch("com.example.other"));
+        supervisor.end_dispatch("com.example.weather");
+        assert!(supervisor.begin_dispatch("com.example.weather"));
+    }
+
+    #[test]
+    fn subscriptions_register_once_and_suppress_duplicate_snapshots() {
+        let mut subscriptions = Subscriptions::default();
+        assert!(subscriptions.settings.is_none());
+        subscriptions.register(
+            Subscription::Settings,
+            &json!({ "values": { "theme": "mint" } }),
+        );
+        assert!(subscriptions.settings.is_some());
+        assert!(!subscriptions.accept(
+            Subscription::Settings,
+            &json!({ "values": { "theme": "mint" } })
+        ));
+        assert!(subscriptions.accept(
+            Subscription::Settings,
+            &json!({ "values": { "theme": "ember" } })
+        ));
+        subscriptions.register(
+            Subscription::Playback,
+            &json!({ "connected": true, "playing": false }),
+        );
+        assert!(!subscriptions.accept(
+            Subscription::Playback,
+            &json!({ "connected": true, "playing": false })
+        ));
+        assert!(subscriptions.accept(
+            Subscription::Playback,
+            &json!({ "connected": true, "playing": true })
+        ));
+    }
+
+    #[test]
+    fn only_live_sessions_with_the_read_grant_and_subscription_receive_events() {
+        let (mut current, cancel) = session("com.example.alpha", 1);
+        current.permissions.insert(Permission::SettingsRead);
+        let mut runtime = runtime(&current, cancel.clone(), Lifecycle::Running);
+        runtime.subscriptions.register(
+            Subscription::Settings,
+            &json!({ "values": { "theme": "mint" } }),
+        );
+        assert!(subscribed(
+            &runtime,
+            Subscription::Settings,
+            Permission::SettingsRead
+        ));
+        assert!(!subscribed(
+            &runtime,
+            Subscription::Settings,
+            Permission::PlaybackRead
+        ));
+        assert!(!subscribed(
+            &runtime,
+            Subscription::Playback,
+            Permission::PlaybackRead
+        ));
+
+        runtime.state = Lifecycle::Failed;
+        assert!(!subscribed(
+            &runtime,
+            Subscription::Settings,
+            Permission::SettingsRead
+        ));
+        runtime.state = Lifecycle::Running;
+        cancel.send_replace(true);
+        assert!(!subscribed(
+            &runtime,
+            Subscription::Settings,
+            Permission::SettingsRead
+        ));
     }
 
     #[test]
@@ -1755,9 +2634,12 @@ mod tests {
         for (payload, op) in [
             (json!({ "op": "identity" }), Op::Identity),
             (json!({ "op": "settings.read" }), Op::SettingsRead),
+            (json!({ "op": "settings.subscribe" }), Op::SettingsSubscribe),
             (json!({ "op": "surface.ready" }), Op::SurfaceReady),
             (json!({ "op": "surface.close" }), Op::SurfaceClose),
+            (json!({ "op": "commands.pending" }), Op::CommandPending),
             (json!({ "op": "playback.read" }), Op::PlaybackRead),
+            (json!({ "op": "playback.subscribe" }), Op::PlaybackSubscribe),
             (json!({ "op": "playback.toggle" }), Op::PlaybackToggle),
             (json!({ "op": "playback.next" }), Op::PlaybackNext),
             (json!({ "op": "playback.previous" }), Op::PlaybackPrevious),
@@ -1790,6 +2672,7 @@ mod tests {
         assert_eq!(Op::Identity.permission(), None);
         assert_eq!(Op::SurfaceReady.permission(), None);
         assert_eq!(Op::SurfaceClose.permission(), None);
+        assert_eq!(Op::CommandPending.permission(), None);
         assert_eq!(
             Op::SettingsRead
                 .permission()
@@ -1797,7 +2680,19 @@ mod tests {
             Some("settings.read")
         );
         assert_eq!(
+            Op::SettingsSubscribe
+                .permission()
+                .map(|permission| permission.label()),
+            Some("settings.read")
+        );
+        assert_eq!(
             Op::PlaybackRead
+                .permission()
+                .map(|permission| permission.label()),
+            Some("playback.read")
+        );
+        assert_eq!(
+            Op::PlaybackSubscribe
                 .permission()
                 .map(|permission| permission.label()),
             Some("playback.read")

@@ -1,4 +1,4 @@
-import type { MusicState, PanelAction, RemotePanel } from "./types";
+import type { MusicState, PanelAction, PanelCommand, RemotePanel } from "./types";
 
 const PANEL_ACTIONS: PanelAction[] = [
   "playback.toggle",
@@ -13,7 +13,7 @@ export function normalizePanels(value: unknown): RemotePanel[] {
   for (const entry of value) {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Record<string, unknown>;
-    const { id, name, title, actions } = record;
+    const { id, name, title, actions, commands, version } = record;
     if (typeof id !== "string" || !id || seen.has(id)) continue;
     if (typeof name !== "string" || !name) continue;
     if (typeof title !== "string" || !title) continue;
@@ -23,9 +23,32 @@ export function normalizePanels(value: unknown): RemotePanel[] {
       if (PANEL_ACTIONS.includes(action as PanelAction)) declared.add(action as PanelAction);
     }
     seen.add(id);
-    panels.push({ id, name, title, actions: [...declared].slice(0, 3) });
+    panels.push({
+      id,
+      name,
+      title,
+      actions: [...declared].slice(0, 3),
+      ...(typeof version === "string" && version
+        ? { version, commands: normalizeCommands(commands) }
+        : { commands: [] }),
+    });
   }
   return panels;
+}
+
+function normalizeCommands(value: unknown): PanelCommand[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const commands: PanelCommand[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const { id, label } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || !id || seen.has(id)) continue;
+    if (typeof label !== "string" || !label.trim()) continue;
+    seen.add(id);
+    commands.push({ id, label: label.trim() });
+  }
+  return commands.slice(0, 3);
 }
 
 export function panelActionLabel(action: PanelAction, music: MusicState | null): string {

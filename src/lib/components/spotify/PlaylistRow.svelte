@@ -1,19 +1,24 @@
 <script lang="ts">
   import MusicCard from './MusicCard.svelte';
+  import MusicIcon from './MusicIcon.svelte';
   import type { MusicCardItem } from '../../types/spotify';
-  let { title, subtitle, items, empty, kind = 'Playlist', onselect, onpreview }: {
+  let { title, subtitle, items, empty, kind = 'Playlist', onselect, onmore, onpreview }: {
     title: string;
     subtitle?: string;
     items: MusicCardItem[];
     empty: string;
     kind?: string;
     onselect: (item: MusicCardItem) => void;
+    onmore?: () => void;
     onpreview?: (item: MusicCardItem | null) => void;
   } = $props();
 </script>
 
 <section class="content-row music-row">
-  <div class="row-heading"><div><h2>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}</div></div>
+  <div class="row-heading">
+    <div><h2>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}</div>
+    {#if onmore && items.length}<button class="music-more" onclick={onmore}>See all <MusicIcon name="chevron-right" size={14} /></button>{/if}
+  </div>
   {#if items.length}
     <div class="music-card-track">
       {#each items as item (item.id)}
@@ -26,5 +31,7 @@
 </section>
 
 <style>
-  .music-card-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(180px,16vw,280px); grid-template-columns: none; gap: 26px; overflow-x: auto; padding: 10px; margin: -10px; scrollbar-width: none; }
+  .music-card-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(150px,12.4vw,208px); grid-template-columns: none; gap: clamp(14px,1.4vw,24px); overflow-x: auto; padding: 8px; margin: -8px; scrollbar-width: none; }
+  .row-heading h2 { font-size: clamp(18px,1.45vw,26px); font-weight: 700; letter-spacing: -.035em; }
+  .music-more { display: inline-flex; align-items: center; gap: 2px; }
 </style>

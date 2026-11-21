@@ -249,6 +249,7 @@ fn fail(code: &'static str, message: impl ToString) -> Error {
     Error {
         code,
         message: message.to_string(),
+        path: None,
     }
 }
 

@@ -1,12 +1,12 @@
 # Luma plugins
 
-Status (2026-11-16): declarative packages, explicit executable grants, isolated UI and background supervision, and host-rendered web remote panels are implemented. The real WebView2 harness verifies core lifecycle, command denial, CSP denial and cleanup; interactive TV/phone/tray and resource-budget acceptance remain open. This file owns the implemented package/API contract; [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md) owns validation evidence and remaining limits.
+Status (2026-11-20): declarative packages, explicit executable grants, isolated UI and background supervision, API v3 Home and paired-phone command panels, and subscribed settings/playback notifications are implemented. The real WebView2 harness verifies core lifecycle, command denial, CSP denial and cleanup; interactive TV/phone/tray and resource-budget acceptance remain open. This file owns the implemented package/API contract; [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md) owns validation evidence and remaining limits.
 
 ## What ships
 
 Luma installs, validates, enables, disables, exports, and removes plugin packages. Declarative packages use Preview and Keep; executable packages require a separate access review. A plugin can contribute appearance and Home layout, and can declare bounded settings that control those contributions.
 
-Import never runs code or install hooks. API v2 `isolated-ui` and `background` packages can run packaged HTML/JavaScript only after the user approves their declared access in Settings. Native code and the `main-page` runtime remain unsupported.
+Import never runs code or install hooks. API v2 `isolated-ui` and `background` packages and API v3 Home card packages can run packaged HTML/JavaScript after the user approves their declared access in Settings. Native code and the `main-page` runtime remain unsupported. See the [development workflow](PLUGIN-DEVELOPMENT.md) and [typed SDK](PLUGIN-SDK.md) to build and debug packages.
 
 Luma's own Theme, Home layout, and widgets are built into the app under **Settings → Appearance & Home**. They are not a plugin: they cannot be removed, and they stay usable when another plugin is disabled or broken. The old `Theme`, `Layout`, `Home layout`, and `Widgets` entry points resolve to those sections.
 
@@ -73,11 +73,11 @@ Export writes the installed package files and manifest to a new ZIP through a na
 }
 ```
 
-Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A declarative v1 plugin requires appearance/Home contributions or a `remote` panel; an executable v2 plugin requires `runtime.entry`. `description`, `author`, `settings`, `assets`, `source`, and `runtime.kind` default to empty/declarative. Unknown fields are rejected.
+Required fields are `id`, `name`, `version`, and `apiVersion`. API v1 defaults to a declarative runtime and requires appearance/Home contributions or a `remote` panel. Executable packages require `runtime.kind` and `runtime.entry`. `description`, `author`, `settings`, `assets`, and `source` default to empty. Unknown fields are rejected.
 
 - `id` is a lowercase vendor-qualified id such as `com.example.pack`, 3–96 characters. `core` is reserved. Plugin ids are case-sensitive in storage and lowercase-only in validation.
 - `version` is numeric `major.minor.patch` without leading zeros.
-- `apiVersion` must be `1` for a declarative plugin or `2` for an isolated-ui or background package.
+- API v1 is declarative. API v2 supports standalone isolated UI or background packages. API v3 supports on-demand commands and Home cards.
 - `settings` declares at most 24 host-rendered values. Keys match `[a-z][A-Za-z0-9_-]{0,63}`. Types are `boolean`, `enum`, `number`, and `string`:
   - `boolean` default must be true or false.
   - `enum` requires 1–20 unique string options and a default in those options.
@@ -86,7 +86,7 @@ Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A de
 - `assets` and `source` are package-relative paths that must exist. `runtime.entry` is required for non-declarative runtimes and must exist.
 - `contributes` must declare at least one supported field for a declarative plugin.
 
-### Executable package manifest (development)
+### API v2 executable package
 
 `apiVersion: 2` supports `runtime.kind: "isolated-ui"` and `"background"`. Packages install disabled and require user access review before execution. The public shape is:
 
@@ -112,12 +112,40 @@ Required: `id`, `name`, `version`, `apiVersion`, and a supported `runtime`. A de
 }
 ```
 
-- `runtime.entry` is a package-relative HTML file. An executable package cannot declare declarative contributions or remote panels.
+- `runtime.entry` is a package-relative HTML file. An executable package cannot declare declarative contributions. API v2 executable packages cannot declare remote panels; API v3 may declare command panels.
 - Permissions are exact names: `settings.read`, `network.get`, `playback.read`, and `playback.control`. Duplicates, unknown names, and grants on `apiVersion: 1` are rejected.
 - `network.get` requires `network.allow` with 1–8 HTTPS origins. Origins cannot contain a path, port, credentials, IP literal, loopback, or a private-network style host name. The package still cannot fetch directly; every request is bounded and host-mediated.
 - Settings are host-rendered, host-validated, and stored in the existing plugin settings table. A package can read only its own resolved values.
 
-The example package is [examples/plugins/com.example.weather](../examples/plugins/com.example.weather). Its manifest declares two settings and a single network origin. The host contains no weather-specific command, provider coordinates, or reading schema.
+### API v3 Home cards and commands
+
+An `isolated-ui` package can declare up to eight commands and eight static Home cards. Set `apiVersion` to `3` and set `minHostVersion` to the oldest Luma version that supports the package. A readable package that requires a newer host installs disabled and shows a compatibility reason.
+
+```json
+{
+  "commands": ["openForecast"],
+  "cards": [{ "id": "forecast", "title": "Weather", "command": "openForecast" }]
+}
+```
+
+Place these fields in `contributes`. IDs are unique within each list, start with a lowercase ASCII letter, and contain up to 32 ASCII letters, digits, hyphens, or underscores. A card title has 1–48 characters after trimming. Each card references a command from the same package. Luma renders the card only while the package is enabled under a current on-demand grant. Selecting it starts the isolated surface and delivers the command after `surface.ready`. See the [SDK command contract](PLUGIN-SDK.md#commands).
+
+The [Weather example](../examples/plugins/com.example.weather) uses API v3, two settings, and a single network origin.
+
+### API v3 phone commands
+
+An API v3 `isolated-ui` package may also declare up to three commands for its paired-phone panel:
+
+```json
+{
+  "title": "Weather controls",
+  "commands": [
+    { "command": "openForecast", "label": "Refresh forecast" }
+  ]
+}
+```
+
+Place this in `remote`. Every command must be declared in `contributes.commands` by the same package, and labels are host-rendered text of 1–32 characters. API v3 panels cannot declare `remote.actions`; playback controls use a command that calls the playback bridge. The paired remote shows the panel only while the package is enabled with a current on-demand grant. Choosing a control rechecks pairing, the current panel, the declared command, the installed version, and the grant. The host then starts a hidden runtime, waits for readiness, and delivers the command without opening or focusing a desktop surface. The phone receives `pending`, `success`, or `failure` in the action response; `success` means the command was delivered, not that the package finished its work. No package HTML or JavaScript runs on the phone. A hidden session ends with the normal on-demand lifecycle: `surface.close`, Disable, update, removal, hiding the launcher, or quitting Luma.
 
 ### Contribution fields
 
@@ -218,9 +246,10 @@ Before activation, Luma rejects absolute paths, `..`, backslashes, drive/UNC pat
 
 In Settings > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP cannot approve grants or execute packages. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
 
-- `isolated-ui` supports `launcher-open`; **Open** shows its desktop surface after `surface.ready`.
+- API v2 `isolated-ui` uses `launcher-open`. API v3 Home packages use `on-demand`. **Open** in Settings shows either desktop surface after `surface.ready`.
 - `background` supports `launcher-open`, `startup`, and `always`. Launcher-open services stop when Luma hides to tray. Startup/always services can start without a launcher and continue in the tray until disabled or Luma exits.
-- The bridge accepts `identity`, `settings.read`, `net.get`, `playback.read`, `playback.toggle`, `playback.next`, `playback.previous`, `surface.ready`, and `surface.close`. Host actions are bounded and checked against the installed package and its stored grant.
+- The bridge accepts `identity`, `settings.read`, `settings.subscribe`, `net.get`, `playback.read`, `playback.subscribe`, `playback.toggle`, `playback.next`, `playback.previous`, `surface.ready`, `surface.close`, and `commands.pending`. Host actions are bounded and checked against the installed package and its stored grant.
+- Subscribed settings and playback notifications are pushed from host changes, not polled. Every push is a full snapshot under the matching read grant; duplicate snapshots are suppressed, and delivery stops when the session is revoked or stopped. See the [SDK notification contract](PLUGIN-SDK.md#settings-and-playback-notifications).
 - Network requests use approved HTTPS origins, public-address resolution and address pinning, no redirects, bounded query values, and a 64 KiB JSON response cap.
 - The runtime has 16 registered isolation slots. Active sessions have distinct slot origins and fresh token paths; incognito WebView storage is ephemeral. Durable settings remain in SQLite.
 - A ready timeout and bounded restart policy stop repeated failures: at most three restart attempts in ten minutes, followed by auto-disable with a visible reason.
@@ -234,10 +263,12 @@ The tray preserves Open/Exit and adds one host-owned action per enabled executab
 
 A declarative API v1 package may declare `remote: { "title": "Music controls", "actions": ["playback.previous", "playback.toggle", "playback.next"] }`. Empty actions show playback only. Titles are limited to 48 characters and actions must be unique supported names. Panels appear in the paired web remote under **More > Plugin panels** only while their package is enabled. Every action rechecks the current declaration; no extension HTML or JavaScript is sent to the remote. Display Box has no plugin panel projection in its current protocol.
 
+API v3 command panels use the same host-rendered foundation. The panel declares host labels and command references instead of playback actions. The web remote receives only the panel identity, title, label, and command identifier; it never receives package code, settings, or bridge credentials. v1 panels and playback-only panels keep their existing wire format.
+
 The importable [music remote example](../examples/plugins/com.example.music-remote/luma-extension.json) proves the declarative panel shape. The [weather example](../examples/plugins/com.example.weather/luma-extension.json) uses the generic executable bridge and its own location/unit settings. Zip a package folder's contents, then import the ZIP through Settings > Plugins. For example:
 
 ```powershell
-Compress-Archive -Path examples\plugins\com.example.weather\* -DestinationPath $env:TEMP\com.example.weather-1.0.0.luma-extension.zip
+luma-plugin pack examples\plugins\com.example.weather --out $env:TEMP
 ```
 
 ## Shipped limits and verification
@@ -248,6 +279,7 @@ Meaningful automated coverage includes:
 
 - Manifest and setting default/type validation, unsupported runtimes, and disabled MCP staging without activation tools.
 - Version 2 executable manifest permissions, network-origin rejection, the weather example install, runtime package asset reads, and generic bridge parsing/authorization.
+- Version 3 command panels, current-grant projection, panel membership rechecks, hidden phone dispatch, and subscribed notification deduplication.
 - ZIP roundtrip, export privacy, immutability, traversal, Windows paths, duplicate case, symlinks, missing declared files, and compression bombs.
 - Preview/Keep enable, disable cleanup, unrelated later manual changes, field detachment, conflicting ownership, restart persistence, reset consistency, history restore of enabled/settings/detached state, removal, and failed update rollback.
 - MCP and UI setting staging/persistence through the same native values.

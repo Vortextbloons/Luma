@@ -7,6 +7,7 @@ const panel = {
   name: "Lounge",
   title: "Lounge controls",
   actions: ["playback.toggle", "playback.next"],
+  commands: [],
 };
 
 test("plugin panels keep only the bounded declared shape", () => {
@@ -19,7 +20,49 @@ test("plugin panels keep only the bounded declared shape", () => {
   ]);
   assert.deepEqual(panels, [
     panel,
-    { id: "com.example.next", name: "Lounge", title: "Lounge controls", actions: ["playback.previous"] },
+    { id: "com.example.next", name: "Lounge", title: "Lounge controls", actions: ["playback.previous"], commands: [] },
+  ]);
+});
+
+test("command panels keep bounded host-rendered labels only", () => {
+  const panels = normalizePanels([
+    {
+      id: "com.example.weather",
+      name: "Weather",
+      title: "Weather controls",
+      actions: [],
+      version: "1.0.0",
+      commands: [
+        { id: "openForecast", label: " Refresh forecast " },
+        { id: "openForecast", label: "Duplicate" },
+        { id: "refresh", label: "" },
+        { id: "second", label: "Second", html: "<script>" },
+        { id: "third", label: "Third" },
+        { id: "fourth", label: "Fourth" },
+      ],
+    },
+    { id: "com.example.legacy", name: "Legacy", title: "Legacy controls", actions: [] },
+  ]);
+  assert.deepEqual(panels, [
+    {
+      id: "com.example.weather",
+      name: "Weather",
+      title: "Weather controls",
+      actions: [],
+      version: "1.0.0",
+      commands: [
+        { id: "openForecast", label: "Refresh forecast" },
+        { id: "second", label: "Second" },
+        { id: "third", label: "Third" },
+      ],
+    },
+    {
+      id: "com.example.legacy",
+      name: "Legacy",
+      title: "Legacy controls",
+      actions: [],
+      commands: [],
+    },
   ]);
 });
 

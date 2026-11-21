@@ -1,0 +1,25 @@
+{
+  "id": "com.example.luma-starter",
+  "name": "Luma starter",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "TypeScript starter for an isolated Luma plugin surface.",
+  "author": "Luma",
+  "runtime": {
+    "kind": "isolated-ui",
+    "entry": "ui/index.html"
+  },
+  "permissions": ["settings.read"],
+  "settings": [
+    {
+      "key": "greeting",
+      "label": "Greeting",
+      "description": "Text shown on the starter surface.",
+      "type": "string",
+      "default": "Hello from Luma",
+      "minLength": 1,
+      "maxLength": 40
+    }
+  ],
+  "assets": ["ui/main.js", "ui/style.css"]
+}

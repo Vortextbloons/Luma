@@ -2,6 +2,7 @@
   import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from '../types';
   import type { MusicCardItem } from '../types/spotify';
   import type { GameScore } from '../services/sportsScores';
+  import type { PluginHomeCard, PluginHomeCardFailure } from '../services/plugins';
   import type { HeroSlide } from './MovieHero.svelte';
   export interface HomeData {
     heroSlides: HeroSlide[];
@@ -26,6 +27,9 @@
     previewLeague: AppId | null;
     leagueGames: GameScore[];
     leagueGamesLoading: boolean;
+    homeCards: PluginHomeCard[];
+    pluginCardPending: string | null;
+    pluginCardFailure: PluginHomeCardFailure | null;
   }
   export interface HomeActions {
     openStremio: (id: string) => void;
@@ -48,6 +52,8 @@
     previewSteamRecommendation: (item: SteamGame | null) => void;
     select: (item: MediaItem) => void;
     previewMovie: (item: MediaItem | null, eyebrow?: string) => void;
+    openPluginCard: (card: PluginHomeCard) => void;
+    retryPluginCard: () => void;
   }
 </script>
 
@@ -78,6 +84,10 @@
     if (row.component === 'popular' || row.component === 'featured') return !data.previewApp;
     return true;
   }));
+  const cardFailure = $derived.by(() => {
+    const failure = data.pluginCardFailure;
+    return failure && data.homeCards.some(card => card.id === failure.card.id) ? failure : null;
+  });
 </script>
 
 {#snippet hero(inset: boolean)}
@@ -149,12 +159,37 @@
         {@render registry[row.component](true)}
       </div>
     {/each}
+    {#if data.homeCards.length}
+      <div class="home-instance" data-home-instance="plugins" data-span="2">
+        <section class="content-row plugin-home-row" aria-label="Plugin cards">
+          <div class="row-heading"><div><h2>From your plugins</h2></div></div>
+          <div class="app-track">
+            {#each data.homeCards as card (card.id)}
+              <button class={['app-card plugin-card', { 'is-launching': data.pluginCardPending === card.id }]} data-plugin-card={card.id} data-focus-key={card.id} aria-busy={data.pluginCardPending === card.id} aria-disabled={data.pluginCardPending === card.id} onclick={() => actions.openPluginCard(card)}>
+                <span class="plus-logo" aria-hidden="true">◆</span>
+                <span>{data.pluginCardPending === card.id ? `Opening ${card.title}…` : card.title}</span>
+              </button>
+            {/each}
+          </div>
+          {#if cardFailure}
+            <div class="plugin-card-status" role="alert">
+              <span>{cardFailure.card.title} couldn't open. {cardFailure.message}</span>
+              <button class="text-link" data-focus-key={`${cardFailure.card.id}:retry`} onclick={actions.retryPluginCard}>Retry</button>
+            </div>
+          {/if}
+        </section>
+      </div>
+    {/if}
   </div></div>
 </div>
 
 <style>
   .home-layout, .home-instance { display: contents; }
   .resizing-content { display: flow-root; }
+  .plugin-card .plus-logo { color: var(--accent); }
+  .plugin-card-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--text); font-size: clamp(12px, .8vw, 15px); line-height: 1.4; }
+  .plugin-card-status span { min-width: 0; }
+  .plugin-card-status .text-link { flex: none; min-height: 40px; padding: 0 12px; border: 1px solid #ffffff1f; border-radius: 8px; background: #ffffff0a; }
   .home-instance:has(> :global(.activity-row), > :global(.steam-row)) + .home-instance > :global(.apps-row) { margin-top: calc(6px - var(--row-gap)); }
   @media (min-width: 1000px) {
     .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--row-gap) var(--gap); padding-inline: var(--side); }

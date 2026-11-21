@@ -186,11 +186,13 @@
       });
       consentTarget = null;
       await reload();
-      note = trigger === 'launcher-open'
-        ? `${record.name} enabled. It runs while Luma is open; disabling it revokes access.`
-        : trigger === 'startup'
-          ? `${record.name} enabled. It starts with Luma, including in the tray; disabling it revokes access.`
-          : `${record.name} enabled. It keeps running in the tray until you disable it.`;
+      note = trigger === 'on-demand'
+        ? `${record.name} enabled. It starts only when you open it; disabling it revokes access.`
+        : trigger === 'launcher-open'
+          ? `${record.name} enabled. It runs while Luma is open; disabling it revokes access.`
+          : trigger === 'startup'
+            ? `${record.name} enabled. It starts with Luma, including in the tray; disabling it revokes access.`
+            : `${record.name} enabled. It keeps running in the tray until you disable it.`;
     });
     busy = '';
     if (!actionError) focusPluginAction(record.id);
@@ -439,7 +441,7 @@
                     <p>{pluginTriggerDescription(consentTrigger)}</p>
                   </div>
                 {/if}
-                {#if consentTrigger !== 'launcher-open'}
+                {#if consentTrigger === 'startup' || consentTrigger === 'always'}
                   <p class="plugin-warning" role="status">This service can keep running in the background while Luma is in the tray. It stops when you disable it or exit Luma.</p>
                 {/if}
                 {#if actionError}<p class="error" role="alert">{actionError}</p>{/if}

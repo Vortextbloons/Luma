@@ -575,7 +575,9 @@ pub(crate) fn navigate(app: &tauri::AppHandle, command: NavigationCommand) {
             }
         }
     }
-    if crate::viewing::navigate(app, command.as_str()) { return; }
+    if crate::viewing::navigate(app, command.as_str()) {
+        return;
+    }
     if crate::viewing::browsing(app) {
         let _ = app.emit_to("main", "remote-navigation", command);
         return;
@@ -710,7 +712,11 @@ impl Remote {
 
 fn active_window(app: &tauri::AppHandle) -> Option<(&'static str, tauri::WebviewWindow)> {
     if let Some(window) = crate::viewing::selected(app) {
-        let name = match window.label() { "youtube" => "YouTube", "stremio" => "Stremio", _ => "Sports" };
+        let name = match window.label() {
+            "youtube" => "YouTube",
+            "stremio" => "Stremio",
+            _ => "Sports",
+        };
         return Some((name, window));
     }
     let windows: Vec<_> = [
@@ -745,7 +751,11 @@ pub(crate) fn snapshot(app: &tauri::AppHandle) -> Result<AppState, String> {
 
 pub(crate) fn snapshot_live(app: &tauri::AppHandle) -> Result<AppState, String> {
     crate::viewing::refresh_external_focus(app);
-    let window = crate::viewing::external_name(app).map(|name| (name, None)).or_else(|| active_window(app).map(|(name, window)| (name.into(), window.is_fullscreen().ok())));
+    let window = crate::viewing::external_name(app)
+        .map(|name| (name, None))
+        .or_else(|| {
+            active_window(app).map(|(name, window)| (name.into(), window.is_fullscreen().ok()))
+        });
     let remote = app.state::<Remote>();
     let mut state = remote.state.lock().map_err(|e| e.to_string())?;
     if let Some((name, fullscreen)) = window {
@@ -765,9 +775,7 @@ fn current_music(app: &tauri::AppHandle) -> Option<MusicState> {
     music
 }
 
-fn panels_response(
-    panels: Vec<crate::customization::plugin::RemotePanel>,
-) -> serde_json::Value {
+fn panels_response(panels: Vec<crate::customization::plugin::RemotePanel>) -> serde_json::Value {
     serde_json::json!({ "panels": panels })
 }
 
@@ -795,6 +803,17 @@ fn action_response(
 ) -> serde_json::Value {
     let mut response = serde_json::Map::new();
     response.insert("accepted".into(), accepted.into());
+    response.insert(
+        "status".into(),
+        if accepted {
+            "success"
+        } else if code == Some("plugin_busy") {
+            "pending"
+        } else {
+            "failure"
+        }
+        .into(),
+    );
     if let Some(code) = code {
         response.insert("code".into(), code.into());
     }
@@ -811,9 +830,12 @@ pub(crate) async fn phone_panel_action(
     app: &tauri::AppHandle,
     id: String,
     action: String,
+    version: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let action = match crate::customization::plugin::remote_action(app, &id, &action) {
-        Ok(action) => action,
+    use crate::customization::plugin::RemoteInvocation;
+
+    let invocation = match crate::customization::plugin::remote_invocation(app, &id, &action) {
+        Ok(invocation) => invocation,
         Err(error) => {
             return Ok(action_response(
                 false,
@@ -823,11 +845,29 @@ pub(crate) async fn phone_panel_action(
             ))
         }
     };
-    match crate::commands::media::music(app, playback_command(action)).await {
-        Ok(()) => Ok(action_response(true, None, None, current_music(app))),
-        Err(error) => Ok(action_response(
+    let failure = match invocation {
+        RemoteInvocation::Playback(action) => {
+            crate::commands::media::music(app, playback_command(action))
+                .await
+                .err()
+                .map(|error| ("unavailable", error))
+        }
+        RemoteInvocation::Command(spec) => {
+            if version.as_deref() != Some(spec.version.as_str()) {
+                Some(("stale", "This panel changed. Try the updated control.".into()))
+            } else {
+                crate::extension_spike::dispatch_remote_command(app, spec)
+                    .await
+                    .err()
+                    .map(|error| (error.code, error.message))
+            }
+        }
+    };
+    match failure {
+        None => Ok(action_response(true, None, None, current_music(app))),
+        Some((code, error)) => Ok(action_response(
             false,
-            Some("unavailable"),
+            Some(code),
             Some(error),
             current_music(app),
         )),
@@ -854,12 +894,18 @@ pub(crate) fn sync_music(
         can_skip_previous: state.can_skip_previous,
     });
     app.state::<Remote>().publish_music(music);
+    crate::extension_spike::playback_changed(app);
 }
 
 pub(crate) fn fullscreen(app: &tauri::AppHandle) -> Result<(), String> {
     if !crate::viewing::browsing(app) {
         if let Some(label) = crate::viewing::active_selection(app) {
-            return crate::viewing::viewing_configure(app.clone(), crate::viewing::Mode::Single, Some(label)).map(|_| ());
+            return crate::viewing::viewing_configure(
+                app.clone(),
+                crate::viewing::Mode::Single,
+                Some(label),
+            )
+            .map(|_| ());
         }
     }
     if let Some(result) = crate::commands::session::fullscreen(app) {
@@ -1028,7 +1074,12 @@ mod tests {
         config.sound_level = "soft".into();
         config.home_columns = 2;
         let settings = super::setting_catalog(&config);
-        let value = |key: &str| settings.iter().find(|choice| choice.key == key).map(|choice| choice.value.as_str());
+        let value = |key: &str| {
+            settings
+                .iter()
+                .find(|choice| choice.key == key)
+                .map(|choice| choice.value.as_str())
+        };
         assert_eq!(value("theme"), Some("onyx"));
         assert_eq!(value("density"), Some("compact"));
         assert_eq!(value("appTileShape"), Some("square"));
@@ -1129,9 +1180,15 @@ mod tests {
     fn remote_panel_actions_map_only_to_music_commands() {
         use crate::customization::plugin::RemoteAction;
 
-        assert_eq!(super::playback_command(RemoteAction::PlaybackToggle), "toggle");
+        assert_eq!(
+            super::playback_command(RemoteAction::PlaybackToggle),
+            "toggle"
+        );
         assert_eq!(super::playback_command(RemoteAction::PlaybackNext), "next");
-        assert_eq!(super::playback_command(RemoteAction::PlaybackPrevious), "previous");
+        assert_eq!(
+            super::playback_command(RemoteAction::PlaybackPrevious),
+            "previous"
+        );
     }
 
     #[test]
@@ -1143,12 +1200,23 @@ mod tests {
             None,
         );
         assert_eq!(denied["accepted"], false);
+        assert_eq!(denied["status"], "failure");
         assert_eq!(denied["code"], "denied");
         assert_eq!(
             denied["error"],
             "That plugin did not declare this remote action."
         );
         assert!(denied.get("music").is_none());
+
+        let pending = super::action_response(
+            false,
+            Some("plugin_busy"),
+            Some("That plugin is already starting a command.".into()),
+            None,
+        );
+        assert_eq!(pending["accepted"], false);
+        assert_eq!(pending["status"], "pending");
+        assert_eq!(pending["code"], "plugin_busy");
 
         let accepted = super::action_response(
             true,
@@ -1161,6 +1229,7 @@ mod tests {
             }),
         );
         assert_eq!(accepted["accepted"], true);
+        assert_eq!(accepted["status"], "success");
         assert_eq!(accepted["music"]["title"], "Song");
         assert!(accepted.get("code").is_none());
         assert!(accepted.get("error").is_none());
@@ -1175,6 +1244,8 @@ mod tests {
             name: "Lounge".into(),
             title: "Lounge controls".into(),
             actions: vec![RemoteAction::PlaybackToggle, RemoteAction::PlaybackNext],
+            version: None,
+            commands: Vec::new(),
         }]);
         let panel = &value["panels"][0];
         assert_eq!(panel["id"], "com.example.lounge");
@@ -1183,8 +1254,33 @@ mod tests {
         assert_eq!(panel["actions"][0], "playback.toggle");
         assert_eq!(panel["actions"][1], "playback.next");
         assert_eq!(panel.as_object().unwrap().len(), 4);
+        assert!(panel.get("commands").is_none());
         assert!(panel.get("permissions").is_none());
         assert!(panel.get("entry").is_none());
+    }
+
+    #[test]
+    fn command_panels_expose_only_host_rendered_labels() {
+        use crate::customization::plugin::{RemotePanel, RemotePanelCommand};
+
+        let value = super::panels_response(vec![RemotePanel {
+            id: "com.example.weather".into(),
+            name: "Weather".into(),
+            title: "Weather controls".into(),
+            actions: Vec::new(),
+            version: Some("1.0.0".into()),
+            commands: vec![RemotePanelCommand {
+                id: "openForecast".into(),
+                label: "Refresh forecast".into(),
+            }],
+        }]);
+        let panel = &value["panels"][0];
+        assert_eq!(panel["actions"].as_array().unwrap().len(), 0);
+        assert_eq!(panel["version"], "1.0.0");
+        assert_eq!(panel["commands"][0]["id"], "openForecast");
+        assert_eq!(panel["commands"][0]["label"], "Refresh forecast");
+        assert!(panel["commands"][0].get("entry").is_none());
+        assert!(panel["commands"][0].get("html").is_none());
     }
 
     #[test]

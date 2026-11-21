@@ -30,8 +30,9 @@ test('plugin settings values can be round-tripped through the editor', () => {
 });
 
 test('runtime kinds select the triggers offered during consent', () => {
-  const isolated = { runtime: 'isolated-ui', executable: true, trigger: null };
-  const background = { runtime: 'background', executable: true, trigger: null };
+  const isolated = { runtime: 'isolated-ui', executable: true, apiVersion: 2, trigger: null };
+  const homeCards = { runtime: 'isolated-ui', executable: true, apiVersion: 3, trigger: null };
+  const background = { runtime: 'background', executable: true, apiVersion: 2, trigger: null };
   assert.equal(pluginRuntimeKind(isolated), 'isolated-ui');
   assert.equal(pluginRuntimeLabel(isolated), 'Plugin UI');
   assert.equal(pluginRuntimeKind(background), 'background');
@@ -39,15 +40,20 @@ test('runtime kinds select the triggers offered during consent', () => {
   assert.equal(pluginRuntimeKind({ runtime: 'future-kind', executable: true }), 'isolated-ui');
   assert.equal(pluginRuntimeKind({ runtime: 'declarative', executable: false }), 'declarative');
   assert.deepEqual(pluginTriggers(isolated), ['launcher-open']);
+  assert.deepEqual(pluginTriggers(homeCards), ['on-demand']);
   assert.deepEqual(pluginTriggers(background), ['launcher-open', 'startup', 'always']);
   assert.deepEqual(pluginTriggers({ runtime: 'declarative', executable: false }), []);
   assert.equal(pluginDefaultTrigger({ ...background, trigger: 'always' }), 'always');
   assert.equal(pluginDefaultTrigger({ ...background, trigger: 'startup' }), 'startup');
   assert.equal(pluginDefaultTrigger({ ...background, trigger: 'invalid' }), 'launcher-open');
   assert.equal(pluginDefaultTrigger(isolated), 'launcher-open');
+  assert.equal(pluginDefaultTrigger(homeCards), 'on-demand');
 });
 
 test('background triggers explain what keeps running outside the launcher', () => {
+  assert.match(pluginTriggerDescription('on-demand'), /only when you choose its Home card/);
+  assert.match(pluginTriggerDescription('on-demand'), /press Back/);
+  assert.match(pluginTriggerSummary('on-demand'), /only when you open it/);
   assert.match(pluginTriggerDescription('launcher-open'), /Hiding Luma to the tray stops it/);
   assert.match(pluginTriggerSummary('launcher-open'), /while Luma is open/);
   assert.match(pluginTriggerDescription('startup'), /including when Luma opens in the tray/);

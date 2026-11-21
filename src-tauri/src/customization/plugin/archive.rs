@@ -1,11 +1,11 @@
 use super::{validate_manifest, validate_relative_path, Error, Manifest, PreparedPackage};
 use std::{
     collections::{BTreeMap, HashSet},
+    fs,
     io::{Cursor, Read, Write},
+    path::Path,
 };
-use zip::{
-    write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter,
-};
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 const MAX_ARCHIVE_BYTES: u64 = super::MAX_ARCHIVE_BYTES;
 const MAX_FILES: usize = super::MAX_FILES;
@@ -55,7 +55,10 @@ pub(super) fn read(bytes: &[u8]) -> Result<PreparedPackage, Error> {
         let is_dir = entry.is_dir();
         let normalized = name.trim_end_matches('/').to_string();
         if normalized.is_empty() {
-            return Err(Error::new("validation", "Plugin archive contains an empty path."));
+            return Err(Error::new(
+                "validation",
+                "Plugin archive contains an empty path.",
+            ));
         }
         validate_relative_path(&normalized)?;
         let size = entry.size();
@@ -121,7 +124,9 @@ pub(super) fn read(bytes: &[u8]) -> Result<PreparedPackage, Error> {
             .by_ref()
             .take(limit + 1)
             .read_to_end(&mut bytes)
-            .map_err(|error| Error::new("validation", format!("Could not read {relative}: {error}")))?;
+            .map_err(|error| {
+                Error::new("validation", format!("Could not read {relative}: {error}"))
+            })?;
         if bytes.len() as u64 > limit {
             return Err(Error::new(
                 "validation",
@@ -173,12 +178,157 @@ pub(super) fn read(bytes: &[u8]) -> Result<PreparedPackage, Error> {
         )
     })?;
     let raw = std::str::from_utf8(&manifest_bytes).map_err(|error| {
-        Error::new("validation", format!("luma-extension.json must be UTF-8: {error}"))
+        Error::new(
+            "validation",
+            format!("luma-extension.json must be UTF-8: {error}"),
+        )
     })?;
-    let manifest: Manifest = serde_json::from_str(raw)
-        .map_err(|error| Error::new("validation", format!("Invalid luma-extension.json: {error}")))?;
+    let manifest: Manifest = serde_json::from_str(raw).map_err(|error| {
+        Error::new(
+            "validation",
+            format!("Invalid luma-extension.json: {error}"),
+        )
+    })?;
     validate_manifest(&manifest)?;
     super::finalize(manifest, files)
+}
+
+pub(super) fn read_directory(path: &Path) -> Result<PreparedPackage, Error> {
+    let root = fs::canonicalize(path).map_err(|error| Error::new("validation", error))?;
+    if !root.is_dir() {
+        return Err(Error::new(
+            "validation",
+            "A plugin package directory must be a directory.",
+        ));
+    }
+    let mut files = BTreeMap::new();
+    let mut total = 0u64;
+    let mut entries = 0usize;
+    collect(&root, &root, &mut files, &mut total, &mut entries)?;
+    if files.len() > MAX_FILES {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin can contain at most {MAX_FILES} files."),
+        ));
+    }
+    if total > MAX_TOTAL_BYTES {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin can unpack to at most {MAX_TOTAL_BYTES} bytes."),
+        ));
+    }
+    let manifest_bytes = files.remove("luma-extension.json").ok_or_else(|| {
+        Error::new(
+            "validation",
+            "Plugin package must contain luma-extension.json at its root.",
+        )
+        .at("luma-extension.json")
+    })?;
+    let raw = std::str::from_utf8(&manifest_bytes).map_err(|error| {
+        Error::new(
+            "validation",
+            format!("luma-extension.json must be UTF-8: {error}"),
+        )
+        .at("luma-extension.json")
+    })?;
+    let manifest: Manifest = serde_json::from_str(raw).map_err(|error| {
+        Error::new(
+            "validation",
+            format!("Invalid luma-extension.json: {error}"),
+        )
+        .at("luma-extension.json")
+    })?;
+    validate_manifest(&manifest)?;
+    super::finalize(manifest, files)
+}
+
+fn collect(
+    root: &Path,
+    directory: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+    total: &mut u64,
+    entries: &mut usize,
+) -> Result<(), Error> {
+    let directory_entries = fs::read_dir(directory)
+        .map_err(|error| Error::new("validation", error).at(directory.display()))?;
+    for entry in directory_entries {
+        *entries += 1;
+        if *entries > MAX_ENTRIES {
+            return Err(Error::new(
+                "validation",
+                format!("A plugin package can contain at most {MAX_ENTRIES} entries."),
+            ));
+        }
+        let entry = entry.map_err(|error| Error::new("validation", error))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| Error::new("validation", error).at(path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(Error::new(
+                "validation",
+                "Plugin packages cannot contain symbolic links.",
+            )
+            .at(path.display()));
+        }
+        let canonical = fs::canonicalize(&path)
+            .map_err(|error| Error::new("validation", error).at(path.display()))?;
+        if !canonical.starts_with(root) {
+            return Err(Error::new(
+                "validation",
+                "Plugin package entries must stay inside the package directory.",
+            )
+            .at(path.display()));
+        }
+        if metadata.is_dir() {
+            collect(root, &path, files, total, entries)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(Error::new(
+                "validation",
+                "Plugin packages can contain only regular files and directories.",
+            )
+            .at(path.display()));
+        }
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|error| Error::new("validation", error))?
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("/");
+        validate_relative_path(&relative).map_err(|error| error.at(&relative))?;
+        let size = metadata.len();
+        let limit = if relative == "luma-extension.json" {
+            MAX_MANIFEST_BYTES
+        } else {
+            MAX_FILE_BYTES
+        };
+        if size > limit {
+            return Err(Error::new(
+                "validation",
+                format!("{relative} is larger than its allowed size."),
+            )
+            .at(&relative));
+        }
+        *total = total.saturating_add(size);
+        if *total > MAX_TOTAL_BYTES {
+            return Err(Error::new(
+                "validation",
+                format!("A plugin can unpack to at most {MAX_TOTAL_BYTES} bytes."),
+            ));
+        }
+        let bytes =
+            fs::read(&path).map_err(|error| Error::new("validation", error).at(&relative))?;
+        if files.insert(relative.clone(), bytes).is_some() {
+            return Err(Error::new(
+                "validation",
+                format!("Plugin package contains a duplicate path: {relative}."),
+            )
+            .at(relative));
+        }
+    }
+    Ok(())
 }
 
 fn root_prefix(names: &[String]) -> Result<String, Error> {
@@ -194,7 +344,9 @@ fn root_prefix(names: &[String]) -> Result<String, Error> {
     if roots.len() == 1 {
         let root = roots.into_iter().next().expect("one root");
         let prefix = format!("{root}/");
-        if names.iter().any(|name| name == &format!("{prefix}luma-extension.json"))
+        if names
+            .iter()
+            .any(|name| name == &format!("{prefix}luma-extension.json"))
             && names.iter().all(|name| name.starts_with(&prefix))
         {
             return Ok(prefix);
@@ -206,13 +358,41 @@ fn root_prefix(names: &[String]) -> Result<String, Error> {
     ))
 }
 
-pub(super) fn write(manifest: &Manifest, files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, Error> {
+pub(super) fn write(
+    manifest: &Manifest,
+    files: &BTreeMap<String, Vec<u8>>,
+) -> Result<Vec<u8>, Error> {
     validate_manifest(manifest)?;
-    let manifest_json = serde_json::to_string(manifest)
-        .map_err(|error| Error::new("validation", error))?;
+    let deflated = write_with(manifest, files, CompressionMethod::Deflated)?;
+    if deflated.len() as u64 > MAX_ARCHIVE_BYTES {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin archive must be at most {MAX_ARCHIVE_BYTES} bytes."),
+        ));
+    }
+    if read(&deflated).is_ok() {
+        return Ok(deflated);
+    }
+    let stored = write_with(manifest, files, CompressionMethod::Stored)?;
+    if stored.len() as u64 > MAX_ARCHIVE_BYTES {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin archive must be at most {MAX_ARCHIVE_BYTES} bytes."),
+        ));
+    }
+    Ok(stored)
+}
+
+fn write_with(
+    manifest: &Manifest,
+    files: &BTreeMap<String, Vec<u8>>,
+    method: CompressionMethod,
+) -> Result<Vec<u8>, Error> {
+    let manifest_json =
+        serde_json::to_string(manifest).map_err(|error| Error::new("validation", error))?;
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
+        .compression_method(method)
         .unix_permissions(0o644);
     writer
         .start_file("luma-extension.json", options)
@@ -225,8 +405,12 @@ pub(super) fn write(manifest: &Manifest, files: &BTreeMap<String, Vec<u8>>) -> R
         writer
             .start_file(path, options)
             .map_err(|error| Error::new("storage", error))?;
-        writer.write_all(bytes).map_err(|error| Error::new("storage", error))?;
+        writer
+            .write_all(bytes)
+            .map_err(|error| Error::new("storage", error))?;
     }
-    let cursor = writer.finish().map_err(|error| Error::new("storage", error))?;
+    let cursor = writer
+        .finish()
+        .map_err(|error| Error::new("storage", error))?;
     Ok(cursor.into_inner())
 }

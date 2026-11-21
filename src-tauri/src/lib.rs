@@ -3,6 +3,8 @@ mod background;
 mod commands;
 mod credentials;
 mod customization;
+mod developer;
+pub mod devtools;
 mod extension_spike;
 mod frame;
 mod integrations;
@@ -16,6 +18,7 @@ use commands::{apps, media, services, session, sports, steam, stremio, youtube};
 use integrations::spotify::{self, auth::Auth};
 use remote::server;
 use tauri::Manager;
+use tauri::utils::config::AppDirectoriesOverride;
 
 pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=67108864";
 
@@ -40,17 +43,32 @@ fn updates_enabled(app: tauri::AppHandle) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let profile = match developer::Profile::from_environment() {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("Luma development host: {error}");
+            std::process::exit(2);
+        }
+    };
+    let developer_active = profile.is_some();
+    let mut context = tauri::generate_context!();
+    if let Some(profile) = &profile {
+        context.config_mut().app.app_directories_override =
+            Some(AppDirectoriesOverride::Root(profile.app_root()));
+    }
     let mut builder = tauri::Builder::default();
     for scheme in extension_spike::schemes() {
         builder = builder.register_uri_scheme_protocol(scheme, extension_spike::protocol);
     }
-    let app = builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+    if !developer_active {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == "--background") {
                 background::show(app);
             }
-        }))
+        }));
+    }
+    let app = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .args(["--background"])
@@ -72,42 +90,52 @@ pub fn run() {
         .manage(spotify::windows_media::Media::default())
         .manage(customization::mcp::McpAccess::default())
         .manage(extension_spike::Supervisor::default())
+        .manage(developer::State::new(profile))
         .setup(|app| {
             app.manage(customization::Store::open(app.handle()));
             if let Ok(Some(document)) = app.state::<customization::Store>().read() {
                 customization::publish(app.handle(), &document);
             }
-            let customization_handle = app.handle().clone();
-            let mcp_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = customization::mcp::start(mcp_handle).await {
-                    eprintln!("Customization MCP server: {error}");
-                }
-            });
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = customization::server::start(customization_handle).await {
-                    eprintln!("Customization server: {error}");
-                }
-            });
-            #[cfg(windows)]
-            app.manage(network::watch(app.handle())?);
-            tv::load(app.handle()).map_err(std::io::Error::other)?;
-            tv::shortcut(app.handle());
-            background::setup(app)?;
-            app.manage(Auth::load(app.handle()).map_err(std::io::Error::other)?);
+            let auth = if developer::active(app.handle()) {
+                Auth::load_isolated(app.handle())
+            } else {
+                Auth::load(app.handle())
+            };
+            app.manage(auth.map_err(std::io::Error::other)?);
             app.manage(
                 activity::Activity::initialize(app.handle()).map_err(std::io::Error::other)?,
             );
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             stremio::load(app.handle());
-            extension_spike::autostart(app.handle().clone());
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = frame::initialize(handle.clone()).await {
-                    eprintln!("Display Box: {error}");
-                }
-                tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
-            });
+            if developer::active(app.handle()) {
+                developer::initialize(app.handle()).map_err(std::io::Error::other)?;
+            } else {
+                let customization_handle = app.handle().clone();
+                let mcp_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = customization::mcp::start(mcp_handle).await {
+                        eprintln!("Customization MCP server: {error}");
+                    }
+                });
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = customization::server::start(customization_handle).await {
+                        eprintln!("Customization server: {error}");
+                    }
+                });
+                #[cfg(windows)]
+                app.manage(network::watch(app.handle())?);
+                tv::load(app.handle()).map_err(std::io::Error::other)?;
+                tv::shortcut(app.handle());
+                background::setup(app)?;
+                extension_spike::autostart(app.handle().clone());
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = frame::initialize(handle.clone()).await {
+                        eprintln!("Display Box: {error}");
+                    }
+                    tauri::async_runtime::spawn(spotify::initialize(handle.clone()));
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -129,7 +157,11 @@ pub fn run() {
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    background::request_exit(window.app_handle());
+                    if developer::active(window.app_handle()) {
+                        window.app_handle().exit(0);
+                    } else {
+                        background::request_exit(window.app_handle());
+                    }
                 }
             }
         })
@@ -150,6 +182,7 @@ pub fn run() {
             customization::customization_plugin_import,
             customization::customization_plugin_enable_runtime,
             customization::customization_plugin_open_surface,
+            customization::customization_plugin_command,
             customization::customization_plugin_export,
             customization::customization_plugin_preview,
             customization::customization_plugin_disable,
@@ -244,7 +277,7 @@ pub fn run() {
             stremio::stremio_disconnect,
             stremio::stremio_open
         ]))
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running Luma");
     app.run(|app, event| {
         if let tauri::RunEvent::ExitRequested {
@@ -254,6 +287,7 @@ pub fn run() {
             api.prevent_exit();
         }
         if matches!(event, tauri::RunEvent::Exit) {
+            developer::cleanup(app);
             extension_spike::shutdown(app);
             commands::session::close_steam(app);
             viewing::restore_external(app);

@@ -115,6 +115,7 @@ export interface AppsResponse {
 
 export interface PanelActionResponse {
   accepted?: boolean;
+  status?: "success" | "failure" | "pending";
   code?: string;
   error?: string | null;
   music?: MusicState | null;
@@ -126,11 +127,18 @@ export interface PanelsResponse {
 
 export type PanelAction = "playback.toggle" | "playback.next" | "playback.previous";
 
+export interface PanelCommand {
+  id: string;
+  label: string;
+}
+
 export interface RemotePanel {
   id: string;
   name: string;
   title: string;
   actions: PanelAction[];
+  version?: string;
+  commands: PanelCommand[];
 }
 
 export interface TimelineSnapshot {

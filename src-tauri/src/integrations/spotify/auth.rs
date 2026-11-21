@@ -34,6 +34,14 @@ pub struct Auth {
 
 impl Auth {
     pub fn load(app: &tauri::AppHandle) -> Result<Self, String> {
+        Self::load_profile(app, true)
+    }
+
+    pub fn load_isolated(app: &tauri::AppHandle) -> Result<Self, String> {
+        Self::load_profile(app, false)
+    }
+
+    fn load_profile(app: &tauri::AppHandle, credentials: bool) -> Result<Self, String> {
         let config_dir = app
             .path()
             .app_config_dir()
@@ -43,8 +51,8 @@ impl Auth {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok())
             .unwrap_or_default();
-        let tokens = crate::credentials::read(CREDENTIAL_TARGET)
-            .ok()
+        let tokens = credentials
+            .then(|| crate::credentials::read(CREDENTIAL_TARGET).ok().flatten())
             .flatten()
             .and_then(|bytes| serde_json::from_slice::<Tokens>(&bytes).ok());
         let configured = !config.client_id.is_empty();

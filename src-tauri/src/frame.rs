@@ -572,6 +572,7 @@ async fn phone_panels(
 struct PanelActionRequest {
     id: String,
     action: String,
+    version: Option<String>,
 }
 
 async fn phone_panel_action(
@@ -581,7 +582,7 @@ async fn phone_panel_action(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     same_origin(&headers)?;
     phone_authorized(&app, &headers)?;
-    server::phone_panel_action(&app, request.id, request.action)
+    server::phone_panel_action(&app, request.id, request.action, request.version)
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)

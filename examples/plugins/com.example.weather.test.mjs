@@ -71,8 +71,8 @@ function createPage(options = {}) {
   const identity = options.identity ?? {
     id: "com.example.weather",
     name: "Weather",
-    version: "1.0.0",
-    apiVersion: 2,
+    version: "1.1.0",
+    apiVersion: 3,
     runtime: "isolated-ui",
     surface: "desktop",
   };
@@ -127,6 +127,11 @@ function createPage(options = {}) {
     calls,
     pending,
     press,
+    command(name) {
+      const listener = listeners.get("luma:command");
+      assert.ok(listener, "the package listens for Home commands");
+      listener({ detail: { command: name } });
+    },
     click: id => nodes.get(id).listeners.get("click")(),
     netCalls: () => calls.filter(call => call.args.op === "net.get"),
     callsFor: op => calls.filter(call => call.args.op === op),
@@ -168,7 +173,7 @@ test("the package reads its identity, settings, and readiness before one weather
   assert.deepEqual(page.callsFor("surface.ready"), [
     { command: "extension_bridge", args: { op: "surface.ready" } },
   ]);
-  assert.equal(page.node("identity").textContent, "com.example.weather 1.0.0 · API 2");
+  assert.equal(page.node("identity").textContent, "com.example.weather 1.1.0 · API 3");
   assert.equal(page.node("surface").dataset.state, "loading");
   assert.equal(page.node("state").textContent, "Loading");
   assert.equal(page.node("place").textContent, "Seattle");
@@ -301,6 +306,21 @@ test("refresh never overlaps an in-flight request", async () => {
   assert.equal(page.netCalls().length, 2);
 });
 
+test("openForecast commands never add a second forecast request", async () => {
+  const page = await settled();
+  assert.equal(page.netCalls().length, 1);
+  page.command("openForecast");
+  assert.equal(page.netCalls().length, 1);
+  page.resolveNet(payload());
+  await flush();
+  assert.equal(page.node("temperature").textContent, "11°C");
+
+  page.command("openForecast");
+  page.command("somethingElse");
+  assert.equal(page.netCalls().length, 1);
+  assert.equal(page.node("temperature").textContent, "11°C");
+});
+
 test("focus stays on controls and Escape or BrowserBack closes the host surface", async () => {
   const page = await settled();
   assert.equal(page.document.activeElement, page.node("refresh"));
@@ -327,7 +347,12 @@ test("the package markup uses relative assets and a non-navigating attribution",
 });
 
 test("the example manifest declares only the public runtime bridge it needs", () => {
-  assert.equal(manifest.apiVersion, 2);
+  assert.equal(manifest.apiVersion, 3);
+  assert.equal(manifest.minHostVersion, "0.8.0");
+  assert.deepEqual(manifest.contributes, {
+    commands: ["openForecast"],
+    cards: [{ id: "forecast", title: "Weather", command: "openForecast" }],
+  });
   assert.deepEqual(manifest.runtime, { kind: "isolated-ui", entry: "ui/index.html" });
   assert.deepEqual(manifest.permissions, ["settings.read", "network.get"]);
   assert.deepEqual(manifest.network, { allow: ["https://api.open-meteo.com"] });
@@ -337,4 +362,5 @@ test("the example manifest declares only the public runtime bridge it needs", ()
   assert.equal(source.includes("weather_read"), false);
   assert.equal(source.includes("extension_spike_action"), false);
   assert.equal(source.includes("fetch("), false);
+  assert.ok(source.indexOf('"luma:command"') < source.lastIndexOf("initialize();"));
 });

@@ -71,7 +71,13 @@ const APP_IDS: [&str; 16] = [
     "Peacock",
     "Custom",
 ];
-const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 5] = [
+    "bar",
+    "top-left",
+    "top-right",
+    "bottom-right",
+    "bottom-left",
+];
 
 type BackendFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
@@ -99,9 +105,11 @@ impl Backend for AppBackend {
     fn read<'a>(&'a self) -> BackendFuture<'a, Option<Document>> {
         let app = self.0.clone();
         Box::pin(async move {
-            tauri::async_runtime::spawn_blocking(move || app.state::<super::Store>().read_effective())
-                .await
-                .map_err(|error| failure("storage", error))?
+            tauri::async_runtime::spawn_blocking(move || {
+                app.state::<super::Store>().read_effective()
+            })
+            .await
+            .map_err(|error| failure("storage", error))?
         })
     }
 
@@ -185,7 +193,8 @@ impl Backend for AppBackend {
         Box::pin(async move {
             tauri::async_runtime::spawn_blocking(move || {
                 let store = app.state::<super::Store>();
-                let preview = store.preview_plugin_settings(&plugin_id, expected_revision, &values)?;
+                let preview =
+                    store.preview_plugin_settings(&plugin_id, expected_revision, &values)?;
                 super::publish_preview(&app);
                 Ok(preview)
             })
@@ -1263,15 +1272,28 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                 Ok(state) => state,
                 Err(error) => return tool_failure(error),
             };
-            let Some(record) = state.plugins.iter().find(|plugin| plugin.id == arguments.plugin_id) else {
+            let Some(record) = state
+                .plugins
+                .iter()
+                .find(|plugin| plugin.id == arguments.plugin_id)
+            else {
                 return tool_failure(failure(
                     "plugin_missing",
                     "That plugin is not installed. Stage the plugin first.",
                 ));
             };
-            let declared: Vec<&str> = record.settings.iter().map(|setting| setting.key.as_str()).collect();
+            let declared: Vec<&str> = record
+                .settings
+                .iter()
+                .map(|setting| setting.key.as_str())
+                .collect();
             for key in arguments.settings.keys() {
-                if !declared.contains(&key.as_str()) && !record.settings.iter().any(|setting| &setting.qualified_key == key) {
+                if !declared.contains(&key.as_str())
+                    && !record
+                        .settings
+                        .iter()
+                        .any(|setting| &setting.qualified_key == key)
+                {
                     return tool_failure(failure(
                         "plugin_settings",
                         format!("{} does not declare a setting named {key}.", record.name),
@@ -1280,7 +1302,10 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
             }
             let mut values = BTreeMap::new();
             for (key, value) in arguments.settings {
-                let key = key.rsplit_once('.').map(|(_, key)| key.to_string()).unwrap_or(key);
+                let key = key
+                    .rsplit_once('.')
+                    .map(|(_, key)| key.to_string())
+                    .unwrap_or(key);
                 values.insert(key, value);
             }
             let visible = match server.backend.launcher_visible().await {
@@ -1488,6 +1513,7 @@ fn failure(code: &'static str, message: impl ToString) -> Error {
     Error {
         code,
         message: message.to_string(),
+        path: None,
     }
 }
 
@@ -1907,7 +1933,8 @@ fn capabilities() -> Value {
                 "supported": true,
                 "declarative": true,
                 "executable": true,
-                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts."
+                "homeCards": true,
+                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts. API version 3 isolated-ui packages can register host-rendered Home cards and paired-phone panels backed by on-demand commands."
             },
             "plugins": {
                 "supported": true,
@@ -1916,7 +1943,16 @@ fn capabilities() -> Value {
                 "settingTypes": ["boolean", "enum", "number", "string"],
                 "apiVersions": {
                     "declarative": plugin::API_VERSION,
-                    "executable": plugin::EXECUTABLE_API_VERSION
+                    "executable": plugin::EXECUTABLE_API_VERSION,
+                    "homeCards": plugin::HOME_API_VERSION
+                },
+                "homeCards": {
+                    "apiVersion": plugin::HOME_API_VERSION,
+                    "hostVersion": plugin::HOST_VERSION,
+                    "manifest": "Requires minHostVersion, an isolated-ui runtime, unique contributes.commands, and one or more contributes.cards that each reference a declared command.",
+                    "projection": "Only enabled, compatible, granted packages with a matching grant version are projected. Rendering Home never starts a runtime.",
+                    "dispatch": "Selecting a card invokes customization_plugin_command. The host rechecks the enabled package, declared command, installed version, and grant, starts the isolated-ui runtime on demand, waits for surface.ready, and delivers the command through the bridge.",
+                    "remote": "An API version 3 package may also declare remote.commands with host-rendered labels. Only commands declared by the same package and listed in the current panel are accepted. A paired phone action rechecks pairing, the current panel, the command, and the grant, then starts a hidden on-demand runtime without opening or focusing a desktop surface."
                 },
                 "runtimes": {
                     "supported": ["declarative", "isolated-ui", "background"],
@@ -2084,6 +2120,8 @@ Luma is a Windows TV launcher. Use MCP to inspect the committed customization, v
 5. Tell the user to open Luma > Settings > Plugins > Installed plugins and press Preview and enable, then Keep. No MCP tool can enable it.\n\n\
 ## Plugin settings\n\n\
 A manifest can declare boolean, enum, number, or string settings with validated defaults. Bind settings to supported fields, for example `theme: {\"setting\":\"theme\"}`, `homeColumns: {\"setting\":\"columns\"}`, or `home.rows.featured.visible: {\"setting\":\"showFeatured\"}`. Stage new values with `luma_plugin_settings_stage`; the user must press Keep. Settings for disabled plugins remain stored and apply again when the plugin is enabled.\n\n\
+## Home card packages\n\n\
+An isolated-ui package can use `apiVersion: 3` with `minHostVersion`, `contributes.commands`, and one or more `contributes.cards`. Each card references a command declared by the same package. The host renders the card and starts the package only when the user selects it; rendering Home never starts a runtime. The user approves the on-demand runtime grant in Settings > Plugins. The same package can declare `remote.commands` with host-rendered labels for a paired phone; each entry must reference a command declared by the package.\n\n\
 ## Examples\n\n\
 ### Change the theme\n\n\
 Read the current document. Change only `config.theme` to a value listed by `luma_capabilities_get`. Keep every other field unchanged, including the full `home` array and `order`. Validate and preview the complete document.\n\n\
@@ -2099,7 +2137,7 @@ Read the current document. Reorder `config.order` so every app appears exactly o
 - Use `luma_candidate_cancel` only for the preview returned to this grant. Never try to cancel a review created in Luma.\n\
 - Revoking or rotating access stops the next request and cancels this grant's pending preview.\n\
 - Report validation and revision errors exactly. Re-read the current configuration before retrying after a conflict.\n\
-- Executable plugin runtimes are not supported in production. An `isolated-ui` package uses `apiVersion: 2` and declares exact `permissions` plus, for `network.get`, a `network.allow` list. It still installs disabled, cannot be enabled, and is never executed by Luma. A development-only harness may load an installed package when explicitly enabled outside MCP.\n\
+- Executable plugin runtimes require explicit user approval in Settings > Plugins. An `isolated-ui` package uses `apiVersion: 2`, or `apiVersion: 3` for Home cards and commands, and declares exact `permissions` plus, for `network.get`, a `network.allow` list. It installs disabled; only the user can approve its permissions, network origins, and trigger. API version 3 packages use the on-demand trigger and start only when the user selects their Home card or a paired-phone panel command.\n\
 - Do not ask for or print tokens, passwords, pairing codes, or account credentials. Luma never returns them through these tools.\n"
 }
 
@@ -2319,6 +2357,7 @@ mod tests {
                 Ok(plugin::PluginsState {
                     plugins: Vec::new(),
                     effective: config,
+                    home_cards: Vec::new(),
                 })
             })
         }
@@ -2327,7 +2366,10 @@ mod tests {
             Box::pin(async move { Ok(json!({ "valid": true })) })
         }
 
-        fn stage_plugin<'a>(&'a self, _submission: Value) -> BackendFuture<'a, plugin::ImportResult> {
+        fn stage_plugin<'a>(
+            &'a self,
+            _submission: Value,
+        ) -> BackendFuture<'a, plugin::ImportResult> {
             Box::pin(async move {
                 Err(failure(
                     "storage",
@@ -2535,9 +2577,12 @@ mod tests {
         assert!(names.contains(&"luma_plugin_settings_stage"));
         assert!(names.contains(&"luma_plugins_list"));
         assert!(!names.iter().any(|name| {
-            ["keep", "commit", "restore", "reset", "launch", "install", "enable", "remove", "export"]
-                .iter()
-                .any(|word| name.contains(word))
+            [
+                "keep", "commit", "restore", "reset", "launch", "install", "enable", "remove",
+                "export",
+            ]
+            .iter()
+            .any(|word| name.contains(word))
         }));
         assert!(value["result"]["resultType"].is_null());
 
@@ -2584,7 +2629,10 @@ mod tests {
             7
         );
         assert_eq!(capabilities["layers"]["plugins"]["supported"], true);
-        assert_eq!(capabilities["layers"]["plugins"]["runtimes"]["supported"][0], "declarative");
+        assert_eq!(
+            capabilities["layers"]["plugins"]["runtimes"]["supported"][0],
+            "declarative"
+        );
 
         let read = json!({
             "jsonrpc": "2.0",

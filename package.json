@@ -3,7 +3,11 @@
   "private": true,
   "version": "0.8.0",
   "type": "module",
+  "bin": {
+    "luma-plugin": "cli/luma-plugin.mjs"
+  },
   "scripts": {
+    "plugin": "node cli/luma-plugin.mjs",
     "version:set": "node scripts/version.mjs",
     "dev": "vite",
     "predev": "node scripts/sweep.mjs",

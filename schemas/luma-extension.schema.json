@@ -1,0 +1,739 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://luma.local/schemas/luma-extension.schema.json",
+  "title": "Luma plugin manifest",
+  "description": "Editor completion for luma-extension.json across API versions 1, 2, and 3. Luma's Rust manifest and archive validators remain authoritative for file existence, package limits, and cross-field rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "apiVersion"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 96,
+      "pattern": "^(?!core(?:\\.|$))[a-z0-9_-]{1,32}(?:\\.[a-z0-9_-]{1,32})+$",
+      "description": "Lowercase vendor-qualified id such as com.example.pack. The core namespace is reserved."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "\\S"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "minHostVersion": {
+      "$ref": "#/$defs/version"
+    },
+    "apiVersion": {
+      "enum": [1, 2, 3]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "settings": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "$ref": "#/$defs/setting"
+      }
+    },
+    "contributes": {
+      "$ref": "#/$defs/contributions"
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtime"
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/permission"
+      }
+    },
+    "network": {
+      "$ref": "#/$defs/network"
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "source": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "remote": {
+      "$ref": "#/$defs/remote"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          }
+        },
+        "required": ["apiVersion"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "minHostVersion": false,
+          "runtime": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "declarative"
+              },
+              "entry": false
+            }
+          },
+          "permissions": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "network": false,
+          "contributes": {
+            "type": "object",
+            "properties": {
+              "cards": false,
+              "commands": false
+            }
+          },
+          "remote": {
+            "type": "object",
+            "properties": {
+              "commands": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        "anyOf": [
+          {
+            "type": "object",
+            "required": ["contributes"],
+            "properties": {
+              "contributes": {
+                "type": "object",
+                "minProperties": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["remote"],
+            "properties": {
+              "remote": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 2
+          }
+        },
+        "required": ["apiVersion"]
+      },
+      "then": {
+        "type": "object",
+        "required": ["runtime"],
+        "properties": {
+          "minHostVersion": false,
+          "runtime": {
+            "type": "object",
+            "required": ["kind", "entry"],
+            "properties": {
+              "kind": {
+                "enum": ["isolated-ui", "background"]
+              },
+              "entry": {
+                "$ref": "#/$defs/entry"
+              }
+            }
+          },
+          "contributes": {
+            "type": "object",
+            "maxProperties": 0
+          },
+          "remote": false
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 3
+          }
+        },
+        "required": ["apiVersion"]
+      },
+      "then": {
+        "type": "object",
+        "required": ["runtime", "minHostVersion", "contributes"],
+        "properties": {
+          "runtime": {
+            "type": "object",
+            "required": ["kind", "entry"],
+            "properties": {
+              "kind": {
+                "const": "isolated-ui"
+              },
+              "entry": {
+                "$ref": "#/$defs/entry"
+              }
+            }
+          },
+          "contributes": {
+            "type": "object",
+            "required": ["cards", "commands"],
+            "properties": {
+              "theme": false,
+              "density": false,
+              "appTileShape": false,
+              "textSize": false,
+              "reducedMotion": false,
+              "homeColumns": false,
+              "home": false,
+              "widgets": false,
+              "order": false,
+              "cards": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {
+                  "$ref": "#/$defs/homeCard"
+                }
+              },
+              "commands": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/localId"
+                }
+              }
+            }
+          },
+          "remote": {
+            "type": "object",
+            "properties": {
+              "actions": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "commands": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                  "$ref": "#/$defs/remoteCommand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["permissions"],
+        "properties": {
+          "permissions": {
+            "type": "array",
+            "contains": {
+              "const": "network.get"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["network"]
+      },
+      "else": {
+        "not": {
+          "required": ["network"]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "version": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$"
+    },
+    "localId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-z][A-Za-z0-9_-]{0,31}$"
+    },
+    "homeCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "command"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "\\S"
+        },
+        "command": {
+          "$ref": "#/$defs/localId"
+        }
+      }
+    },
+    "permission": {
+      "enum": ["settings.read", "network.get", "playback.read", "playback.control"]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.?($|/))(?!.*[<>:\"|?*])[^\\\\]+$",
+      "description": "Package-relative forward-slash path. Rust also rejects reserved Windows names, trailing dots or spaces, and executable extensions."
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 120,
+      "pattern": "^.+\\.([hH][tT][mM][lL])$",
+      "description": "Package-relative HTML entry for an executable runtime."
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "type", "default"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "type": {
+          "enum": ["boolean", "enum", "number", "string"]
+        },
+        "default": {},
+        "options": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/settingOption"
+          }
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "integer": {
+          "type": "boolean"
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "boolean"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "default": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "enum"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "required": ["options"],
+            "properties": {
+              "default": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "number"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "default": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "default": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "settingOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["declarative", "isolated-ui", "background", "main-page"]
+        },
+        "entry": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow"],
+      "properties": {
+        "allow": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?:\\.[A-Za-z]{2,63})$",
+            "description": "Public HTTPS origin without a path, port, or credentials. Rust rejects IP literals, loopback, and private-network hosts."
+          }
+        }
+      }
+    },
+    "remote": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["playback.toggle", "playback.next", "playback.previous"]
+          }
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/remoteCommand"
+          }
+        }
+      }
+    },
+    "remoteCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "label"],
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/localId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "contributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "theme": {
+          "$ref": "#/$defs/themeBound"
+        },
+        "density": {
+          "$ref": "#/$defs/densityBound"
+        },
+        "appTileShape": {
+          "$ref": "#/$defs/tileShapeBound"
+        },
+        "textSize": {
+          "$ref": "#/$defs/textSizeBound"
+        },
+        "reducedMotion": {
+          "$ref": "#/$defs/booleanBound"
+        },
+        "homeColumns": {
+          "$ref": "#/$defs/homeColumnsBound"
+        },
+        "home": {
+          "$ref": "#/$defs/home"
+        },
+        "widgets": {
+          "$ref": "#/$defs/widgets"
+        },
+        "order": {
+          "$ref": "#/$defs/homeOrder"
+        },
+        "cards": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/homeCard"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/localId"
+          }
+        }
+      }
+    },
+    "settingBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setting"],
+      "properties": {
+        "setting": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9_-]{0,63}$"
+        }
+      }
+    },
+    "booleanBound": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "themeBound": {
+      "oneOf": [
+        {
+          "enum": ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx"]
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "densityBound": {
+      "oneOf": [
+        {
+          "enum": ["comfortable", "compact"]
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "tileShapeBound": {
+      "oneOf": [
+        {
+          "enum": ["wide", "square"]
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "textSizeBound": {
+      "oneOf": [
+        {
+          "enum": ["standard", "large", "larger"]
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "homeColumnsBound": {
+      "oneOf": [
+        {
+          "enum": [1, 2]
+        },
+        {
+          "$ref": "#/$defs/settingBinding"
+        }
+      ]
+    },
+    "homeOrder": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/homeComponent"
+      }
+    },
+    "homeComponent": {
+      "enum": ["hero", "continue", "apps", "popular", "featured", "recent", "recentApps"]
+    },
+    "home": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "$ref": "#/$defs/homeOrder"
+        },
+        "rows": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/homeComponent"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/homeRow"
+          }
+        }
+      }
+    },
+    "homeRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "visible": {
+          "$ref": "#/$defs/booleanBound"
+        },
+        "span": {
+          "oneOf": [
+            {
+              "enum": [1, 2]
+            },
+            {
+              "$ref": "#/$defs/settingBinding"
+            }
+          ]
+        }
+      }
+    },
+    "widgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spotifyEnabled": {
+          "$ref": "#/$defs/booleanBound"
+        },
+        "spotifyPlacement": {
+          "oneOf": [
+            {
+              "enum": ["bar", "top-left", "top-right", "bottom-right", "bottom-left"]
+            },
+            {
+              "$ref": "#/$defs/settingBinding"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

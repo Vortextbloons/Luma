@@ -328,6 +328,28 @@ test('Home replacement restores the same instance/item and preserves focus acros
   } finally { f.cleanup(); }
 });
 
+test('a removed plugin card keeps focus nearby when its section changes or disappears', () => {
+  const f = homeFocusFixture();
+  try {
+    const plugins = f.row('plugins');
+    const card = f.button(plugins, 'com.example.weather:forecast');
+    const nextCard = f.button(plugins, 'com.example.other:card');
+    card.focus();
+    card.isConnected = false;
+    f.notify();
+    assert.equal(f.doc.activeElement, nextCard);
+
+    const apps = f.row('apps');
+    const app = f.button(apps, 'Spotify');
+    nextCard.focus();
+    nextCard.isConnected = false;
+    f.rows.splice(0, 1);
+    f.doc.activeElement = f.doc.body;
+    f.notify();
+    assert.equal(f.doc.activeElement, app);
+  } finally { f.cleanup(); }
+});
+
 test('Home removal chooses a nearby usable row and falls back to core navigation', () => {
   const f = homeFocusFixture();
   try {

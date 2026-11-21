@@ -5,7 +5,7 @@
   import { panelActionEnabled, panelActionLabel, normalizePanels } from "../lib/panels";
   import { applyMusic, session, showPairing } from "../lib/session.svelte";
   import { say } from "../lib/toast.svelte";
-  import type { PanelAction, RemotePanel } from "../lib/types";
+  import type { PanelAction, PanelCommand, RemotePanel } from "../lib/types";
 
   let { open = false, onclose }: { open?: boolean; onclose: () => void } = $props();
 
@@ -52,10 +52,19 @@
 
   async function run(panel: RemotePanel, action: PanelAction): Promise<void> {
     if (busy) return;
+    await send(panel, action);
+  }
+
+  async function runCommand(panel: RemotePanel, command: PanelCommand): Promise<void> {
+    if (busy) return;
+    await send(panel, command.id);
+  }
+
+  async function send(panel: RemotePanel, action: string): Promise<void> {
     busy = `${panel.id}:${action}`;
     feedback = "";
     try {
-      const { response, data } = await api.panelAction(panel.id, action);
+      const { response, data } = await api.panelAction(panel.id, action, panel.version);
       if (response.status === 401) {
         close();
         showPairing("This remote is no longer paired. Choose Connect in Luma for a new code.");
@@ -66,10 +75,24 @@
         return;
       }
       if (data?.music !== undefined) applyMusic(data.music ?? null);
-      if (data?.accepted) return;
+      if (data?.accepted) {
+        if (panel.version) feedback = "Command sent.";
+        return;
+      }
+      if (data?.status === "pending") {
+        say(data.error || "The plugin is starting. Try again in a moment.");
+        return;
+      }
       feedback = data?.error || "That control is unavailable right now.";
       say(feedback, true);
-      if (data?.code === "plugin_missing" || data?.code === "plugin_disabled" || data?.code === "denied") {
+      if (
+        data?.code === "plugin_missing" ||
+        data?.code === "plugin_disabled" ||
+        data?.code === "plugin_denied" ||
+        data?.code === "plugin_command" ||
+        data?.code === "denied" ||
+        data?.code === "stale"
+      ) {
         void load();
       }
     } catch (_) {
@@ -129,13 +152,31 @@
             </div>
           </header>
 
-          <div class="panel-now">
-            <span class="panel-dot" class:is-playing={music?.playing} aria-hidden="true"></span>
-            <span class="panel-track">
-              <b>{music?.title ?? "Nothing is playing"}</b>
-              <small>{music?.artist ?? (music ? "Ready on the PC" : "Start music on the PC or TV")}</small>
-            </span>
-          </div>
+          {#if panel.actions.length || music}
+            <div class="panel-now">
+              <span class="panel-dot" class:is-playing={music?.playing} aria-hidden="true"></span>
+              <span class="panel-track">
+                <b>{music?.title ?? "Nothing is playing"}</b>
+                <small>{music?.artist ?? (music ? "Ready on the PC" : "Start music on the PC or TV")}</small>
+              </span>
+            </div>
+          {/if}
+
+          {#if panel.commands.length}
+            <div class="panel-actions" role="group" aria-label={`${panel.title} commands`}>
+              {#each panel.commands as command, index (command.id)}
+                <button
+                  type="button"
+                  class={{ 'is-primary': index === 0 }}
+                  disabled={busy !== ""}
+                  aria-busy={busy === `${panel.id}:${command.id}`}
+                  onclick={() => runCommand(panel, command)}
+                >
+                  <span>{busy === `${panel.id}:${command.id}` ? "Sending…" : command.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
 
           {#if panel.actions.length}
             <div class="panel-actions">
@@ -165,12 +206,12 @@
                 </button>
               {/each}
             </div>
-          {:else}
+          {:else if !panel.commands.length}
             <p class="panel-note">This plugin only shows playback on this remote.</p>
           {/if}
         </article>
       {/each}
-      <p class="panels-foot">Only declared playback controls appear here. Plugin settings stay on the PC.</p>
+      <p class="panels-foot">Only controls declared by enabled plugins appear here. Plugin pages stay on the PC.</p>
     {/if}
 
     {#if feedback}<p class="panels-feedback" role="status">{feedback}</p>{/if}
@@ -336,10 +377,21 @@
     flex: 1;
     place-items: center;
     min-height: 42px;
+    padding: 0 10px;
     border: 0;
     border-radius: 11px;
     background: rgba(255, 255, 255, .045);
     color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.25;
+    text-align: center;
+  }
+
+  .panel-actions button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .panel-actions button.is-primary {

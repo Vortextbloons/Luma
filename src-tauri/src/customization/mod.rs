@@ -20,14 +20,29 @@ use tauri::{Emitter, Manager};
 pub struct Error {
     pub code: &'static str,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl Error {
-    fn new(code: &'static str, message: impl ToString) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl ToString) -> Self {
         Self {
             code,
             message: message.to_string(),
+            path: None,
         }
+    }
+
+    pub(crate) fn at(mut self, path: impl ToString) -> Self {
+        self.path = Some(path.to_string());
+        self
+    }
+
+    fn field(mut self, path: impl ToString) -> Self {
+        if self.path.is_none() {
+            self.path = Some(path.to_string());
+        }
+        self
     }
 }
 
@@ -88,16 +103,15 @@ impl Store {
             .path()
             .app_config_dir()
             .map_err(|error| error.to_string())?;
-        let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        let data = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
         let plugins = data.join("plugins");
         std::fs::create_dir_all(&plugins).map_err(|error| error.to_string())?;
         if let Ok(entries) = std::fs::read_dir(&plugins) {
             for entry in entries.flatten() {
-                if entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".staging-")
-                {
+                if entry.file_name().to_string_lossy().starts_with(".staging-") {
                     let _ = std::fs::remove_dir_all(entry.path());
                 }
             }
@@ -124,11 +138,7 @@ impl Store {
         history::create(&connection)?;
         plugin::create(&connection)?;
         Self::migrate(&mut connection)?;
-        Ok(Self(
-            Ok(Mutex::new(connection)),
-            Mutex::new(None),
-            root,
-        ))
+        Ok(Self(Ok(Mutex::new(connection)), Mutex::new(None), root))
     }
 
     fn plugin_root(&self) -> Option<PathBuf> {
@@ -234,7 +244,10 @@ impl Store {
         let Some(document) = Self::current(&connection)? else {
             return Ok(None);
         };
-        Ok(Some(plugin::snapshot_for_connection(&connection, &document)?))
+        Ok(Some(plugin::snapshot_for_connection(
+            &connection,
+            &document,
+        )?))
     }
 
     pub fn snapshot(&self) -> Result<Option<Snapshot>, Error> {
@@ -329,7 +342,12 @@ impl Store {
         let requested = edit(effective.clone())?;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
+        let document = Self::write(
+            &transaction,
+            &current,
+            prepared.base.clone(),
+            prepared.force,
+        )?;
         transaction.commit()?;
         Ok(document)
     }
@@ -430,7 +448,12 @@ impl Store {
         requested.home_columns = previous.effective.home_columns;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
+        let document = Self::write(
+            &transaction,
+            &current,
+            prepared.base.clone(),
+            prepared.force,
+        )?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -497,7 +520,12 @@ impl Store {
         requested.widgets = defaults.widgets;
         let prepared = plugin::prepare(&transaction, &current.config, &effective, &requested)?;
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
+        let document = Self::write(
+            &transaction,
+            &current,
+            prepared.base.clone(),
+            prepared.force,
+        )?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -559,7 +587,11 @@ impl Store {
         Ok(candidate)
     }
 
-    pub fn preview_plugin(&self, plugin_id: &str, expected_revision: u64) -> Result<Preview, Error> {
+    pub fn preview_plugin(
+        &self,
+        plugin_id: &str,
+        expected_revision: u64,
+    ) -> Result<Preview, Error> {
         let mut preview = self
             .1
             .lock()
@@ -589,10 +621,7 @@ impl Store {
             .into_iter()
             .find(|plugin| plugin.id == plugin_id)
             .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
-        let reattach = matches!(
-            action,
-            plugin::PluginAction::Enable { reattach: true, .. }
-        );
+        let reattach = matches!(action, plugin::PluginAction::Enable { reattach: true, .. });
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|error| Error::new("storage", error))?;
         let candidate = Preview {
@@ -641,8 +670,10 @@ impl Store {
                 "Customization changed elsewhere. Read it again before staging settings.",
             ));
         }
-        let map: serde_json::Map<String, serde_json::Value> =
-            values.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+        let map: serde_json::Map<String, serde_json::Value> = values
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
         let (config, action) =
             plugin::prepare_settings(&connection, &current.config, plugin_id, &map)?;
         let record = plugin::state(&connection, &current.config)?
@@ -702,14 +733,14 @@ impl Store {
             *preview = None;
             return Ok(document);
         }
-        let prepared = candidate.prepared.clone().ok_or_else(|| {
-            Error::new("preview_mismatch", "This preview has no pending change.")
-        })?;
+        let prepared = candidate
+            .prepared
+            .clone()
+            .ok_or_else(|| Error::new("preview_mismatch", "This preview has no pending change."))?;
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
-        let current = Self::current(&transaction)?.ok_or_else(|| {
-            Error::new("not_initialized", "Customization is not initialized.")
-        })?;
+        let current = Self::current(&transaction)?
+            .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
         if current.revision != candidate.base_revision {
             return Err(Error::new(
                 "preview_mismatch",
@@ -717,7 +748,12 @@ impl Store {
             ));
         }
         plugin::apply_prepared(&transaction, &prepared)?;
-        let document = Self::write(&transaction, &current, prepared.base.clone(), prepared.force)?;
+        let document = Self::write(
+            &transaction,
+            &current,
+            prepared.base.clone(),
+            prepared.force,
+        )?;
         transaction.commit()?;
         *preview = None;
         Ok(document)
@@ -757,6 +793,7 @@ pub fn publish(app: &tauri::AppHandle, document: &Document) {
         let _ = app.emit_to("main", "customization-plugins-changed", plugins);
     }
     crate::background::refresh_plugin_menu(app);
+    crate::extension_spike::settings_changed(app);
     publish_preview(app);
 }
 
@@ -946,7 +983,9 @@ pub async fn customization_commit(
 }
 
 #[tauri::command]
-pub async fn customization_plugins_read(app: tauri::AppHandle) -> Result<plugin::PluginsState, Error> {
+pub async fn customization_plugins_read(
+    app: tauri::AppHandle,
+) -> Result<plugin::PluginsState, Error> {
     plugin::state_for_app(&app)
 }
 
@@ -985,6 +1024,24 @@ pub async fn customization_plugin_open_surface(
         .map_err(|message| Error::new("plugin_surface", message))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandOutcome {
+    pub delivered: bool,
+}
+
+#[tauri::command]
+pub async fn customization_plugin_command(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    command_id: String,
+) -> Result<CommandOutcome, Error> {
+    crate::extension_spike::dispatch_command(&app, &plugin_id, &command_id)
+        .await
+        .map_err(|error| Error::new(error.code, error.message))?;
+    Ok(CommandOutcome { delivered: true })
+}
+
 #[tauri::command]
 pub async fn customization_plugin_preview(
     app: tauri::AppHandle,
@@ -1000,7 +1057,8 @@ pub async fn customization_plugin_preview(
         ));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let preview = plugin::command_preview(&app.state::<Store>(), &plugin_id, expected_revision)?;
+        let preview =
+            plugin::command_preview(&app.state::<Store>(), &plugin_id, expected_revision)?;
         let visible = app.get_webview_window("main").is_some_and(|window| {
             window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
         });
@@ -1078,7 +1136,12 @@ pub async fn customization_plugin_remove(
     let remove_app = app.clone();
     let remove_id = plugin_id.clone();
     let state = tauri::async_runtime::spawn_blocking(move || {
-        plugin::command_remove(&remove_app.state::<Store>(), &remove_id, expected_revision, delete_data)?;
+        plugin::command_remove(
+            &remove_app.state::<Store>(),
+            &remove_id,
+            expected_revision,
+            delete_data,
+        )?;
         if !delete_data {
             crate::extension_spike::invalidate(&remove_app, &remove_id);
         }
@@ -1129,16 +1192,32 @@ mod tests {
     #[test]
     fn saved_app_order_adds_leagues_without_resetting_existing_apps() {
         let mut config = Config::default();
-        config.order.retain(|id| !["NBA", "NFL", "MLB", "NHL"].contains(&id.as_str()));
+        config
+            .order
+            .retain(|id| !["NBA", "NFL", "MLB", "NHL"].contains(&id.as_str()));
         config.order.swap(0, 4);
         let previous = config.order.clone();
-        let raw = serde_json::to_string(&Document { version: 3, revision: 7, config }).unwrap();
+        let raw = serde_json::to_string(&Document {
+            version: 3,
+            revision: 7,
+            config,
+        })
+        .unwrap();
         let document = Store::decode(&raw).unwrap();
         assert_eq!(document.revision, 7);
-        assert_eq!(&document.config.order[..previous.len() - 1], &previous[..previous.len() - 1]);
-        assert_eq!(&document.config.order[previous.len() - 1..], &["NBA", "NFL", "MLB", "NHL", "Custom"]);
+        assert_eq!(
+            &document.config.order[..previous.len() - 1],
+            &previous[..previous.len() - 1]
+        );
+        assert_eq!(
+            &document.config.order[previous.len() - 1..],
+            &["NBA", "NFL", "MLB", "NHL", "Custom"]
+        );
         document::validate(&document.config).unwrap();
-        assert_eq!(Store::decode(&serde_json::to_string(&document).unwrap()).unwrap(), document);
+        assert_eq!(
+            Store::decode(&serde_json::to_string(&document).unwrap()).unwrap(),
+            document
+        );
     }
 
     #[test]

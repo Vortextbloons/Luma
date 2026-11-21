@@ -19,6 +19,8 @@ mod archive;
 
 pub const API_VERSION: u32 = 1;
 pub const EXECUTABLE_API_VERSION: u32 = 2;
+pub const HOME_API_VERSION: u32 = 3;
+pub const HOST_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const SCHEMA_RESOURCE: &str = "luma://plugins/schema";
 pub const EXAMPLE_RESOURCE: &str = "luma://plugins/example";
 const MAX_ARCHIVE_BYTES: u64 = 8 * 1024 * 1024;
@@ -37,7 +39,13 @@ const MAX_PERMISSIONS: usize = 8;
 const MAX_NETWORK_ORIGINS: usize = 8;
 const MAX_ORIGIN_BYTES: usize = 128;
 const MAX_REMOTE_ACTIONS: usize = 3;
+const MAX_REMOTE_COMMANDS: usize = 3;
 const MAX_REMOTE_TITLE: usize = 48;
+const MAX_REMOTE_LABEL: usize = 32;
+const MAX_HOME_CARDS: usize = 8;
+const MAX_COMMANDS: usize = 8;
+const MAX_CARD_TITLE: usize = 48;
+const MAX_LOCAL_ID: usize = 32;
 const BUILTIN_THEMES: [&str; 6] = [
     "violet-night",
     "sapphire",
@@ -58,7 +66,13 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
-const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 5] = [
+    "bar",
+    "top-left",
+    "top-right",
+    "bottom-right",
+    "bottom-left",
+];
 pub const FIELDS: [&str; 9] = [
     "theme",
     "density",
@@ -78,6 +92,8 @@ pub struct Manifest {
     pub name: String,
     pub version: String,
     pub api_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_host_version: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -141,6 +157,7 @@ impl Permission {
 #[serde(rename_all = "kebab-case")]
 pub enum Trigger {
     LauncherOpen,
+    OnDemand,
     Startup,
     Always,
 }
@@ -149,6 +166,7 @@ impl Trigger {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::LauncherOpen => "launcher-open",
+            Self::OnDemand => "on-demand",
             Self::Startup => "startup",
             Self::Always => "always",
         }
@@ -156,16 +174,23 @@ impl Trigger {
 
     pub(crate) fn supports(self, kind: RuntimeKind) -> bool {
         match kind {
-            RuntimeKind::IsolatedUi => matches!(self, Self::LauncherOpen),
-            RuntimeKind::Background => true,
+            RuntimeKind::IsolatedUi => matches!(self, Self::LauncherOpen | Self::OnDemand),
+            RuntimeKind::Background => {
+                matches!(self, Self::LauncherOpen | Self::Startup | Self::Always)
+            }
             RuntimeKind::Declarative | RuntimeKind::MainPage => false,
         }
     }
 
     pub(crate) fn parse(value: &str) -> Option<Self> {
-        [Self::LauncherOpen, Self::Startup, Self::Always]
-            .into_iter()
-            .find(|trigger| trigger.label() == value)
+        [
+            Self::LauncherOpen,
+            Self::OnDemand,
+            Self::Startup,
+            Self::Always,
+        ]
+        .into_iter()
+        .find(|trigger| trigger.label() == value)
     }
 }
 
@@ -176,6 +201,15 @@ pub struct RemoteContribution {
     pub title: String,
     #[serde(default)]
     pub actions: Vec<RemoteAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<RemoteCommandContribution>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteCommandContribution {
+    pub command: String,
+    pub label: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +257,17 @@ pub(crate) struct RemotePanel {
     pub name: String,
     pub title: String,
     pub actions: Vec<RemoteAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<RemotePanelCommand>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemotePanelCommand {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,9 +298,29 @@ pub struct Contributions {
     pub widgets: Option<WidgetContribution>,
     #[serde(default)]
     pub order: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<HomeCardContribution>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
 }
 
 impl Contributions {
+    fn has_appearance(&self) -> bool {
+        self.theme.is_some()
+            || self.density.is_some()
+            || self.app_tile_shape.is_some()
+            || self.text_size.is_some()
+            || self.reduced_motion.is_some()
+            || self.home_columns.is_some()
+            || self.home.is_some()
+            || self.widgets.is_some()
+            || self.order.is_some()
+    }
+
+    fn has_cards(&self) -> bool {
+        !self.cards.is_empty() || !self.commands.is_empty()
+    }
+
     fn fields(&self) -> BTreeSet<&'static str> {
         let mut fields = BTreeSet::new();
         if self.theme.is_some() {
@@ -278,9 +343,10 @@ impl Contributions {
         }
         if self.home.as_ref().is_some_and(|home| {
             home.order.is_some()
-                || home.rows.values().any(|row| {
-                    row.visible.is_some() || row.span.is_some()
-                })
+                || home
+                    .rows
+                    .values()
+                    .any(|row| row.visible.is_some() || row.span.is_some())
         }) {
             fields.insert("home");
         }
@@ -316,6 +382,14 @@ pub struct HomeRowContribution {
     pub visible: Option<Bound<bool>>,
     #[serde(default)]
     pub span: Option<Bound<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HomeCardContribution {
+    pub id: String,
+    pub title: String,
+    pub command: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -477,11 +551,21 @@ pub struct PluginRecord {
     pub assets: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCard {
+    pub id: String,
+    pub plugin_id: String,
+    pub title: String,
+    pub command_id: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginsState {
     pub plugins: Vec<PluginRecord>,
     pub effective: Config,
+    pub home_cards: Vec<HomeCard>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -518,8 +602,14 @@ pub(crate) struct Detach {
 
 #[derive(Clone, Debug)]
 pub(crate) enum PluginAction {
-    Enable { plugin_id: String, reattach: bool },
-    Settings { plugin_id: String, values: BTreeMap<String, Value> },
+    Enable {
+        plugin_id: String,
+        reattach: bool,
+    },
+    Settings {
+        plugin_id: String,
+        values: BTreeMap<String, Value>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -560,6 +650,24 @@ impl StoredPlugin {
         match self.manifest.runtime.kind {
             RuntimeKind::Declarative => None,
             RuntimeKind::IsolatedUi | RuntimeKind::Background => {
+                if self.manifest.api_version == HOME_API_VERSION {
+                    if self.manifest.runtime.kind != RuntimeKind::IsolatedUi {
+                        return Some(
+                            "API version 3 Home cards require the isolated-ui runtime. Background runtimes are not supported with commands yet."
+                                .to_string(),
+                        );
+                    }
+                    return match self.manifest.min_host_version.as_deref() {
+                        Some(required) if host_supports(required) => None,
+                        Some(required) => Some(format!(
+                            "This plugin requires Luma {required} or newer. Update Luma to enable it."
+                        )),
+                        None => Some(
+                            "This package does not declare a Luma host version. Reinstall a compatible package."
+                                .to_string(),
+                        ),
+                    };
+                }
                 (self.manifest.api_version != EXECUTABLE_API_VERSION).then(|| {
                     "This package targets an executable runtime with an older plugin API. Install a compatible version.".to_string()
                 })
@@ -577,9 +685,12 @@ impl StoredPlugin {
             .iter()
             .map(|definition| {
                 let stored = self.settings.get(&definition.key);
-                let valid = stored.is_some_and(|value| validate_setting_value(definition, value).is_ok());
+                let valid =
+                    stored.is_some_and(|value| validate_setting_value(definition, value).is_ok());
                 let value = if valid {
-                    stored.cloned().unwrap_or_else(|| definition.default.clone())
+                    stored
+                        .cloned()
+                        .unwrap_or_else(|| definition.default.clone())
                 } else {
                     definition.default.clone()
                 };
@@ -610,10 +721,17 @@ impl StoredPlugin {
             .cloned()
             .unwrap_or_else(|| definition.default.clone())
     }
+
+    fn accepts_grant(&self, grant: &Grant) -> bool {
+        grant.version == self.manifest.version
+            && grant.trigger.supports(self.manifest.runtime.kind)
+            && (self.manifest.api_version != HOME_API_VERSION || grant.trigger == Trigger::OnDemand)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Grant {
+    pub version: String,
     pub permissions: BTreeSet<Permission>,
     pub network: Vec<String>,
     pub trigger: Trigger,
@@ -633,6 +751,15 @@ pub(crate) struct RuntimePackage {
     root: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct CommandSpec {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub version: String,
+    pub command: String,
+    pub grant: Grant,
+}
+
 impl RuntimePackage {
     pub(crate) fn allows(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission)
@@ -645,11 +772,11 @@ impl RuntimePackage {
             path
         };
         validate_relative_path(relative)?;
-        let root = fs::canonicalize(&self.root).map_err(|error| Error::new("plugin_missing", error))?;
-        let target = fs::canonicalize(
-            root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)),
-        )
-        .map_err(|error| Error::new("plugin_missing", error))?;
+        let root =
+            fs::canonicalize(&self.root).map_err(|error| Error::new("plugin_missing", error))?;
+        let target =
+            fs::canonicalize(root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)))
+                .map_err(|error| Error::new("plugin_missing", error))?;
         if !target.starts_with(&root) || !target.is_file() {
             return Err(Error::new(
                 "plugin_missing",
@@ -661,35 +788,34 @@ impl RuntimePackage {
 }
 
 fn load_grant(connection: &Connection, plugin_id: &str) -> Result<Option<Grant>, Error> {
-    let row: Option<(String, String, String)> = connection
+    let row: Option<(String, String, String, String)> = connection
         .query_row(
-            "SELECT permissions, network, trigger FROM plugin_grants WHERE plugin_id = ?1",
+            "SELECT version, permissions, network, trigger FROM plugin_grants WHERE plugin_id = ?1",
             [plugin_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
-    let Some((permissions, network, trigger)) = row else {
+    let Some((version, permissions, network, trigger)) = row else {
         return Ok(None);
     };
-    let permissions: Vec<String> = serde_json::from_str(&permissions)
-        .map_err(|error| Error::new("plugin_storage", error))?;
+    let permissions: Vec<String> =
+        serde_json::from_str(&permissions).map_err(|error| Error::new("plugin_storage", error))?;
     let network: Vec<String> =
         serde_json::from_str(&network).map_err(|error| Error::new("plugin_storage", error))?;
     Ok(Some(Grant {
+        version,
         permissions: permissions
             .iter()
             .filter_map(|permission| Permission::parse(permission))
             .collect(),
         network,
-        trigger: Trigger::parse(&trigger)
-            .ok_or_else(|| Error::new("plugin_storage", "The stored runtime trigger is invalid."))?,
+        trigger: Trigger::parse(&trigger).ok_or_else(|| {
+            Error::new("plugin_storage", "The stored runtime trigger is invalid.")
+        })?,
     }))
 }
 
-pub(crate) fn runtime_package(
-    store: &Store,
-    plugin_id: &str,
-) -> Result<RuntimePackage, Error> {
+pub(crate) fn runtime_package(store: &Store, plugin_id: &str) -> Result<RuntimePackage, Error> {
     let connection = store.connection()?;
     let plugins = load_plugins(&connection)?;
     let (_, plugin) = plugins
@@ -700,7 +826,10 @@ pub(crate) fn runtime_package(
         return Err(Error::new("plugin_disabled", "That plugin is disabled."));
     }
     if !plugin.manifest.runtime.kind.is_executable()
-        || plugin.manifest.api_version != EXECUTABLE_API_VERSION
+        || !matches!(
+            plugin.manifest.api_version,
+            EXECUTABLE_API_VERSION | HOME_API_VERSION
+        )
         || plugin.execution_reason().is_some()
     {
         return Err(Error::new(
@@ -714,12 +843,30 @@ pub(crate) fn runtime_package(
             "This plugin has no approved runtime grant. Enable it in Settings > Plugins.",
         ));
     };
-    let entry = plugin
-        .manifest
-        .runtime
-        .entry
-        .clone()
-        .ok_or_else(|| Error::new("plugin_invalid", "The package does not declare a runtime entry."))?;
+    if grant.version != plugin.manifest.version {
+        return Err(Error::new(
+            "plugin_denied",
+            "This plugin's runtime grant is for a different version. Review its permissions again.",
+        ));
+    }
+    if !grant.trigger.supports(plugin.manifest.runtime.kind) {
+        return Err(Error::new(
+            "plugin_denied",
+            "This plugin's runtime grant does not allow this runtime. Review its permissions again.",
+        ));
+    }
+    if plugin.manifest.api_version == HOME_API_VERSION && grant.trigger != Trigger::OnDemand {
+        return Err(Error::new(
+            "plugin_denied",
+            "API version 3 command packages require the on-demand trigger. Review its permissions again.",
+        ));
+    }
+    let entry = plugin.manifest.runtime.entry.clone().ok_or_else(|| {
+        Error::new(
+            "plugin_invalid",
+            "The package does not declare a runtime entry.",
+        )
+    })?;
     let root = install_root(store)?
         .join(&plugin.manifest.id)
         .join(&plugin.manifest.version);
@@ -775,12 +922,99 @@ pub(crate) fn granted_plugins(store: &Store) -> Result<Vec<(String, Grant)>, Err
             continue;
         }
         if let Some(grant) = load_grant(&connection, &id)? {
-            if grant.trigger.supports(plugin.manifest.runtime.kind) {
+            if plugin.accepts_grant(&grant) {
                 granted.push((id, grant));
             }
         }
     }
     Ok(granted)
+}
+
+pub(crate) fn command_spec(
+    store: &Store,
+    plugin_id: &str,
+    command: &str,
+) -> Result<CommandSpec, Error> {
+    let connection = store.connection()?;
+    let plugins = load_plugins(&connection)?;
+    let (_, plugin) = plugins
+        .iter()
+        .find(|(id, _)| id == plugin_id)
+        .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    command_spec_for(&connection, store, plugin, command)
+}
+
+fn command_spec_for(
+    connection: &Connection,
+    store: &Store,
+    plugin: &StoredPlugin,
+    command: &str,
+) -> Result<CommandSpec, Error> {
+    let plugin_id = plugin.manifest.id.as_str();
+    if let Some(reason) = plugin.execution_reason() {
+        return Err(Error::new("plugin_unsupported", reason));
+    }
+    if !plugin.enabled {
+        return Err(Error::new("plugin_disabled", "That plugin is disabled."));
+    }
+    if plugin.manifest.api_version != HOME_API_VERSION {
+        return Err(Error::new(
+            "plugin_unsupported",
+            "This package does not declare host commands. API version 3 is required.",
+        ));
+    }
+    if plugin.manifest.runtime.kind != RuntimeKind::IsolatedUi {
+        return Err(Error::new(
+            "plugin_unsupported",
+            "This package does not provide an isolatable command surface.",
+        ));
+    }
+    if !plugin
+        .manifest
+        .contributes
+        .commands
+        .iter()
+        .any(|declared| declared == command)
+    {
+        return Err(Error::new(
+            "plugin_command",
+            "That package did not declare this command.",
+        ));
+    }
+    let Some(grant) = load_grant(connection, plugin_id)? else {
+        return Err(Error::new(
+            "plugin_denied",
+            "This plugin has no approved runtime grant. Enable it in Settings > Plugins.",
+        ));
+    };
+    if grant.version != plugin.manifest.version {
+        return Err(Error::new(
+            "plugin_denied",
+            "This plugin's runtime grant is for a different version. Review its permissions again.",
+        ));
+    }
+    if grant.trigger != Trigger::OnDemand {
+        return Err(Error::new(
+            "plugin_denied",
+            "API version 3 command packages require the on-demand trigger. Review its permissions again.",
+        ));
+    }
+    let root = install_root(store)?
+        .join(&plugin.manifest.id)
+        .join(&plugin.manifest.version);
+    if !root.is_dir() {
+        return Err(Error::new(
+            "plugin_missing",
+            "The installed package files are missing. Reinstall the plugin.",
+        ));
+    }
+    Ok(CommandSpec {
+        plugin_id: plugin.manifest.id.clone(),
+        plugin_name: plugin.manifest.name.clone(),
+        version: plugin.manifest.version.clone(),
+        command: command.to_string(),
+        grant,
+    })
 }
 
 pub(super) fn create(connection: &Connection) -> Result<(), Error> {
@@ -954,8 +1188,8 @@ fn load_plugins(connection: &Connection) -> Result<Vec<(String, StoredPlugin)>, 
         ) = row?;
         let manifest: Manifest = serde_json::from_str(&manifest_json)
             .map_err(|error| Error::new("plugin_storage", error))?;
-        let detached: BTreeSet<String> = serde_json::from_str(&detached)
-            .map_err(|error| Error::new("plugin_storage", error))?;
+        let detached: BTreeSet<String> =
+            serde_json::from_str(&detached).map_err(|error| Error::new("plugin_storage", error))?;
         let settings = settings_map(connection, &id)?;
         plugins.push((
             id,
@@ -975,7 +1209,10 @@ fn load_plugins(connection: &Connection) -> Result<Vec<(String, StoredPlugin)>, 
     Ok(plugins)
 }
 
-fn settings_map(connection: &Connection, plugin_id: &str) -> Result<BTreeMap<String, Value>, Error> {
+fn settings_map(
+    connection: &Connection,
+    plugin_id: &str,
+) -> Result<BTreeMap<String, Value>, Error> {
     let mut statement =
         connection.prepare("SELECT key, value FROM plugin_settings WHERE plugin_id = ?1")?;
     let rows = statement.query_map([plugin_id], |row| {
@@ -984,8 +1221,8 @@ fn settings_map(connection: &Connection, plugin_id: &str) -> Result<BTreeMap<Str
     let mut settings = BTreeMap::new();
     for row in rows {
         let (key, raw) = row?;
-        let value: Value = serde_json::from_str(&raw)
-            .map_err(|error| Error::new("plugin_storage", error))?;
+        let value: Value =
+            serde_json::from_str(&raw).map_err(|error| Error::new("plugin_storage", error))?;
         settings.insert(key, value);
     }
     Ok(settings)
@@ -1003,12 +1240,7 @@ pub(super) fn snapshot(connection: &Connection) -> Result<PluginSnapshot, Error>
                 .manifest
                 .settings
                 .iter()
-                .map(|definition| {
-                    (
-                        definition.key.clone(),
-                        plugin.setting_value(definition),
-                    )
-                })
+                .map(|definition| (definition.key.clone(), plugin.setting_value(definition)))
                 .collect(),
         });
     }
@@ -1028,6 +1260,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
         }
     }
     let mut records = Vec::new();
+    let mut home_cards = Vec::new();
     for (id, plugin) in plugins {
         let declared = plugin.declared_fields();
         let active = plugin.active_fields();
@@ -1057,6 +1290,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             None
         };
         let grant = load_grant(connection, &id)?;
+        home_cards.extend(project_home_cards(&plugin, grant.as_ref()));
         let executable = plugin.manifest.runtime.kind.is_executable();
         records.push(PluginRecord {
             id,
@@ -1103,7 +1337,9 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             surface_openable: plugin.enabled
                 && executable
                 && plugin.manifest.runtime.kind.has_surface()
-                && grant.is_some(),
+                && grant
+                    .as_ref()
+                    .is_some_and(|grant| plugin.accepts_grant(grant)),
             controls: active.iter().map(|field| (*field).into()).collect(),
             declared_controls: declared.iter().map(|field| (*field).into()).collect(),
             detached_fields: plugin.detached.iter().cloned().collect(),
@@ -1120,10 +1356,48 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             assets: plugin.manifest.assets.clone(),
         });
     }
+    home_cards.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(PluginsState {
         plugins: records,
         effective,
+        home_cards,
     })
+}
+
+fn project_home_cards(plugin: &StoredPlugin, grant: Option<&Grant>) -> Vec<HomeCard> {
+    if !plugin.enabled
+        || plugin.manifest.api_version != HOME_API_VERSION
+        || plugin.manifest.runtime.kind != RuntimeKind::IsolatedUi
+        || plugin.execution_reason().is_some()
+    {
+        return Vec::new();
+    }
+    let Some(grant) = grant else {
+        return Vec::new();
+    };
+    if !plugin.accepts_grant(grant) {
+        return Vec::new();
+    }
+    plugin
+        .manifest
+        .contributes
+        .cards
+        .iter()
+        .filter(|card| {
+            plugin
+                .manifest
+                .contributes
+                .commands
+                .iter()
+                .any(|command| command == &card.command)
+        })
+        .map(|card| HomeCard {
+            id: format!("{}:{}", plugin.manifest.id, card.id),
+            plugin_id: plugin.manifest.id.clone(),
+            title: card.title.trim().to_string(),
+            command_id: card.command.clone(),
+        })
+        .collect()
 }
 
 pub(super) fn apply(connection: &Connection, base: &Config) -> Result<Config, Error> {
@@ -1134,7 +1408,8 @@ pub(super) fn apply(connection: &Connection, base: &Config) -> Result<Config, Er
         }
         apply_plugin(&mut config, &plugin)?;
     }
-    document::validate(&config).map_err(|message| Error::new("plugin_effective_invalid", message))?;
+    document::validate(&config)
+        .map_err(|message| Error::new("plugin_effective_invalid", message))?;
     Ok(config)
 }
 
@@ -1208,8 +1483,7 @@ fn apply_plugin(config: &mut Config, plugin: &StoredPlugin) -> Result<(), Error>
                 config.widgets.spotify.enabled = resolve_bool(plugin, bound, "widgets")?;
             }
             if let Some(bound) = &widgets.spotify_placement {
-                config.widgets.spotify.placement =
-                    resolve_string(plugin, bound, "widgets")?;
+                config.widgets.spotify.placement = resolve_string(plugin, bound, "widgets")?;
                 config.widgets.spotify.position = None;
             }
         }
@@ -1231,7 +1505,10 @@ fn definition<'a>(plugin: &'a StoredPlugin, key: &str) -> Result<&'a SettingDefi
         .ok_or_else(|| {
             Error::new(
                 "plugin_invalid",
-                format!("{} references an unknown setting: {key}.", plugin.manifest.name),
+                format!(
+                    "{} references an unknown setting: {key}.",
+                    plugin.manifest.name
+                ),
             )
         })
 }
@@ -1370,10 +1647,18 @@ fn field_changed(a: &Config, b: &Config, field: &str) -> bool {
     }
 }
 
-pub(super) fn apply_prepared(connection: &Connection, prepared: &PreparedWrite) -> Result<(), Error> {
+pub(super) fn apply_prepared(
+    connection: &Connection,
+    prepared: &PreparedWrite,
+) -> Result<(), Error> {
     for detach in &prepared.detach {
-        let detached: Option<String> =
-            connection.query_row("SELECT detached FROM plugins WHERE id = ?1", [&detach.plugin], |row| row.get(0)).optional()?;
+        let detached: Option<String> = connection
+            .query_row(
+                "SELECT detached FROM plugins WHERE id = ?1",
+                [&detach.plugin],
+                |row| row.get(0),
+            )
+            .optional()?;
         let Some(raw) = detached else {
             continue;
         };
@@ -1381,7 +1666,11 @@ pub(super) fn apply_prepared(connection: &Connection, prepared: &PreparedWrite) 
         fields.insert(detach.field.into());
         connection.execute(
             "UPDATE plugins SET detached = ?1 WHERE id = ?2",
-            params![serde_json::to_string(&fields).map_err(|error| Error::new("plugin_storage", error))?, detach.plugin],
+            params![
+                serde_json::to_string(&fields)
+                    .map_err(|error| Error::new("plugin_storage", error))?,
+                detach.plugin
+            ],
         )?;
     }
     Ok(())
@@ -1463,7 +1752,8 @@ fn apply_plugins(base: &Config, plugins: &[(String, StoredPlugin)]) -> Result<Co
         }
         apply_plugin(&mut config, plugin)?;
     }
-    document::validate(&config).map_err(|message| Error::new("plugin_effective_invalid", message))?;
+    document::validate(&config)
+        .map_err(|message| Error::new("plugin_effective_invalid", message))?;
     Ok(config)
 }
 
@@ -1488,7 +1778,10 @@ pub(super) fn prepare_settings(
             .ok_or_else(|| {
                 Error::new(
                     "plugin_settings",
-                    format!("{} does not declare a setting named {key}.", plugin.manifest.name),
+                    format!(
+                        "{} does not declare a setting named {key}.",
+                        plugin.manifest.name
+                    ),
                 )
             })?;
         validate_setting_value(definition, value)?;
@@ -1536,8 +1829,7 @@ pub(super) fn apply_action(
             }
             let mut owners: BTreeMap<&'static str, String> = BTreeMap::new();
             for (id, candidate) in &plugins {
-                if !candidate.enabled || candidate.execution_reason().is_some() || id == plugin_id
-                {
+                if !candidate.enabled || candidate.execution_reason().is_some() || id == plugin_id {
                     continue;
                 }
                 for field in candidate.active_fields() {
@@ -1583,12 +1875,18 @@ pub(super) fn apply_action(
                     .ok_or_else(|| {
                         Error::new(
                             "plugin_settings",
-                            format!("{} does not declare a setting named {key}.", plugin.manifest.name),
+                            format!(
+                                "{} does not declare a setting named {key}.",
+                                plugin.manifest.name
+                            ),
                         )
                     })?;
                 validate_setting_value(definition, value)?;
             }
-            connection.execute("DELETE FROM plugin_settings WHERE plugin_id = ?1", [plugin_id])?;
+            connection.execute(
+                "DELETE FROM plugin_settings WHERE plugin_id = ?1",
+                [plugin_id],
+            )?;
             for (key, value) in values {
                 connection.execute(
                     "INSERT INTO plugin_settings (plugin_id, key, value) VALUES (?1, ?2, ?3)",
@@ -1624,7 +1922,10 @@ pub(super) fn save_settings(
             .ok_or_else(|| {
                 Error::new(
                     "plugin_settings",
-                    format!("{} does not declare a setting named {key}.", plugin.manifest.name),
+                    format!(
+                        "{} does not declare a setting named {key}.",
+                        plugin.manifest.name
+                    ),
                 )
             })?;
         validate_setting_value(definition, value)?;
@@ -1649,7 +1950,10 @@ pub(super) fn disable(connection: &Connection, plugin_id: &str) -> Result<(), Er
         [plugin_id],
     )?;
     if changed == 0 {
-        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+        return Err(Error::new(
+            "plugin_missing",
+            "That plugin is not installed.",
+        ));
     }
     connection.execute(
         "DELETE FROM plugin_grants WHERE plugin_id = ?1",
@@ -1658,14 +1962,27 @@ pub(super) fn disable(connection: &Connection, plugin_id: &str) -> Result<(), Er
     Ok(())
 }
 
-pub(super) fn remove_row(connection: &Connection, plugin_id: &str, delete_data: bool) -> Result<(), Error> {
+pub(super) fn remove_row(
+    connection: &Connection,
+    plugin_id: &str,
+    delete_data: bool,
+) -> Result<(), Error> {
     if delete_data {
-        connection.execute("DELETE FROM plugin_settings WHERE plugin_id = ?1", [plugin_id])?;
+        connection.execute(
+            "DELETE FROM plugin_settings WHERE plugin_id = ?1",
+            [plugin_id],
+        )?;
     }
-    connection.execute("DELETE FROM plugin_grants WHERE plugin_id = ?1", [plugin_id])?;
+    connection.execute(
+        "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+        [plugin_id],
+    )?;
     let changed = connection.execute("DELETE FROM plugins WHERE id = ?1", [plugin_id])?;
     if changed == 0 {
-        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+        return Err(Error::new(
+            "plugin_missing",
+            "That plugin is not installed.",
+        ));
     }
     Ok(())
 }
@@ -1717,10 +2034,7 @@ pub(super) fn restore_snapshot(
                     id
                 ],
             )?;
-            connection.execute(
-                "DELETE FROM plugin_grants WHERE plugin_id = ?1",
-                [id],
-            )?;
+            connection.execute("DELETE FROM plugin_grants WHERE plugin_id = ?1", [id])?;
             continue;
         }
         if saved.version != plugin.manifest.version {
@@ -1769,7 +2083,13 @@ pub(super) fn restore_snapshot(
             saved
                 .detached
                 .iter()
-                .filter(|field| plugin.manifest.contributes.fields().contains(field.as_str()))
+                .filter(|field| {
+                    plugin
+                        .manifest
+                        .contributes
+                        .fields()
+                        .contains(field.as_str())
+                })
                 .cloned()
                 .collect()
         } else {
@@ -1817,7 +2137,12 @@ pub(super) fn validate_submission(value: &Value) -> Result<PreparedPackage, Erro
             (Some(text), None) => text.into_bytes(),
             (None, Some(encoded)) => base64::engine::general_purpose::STANDARD
                 .decode(encoded.as_bytes())
-                .map_err(|error| Error::new("validation", format!("Invalid base64 in {}: {error}", file.path)))?,
+                .map_err(|error| {
+                    Error::new(
+                        "validation",
+                        format!("Invalid base64 in {}: {error}", file.path),
+                    )
+                })?,
             _ => {
                 return Err(Error::new(
                     "validation",
@@ -1863,7 +2188,10 @@ struct SubmissionFile {
     base64: Option<String>,
 }
 
-fn finalize(manifest: Manifest, files: BTreeMap<String, Vec<u8>>) -> Result<PreparedPackage, Error> {
+fn finalize(
+    manifest: Manifest,
+    files: BTreeMap<String, Vec<u8>>,
+) -> Result<PreparedPackage, Error> {
     if files.len() > MAX_FILES {
         return Err(Error::new(
             "validation",
@@ -1900,11 +2228,12 @@ fn finalize(manifest: Manifest, files: BTreeMap<String, Vec<u8>>) -> Result<Prep
             return Err(Error::new(
                 "validation",
                 format!("The manifest declares {declared}, but that file is missing."),
-            ));
+            )
+            .at(declared));
         }
     }
-    let manifest_json = serde_json::to_string(&manifest)
-        .map_err(|error| Error::new("validation", error))?;
+    let manifest_json =
+        serde_json::to_string(&manifest).map_err(|error| Error::new("validation", error))?;
     let hash = content_hash(&manifest_json, &files);
     let size = files.values().map(|bytes| bytes.len() as u64).sum::<u64>();
     Ok(PreparedPackage {
@@ -1916,12 +2245,12 @@ fn finalize(manifest: Manifest, files: BTreeMap<String, Vec<u8>>) -> Result<Prep
     })
 }
 
-pub(super) struct PreparedPackage {
-    pub manifest: Manifest,
-    pub manifest_json: String,
-    pub files: BTreeMap<String, Vec<u8>>,
-    pub hash: String,
-    pub size: u64,
+pub(crate) struct PreparedPackage {
+    pub(crate) manifest: Manifest,
+    pub(crate) manifest_json: String,
+    pub(crate) files: BTreeMap<String, Vec<u8>>,
+    pub(crate) hash: String,
+    pub(crate) size: u64,
 }
 
 fn content_hash(manifest_json: &str, files: &BTreeMap<String, Vec<u8>>) -> String {
@@ -1938,119 +2267,234 @@ fn content_hash(manifest_json: &str, files: &BTreeMap<String, Vec<u8>>) -> Strin
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
-    validate_id(&manifest.id)?;
+    validate_id(&manifest.id).map_err(|error| error.field("id"))?;
     if manifest.name.trim().is_empty() || manifest.name.len() > 80 {
         return Err(Error::new(
             "validation",
             "Plugin name must be between 1 and 80 characters.",
-        ));
+        )
+        .field("name"));
     }
-    validate_version(&manifest.version)?;
-    if !matches!(manifest.api_version, API_VERSION | EXECUTABLE_API_VERSION) {
+    validate_version(&manifest.version).map_err(|error| error.field("version"))?;
+    if !matches!(
+        manifest.api_version,
+        API_VERSION | EXECUTABLE_API_VERSION | HOME_API_VERSION
+    ) {
         return Err(Error::new(
             "incompatible",
             format!(
-                "This plugin targets Luma plugin API {}, but this Luma version supports API {API_VERSION} and {EXECUTABLE_API_VERSION}.",
+                "This plugin targets Luma plugin API {}, but this Luma version supports API {API_VERSION}, {EXECUTABLE_API_VERSION}, and {HOME_API_VERSION}.",
                 manifest.api_version
             ),
-        ));
+        )
+        .field("apiVersion"));
+    }
+    if let Some(required) = &manifest.min_host_version {
+        if parse_version(required).is_none() {
+            return Err(Error::new(
+                "validation",
+                "minHostVersion must use numeric major.minor.patch without leading zeros.",
+            )
+            .field("minHostVersion"));
+        }
+        if manifest.api_version != HOME_API_VERSION {
+            return Err(Error::new(
+                "validation",
+                "minHostVersion is only supported by API version 3 packages.",
+            )
+            .field("minHostVersion"));
+        }
+    } else if manifest.api_version == HOME_API_VERSION {
+        return Err(Error::new(
+            "validation",
+            "API version 3 requires minHostVersion with a major.minor.patch Luma version.",
+        )
+        .field("minHostVersion"));
     }
     if manifest.description.len() > 500 {
         return Err(Error::new(
             "validation",
             "Plugin description must be at most 500 characters.",
-        ));
+        )
+        .field("description"));
     }
     if manifest.author.len() > 80 {
-        return Err(Error::new("validation", "Plugin author must be at most 80 characters."));
+        return Err(
+            Error::new("validation", "Plugin author must be at most 80 characters.")
+                .field("author"),
+        );
     }
     if manifest.settings.len() > MAX_SETTINGS {
         return Err(Error::new(
             "validation",
             format!("A plugin can declare at most {MAX_SETTINGS} settings."),
-        ));
+        )
+        .field("settings"));
     }
     let mut keys = HashSet::new();
-    for definition in &manifest.settings {
-        validate_setting_definition(definition)?;
+    for (index, definition) in manifest.settings.iter().enumerate() {
+        validate_setting_definition(definition)
+            .map_err(|error| error.field(format!("settings[{index}]")))?;
         if !keys.insert(definition.key.clone()) {
             return Err(Error::new(
                 "validation",
                 format!("Duplicate plugin setting: {}.", definition.key),
-            ));
+            )
+            .field(format!("settings[{index}].key")));
         }
     }
     if manifest.assets.len() > MAX_SOURCE_FILES || manifest.source.len() > MAX_SOURCE_FILES {
         return Err(Error::new(
             "validation",
             format!("A plugin can declare at most {MAX_SOURCE_FILES} assets and source files."),
-        ));
+        )
+        .field("assets"));
     }
-    for path in manifest.assets.iter().chain(manifest.source.iter()) {
-        validate_relative_path(path)?;
+    for (index, path) in manifest.assets.iter().enumerate() {
+        validate_relative_path(path).map_err(|error| error.field(format!("assets[{index}]")))?;
+    }
+    for (index, path) in manifest.source.iter().enumerate() {
+        validate_relative_path(path).map_err(|error| error.field(format!("source[{index}]")))?;
     }
     if let Some(remote) = &manifest.remote {
-        validate_remote(remote)?;
+        validate_remote(remote, manifest.api_version, &manifest.contributes.commands)
+            .map_err(|error| error.field("remote"))?;
         if manifest.api_version == EXECUTABLE_API_VERSION {
             return Err(Error::new(
                 "validation",
-                "Remote panels are declarative contributions and cannot be declared by an executable plugin.",
-            ));
+                "API version 2 plugins cannot declare remote panels. Use API version 1 for declarative panels or API version 3 for command panels.",
+            )
+            .field("remote"));
         }
     }
     if manifest.api_version == EXECUTABLE_API_VERSION {
         validate_executable_manifest(manifest)?;
+    } else if manifest.api_version == HOME_API_VERSION {
+        validate_home_manifest(manifest)?;
     } else {
         if !manifest.runtime.kind.is_declarative() {
             return Err(Error::new(
                 "incompatible",
-                "An executable plugin must use API version 2.",
-            ));
+                "An executable plugin must use API version 2 or 3.",
+            )
+            .field("runtime.kind"));
         }
         if !manifest.permissions.is_empty() || manifest.network.is_some() {
             return Err(Error::new(
                 "validation",
                 "API version 1 plugins cannot declare runtime permissions or network access.",
-            ));
+            )
+            .field("permissions"));
         }
         if manifest.runtime.entry.is_some() {
             return Err(Error::new(
                 "validation",
                 "A declarative plugin cannot declare runtime.entry.",
-            ));
+            )
+            .field("runtime.entry"));
         }
-        validate_contributions(manifest)?;
+        if manifest.contributes.has_cards() {
+            return Err(Error::new(
+                "validation",
+                "Home cards and commands require API version 3.",
+            )
+            .field("contributes"));
+        }
+        validate_contributions(manifest).map_err(|error| error.field("contributes"))?;
         if manifest.contributes.is_empty() && manifest.remote.is_none() {
             return Err(Error::new(
                 "validation",
                 "A declarative plugin must contribute at least one supported appearance, Home, or remote field.",
-            ));
+            )
+            .field("contributes"));
         }
     }
     Ok(())
 }
 
-fn validate_remote(remote: &RemoteContribution) -> Result<(), Error> {
+fn validate_remote(
+    remote: &RemoteContribution,
+    api_version: u32,
+    commands: &[String],
+) -> Result<(), Error> {
     let title = remote.title.trim();
     if title.chars().count() > MAX_REMOTE_TITLE || title.chars().any(char::is_control) {
         return Err(Error::new(
             "validation",
             format!("A remote panel title must be at most {MAX_REMOTE_TITLE} characters and contain no control characters."),
-        ));
+        )
+        .field("remote.title"));
+    }
+    if api_version == HOME_API_VERSION {
+        if !remote.actions.is_empty() {
+            return Err(Error::new(
+                "validation",
+                "API version 3 remote panels declare commands instead of playback actions.",
+            )
+            .field("remote.actions"));
+        }
+        if remote.commands.is_empty() || remote.commands.len() > MAX_REMOTE_COMMANDS {
+            return Err(Error::new(
+                "validation",
+                format!("An API version 3 remote panel must declare 1 to {MAX_REMOTE_COMMANDS} commands."),
+            )
+            .field("remote.commands"));
+        }
+        let mut seen = HashSet::new();
+        for (index, entry) in remote.commands.iter().enumerate() {
+            if !seen.insert(entry.command.as_str()) {
+                return Err(Error::new(
+                    "validation",
+                    format!("Duplicate remote command: {}.", entry.command),
+                )
+                .field(format!("remote.commands[{index}].command")));
+            }
+            let label = entry.label.trim();
+            if label.is_empty()
+                || label.chars().count() > MAX_REMOTE_LABEL
+                || label.chars().any(char::is_control)
+            {
+                return Err(Error::new(
+                    "validation",
+                    format!("A remote command label must be 1 to {MAX_REMOTE_LABEL} characters and contain no control characters."),
+                )
+                .field(format!("remote.commands[{index}].label")));
+            }
+            if !commands.iter().any(|declared| declared == &entry.command) {
+                return Err(Error::new(
+                    "validation",
+                    format!(
+                        "Remote command {} references an undeclared command.",
+                        entry.command
+                    ),
+                )
+                .field(format!("remote.commands[{index}].command")));
+            }
+        }
+        return Ok(());
+    }
+    if !remote.commands.is_empty() {
+        return Err(Error::new(
+            "validation",
+            "Only API version 3 remote panels can reference plugin commands.",
+        )
+        .field("remote.commands"));
     }
     if remote.actions.len() > MAX_REMOTE_ACTIONS {
         return Err(Error::new(
             "validation",
             format!("A remote panel can declare at most {MAX_REMOTE_ACTIONS} actions."),
-        ));
+        )
+        .field("remote.actions"));
     }
     let mut seen = HashSet::new();
-    for action in &remote.actions {
+    for (index, action) in remote.actions.iter().enumerate() {
         if !seen.insert(action.label()) {
             return Err(Error::new(
                 "validation",
                 format!("Duplicate remote action: {}.", action.label()),
-            ));
+            )
+            .field(format!("remote.actions[{index}]")));
         }
     }
     Ok(())
@@ -2064,40 +2508,170 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
         return Err(Error::new(
             "incompatible",
             "API version 2 is reserved for the isolated-ui and background runtimes.",
-        ));
+        )
+        .field("runtime.kind"));
     }
     if !manifest.contributes.is_empty() {
         return Err(Error::new(
             "validation",
             "An executable plugin cannot declare appearance or Home contributions.",
+        )
+        .field("contributes"));
+    }
+    if manifest.contributes.has_cards() {
+        return Err(Error::new(
+            "validation",
+            "Home cards and commands require API version 3.",
+        )
+        .field("contributes"));
+    }
+    validate_executable_access(manifest)
+}
+
+fn validate_home_manifest(manifest: &Manifest) -> Result<(), Error> {
+    if manifest.runtime.kind != RuntimeKind::IsolatedUi {
+        return Err(Error::new(
+            "incompatible",
+            "API version 3 Home cards require the isolated-ui runtime.",
+        )
+        .field("runtime.kind"));
+    }
+    if manifest.contributes.has_appearance() {
+        return Err(Error::new(
+            "validation",
+            "API version 3 packages cannot declare appearance or Home layout contributions. Register Home cards instead.",
+        )
+        .field("contributes"));
+    }
+    validate_executable_access(manifest)?;
+    validate_home_contributions(&manifest.contributes)
+}
+
+fn validate_home_contributions(contributes: &Contributions) -> Result<(), Error> {
+    if contributes.cards.len() > MAX_HOME_CARDS {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin can declare at most {MAX_HOME_CARDS} Home cards."),
+        )
+        .field("contributes.cards"));
+    }
+    if contributes.commands.len() > MAX_COMMANDS {
+        return Err(Error::new(
+            "validation",
+            format!("A plugin can declare at most {MAX_COMMANDS} commands."),
+        )
+        .field("contributes.commands"));
+    }
+    let mut commands = HashSet::new();
+    for (index, command) in contributes.commands.iter().enumerate() {
+        validate_local_id(command)
+            .map_err(|error| error.field(format!("contributes.commands[{index}]")))?;
+        if !commands.insert(command.as_str()) {
+            return Err(
+                Error::new("validation", format!("Duplicate command: {command}."))
+                    .field(format!("contributes.commands[{index}]")),
+            );
+        }
+    }
+    if commands.is_empty() {
+        return Err(
+            Error::new("validation", "API version 3 requires at least one command.")
+                .field("contributes.commands"),
+        );
+    }
+    if contributes.cards.is_empty() {
+        return Err(Error::new(
+            "validation",
+            "API version 3 requires at least one Home card.",
+        )
+        .field("contributes.cards"));
+    }
+    let mut cards = HashSet::new();
+    for (index, card) in contributes.cards.iter().enumerate() {
+        validate_local_id(&card.id)
+            .map_err(|error| error.field(format!("contributes.cards[{index}].id")))?;
+        if !cards.insert(card.id.as_str()) {
+            return Err(
+                Error::new("validation", format!("Duplicate Home card: {}.", card.id))
+                    .field(format!("contributes.cards[{index}].id")),
+            );
+        }
+        let title = card.title.trim();
+        if title.is_empty()
+            || title.chars().count() > MAX_CARD_TITLE
+            || title.chars().any(char::is_control)
+        {
+            return Err(Error::new(
+                "validation",
+                format!(
+                    "A Home card title must be 1 to {MAX_CARD_TITLE} characters and contain no control characters."
+                ),
+            )
+            .field(format!("contributes.cards[{index}].title")));
+        }
+        if !commands.contains(card.command.as_str()) {
+            return Err(Error::new(
+                "validation",
+                format!(
+                    "Home card {} references an undeclared command: {}.",
+                    card.id, card.command
+                ),
+            )
+            .field(format!("contributes.cards[{index}].command")));
+        }
+    }
+    Ok(())
+}
+
+fn validate_local_id(value: &str) -> Result<(), Error> {
+    if value.is_empty()
+        || value.len() > MAX_LOCAL_ID
+        || !value.as_bytes()[0].is_ascii_lowercase()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(Error::new(
+            "validation",
+            format!(
+                "A local id must be 1 to {MAX_LOCAL_ID} characters, start with a lowercase letter, and use only letters, digits, '-' or '_'."
+            ),
         ));
     }
+    Ok(())
+}
+
+fn validate_executable_access(manifest: &Manifest) -> Result<(), Error> {
     let Some(entry) = &manifest.runtime.entry else {
         return Err(Error::new(
             "validation",
             "An executable plugin must declare runtime.entry.",
-        ));
+        )
+        .field("runtime.entry"));
     };
-    validate_relative_path(entry)?;
+    validate_relative_path(entry).map_err(|error| error.field("runtime.entry"))?;
     if !entry.to_ascii_lowercase().ends_with(".html") {
         return Err(Error::new(
             "validation",
             "An executable runtime entry must be an HTML file.",
-        ));
+        )
+        .field("runtime.entry"));
     }
     if manifest.permissions.len() > MAX_PERMISSIONS {
         return Err(Error::new(
             "validation",
             format!("A plugin can declare at most {MAX_PERMISSIONS} runtime permissions."),
-        ));
+        )
+        .field("permissions"));
     }
     let mut permissions = HashSet::new();
-    for permission in &manifest.permissions {
+    for (index, permission) in manifest.permissions.iter().enumerate() {
         if !permissions.insert(*permission) {
             return Err(Error::new(
                 "validation",
                 format!("Duplicate runtime permission: {}.", permission.label()),
-            ));
+            )
+            .field(format!("permissions[{index}]")));
         }
     }
     let network = manifest.network.as_ref();
@@ -2106,7 +2680,8 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
             return Err(Error::new(
                 "validation",
                 "A network allowlist requires the network.get permission.",
-            ));
+            )
+            .field("network"));
         }
         return Ok(());
     }
@@ -2114,22 +2689,25 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
         return Err(Error::new(
             "validation",
             "The network.get permission requires a network.allow list.",
-        ));
+        )
+        .field("network"));
     };
     if network.allow.is_empty() || network.allow.len() > MAX_NETWORK_ORIGINS {
         return Err(Error::new(
             "validation",
             format!("network.allow must contain 1 to {MAX_NETWORK_ORIGINS} HTTPS origins."),
-        ));
+        )
+        .field("network.allow"));
     }
     let mut origins = HashSet::new();
-    for origin in &network.allow {
-        validate_network_origin(origin)?;
+    for (index, origin) in network.allow.iter().enumerate() {
+        validate_network_origin(origin)
+            .map_err(|error| error.field(format!("network.allow[{index}]")))?;
         if !origins.insert(origin) {
-            return Err(Error::new(
-                "validation",
-                format!("Duplicate network origin: {origin}."),
-            ));
+            return Err(
+                Error::new("validation", format!("Duplicate network origin: {origin}."))
+                    .field(format!("network.allow[{index}]")),
+            );
         }
     }
     Ok(())
@@ -2158,7 +2736,9 @@ fn validate_network_origin(origin: &str) -> Result<(), Error> {
     {
         return Err(Error::new(
             "validation",
-            format!("Network origin must be an HTTPS origin without a path or credentials: {origin}."),
+            format!(
+                "Network origin must be an HTTPS origin without a path or credentials: {origin}."
+            ),
         ));
     }
     let Some(host) = url.host_str() else {
@@ -2199,13 +2779,19 @@ fn validate_setting_definition(definition: &SettingDefinition) -> Result<(), Err
     if definition.label.trim().is_empty() || definition.label.len() > 80 {
         return Err(Error::new(
             "validation",
-            format!("Setting {} needs a label of 1 to 80 characters.", definition.key),
+            format!(
+                "Setting {} needs a label of 1 to 80 characters.",
+                definition.key
+            ),
         ));
     }
     if definition.description.len() > 240 {
         return Err(Error::new(
             "validation",
-            format!("Setting {} description must be at most 240 characters.", definition.key),
+            format!(
+                "Setting {} description must be at most 240 characters.",
+                definition.key
+            ),
         ));
     }
     validate_setting_value(definition, &definition.default)?;
@@ -2226,7 +2812,10 @@ fn validate_setting_value(definition: &SettingDefinition, value: &Value) -> Resu
             if definition.options.is_empty() || definition.options.len() > MAX_SETTING_OPTIONS {
                 return Err(Error::new(
                     "validation",
-                    format!("Setting {} must declare 1 to {MAX_SETTING_OPTIONS} options.", definition.key),
+                    format!(
+                        "Setting {} must declare 1 to {MAX_SETTING_OPTIONS} options.",
+                        definition.key
+                    ),
                 ));
             }
             let mut seen = HashSet::new();
@@ -2250,7 +2839,11 @@ fn validate_setting_value(definition: &SettingDefinition, value: &Value) -> Resu
                     format!("Setting {} must be one of its options.", definition.key),
                 ));
             };
-            if !definition.options.iter().any(|option| option.value == value) {
+            if !definition
+                .options
+                .iter()
+                .any(|option| option.value == value)
+            {
                 return Err(Error::new(
                     "plugin_settings",
                     format!("Setting {} must be one of its options.", definition.key),
@@ -2436,11 +3029,7 @@ fn validate_string_bound(
     Ok(())
 }
 
-fn validate_bool_bound(
-    manifest: &Manifest,
-    bound: &Bound<bool>,
-    field: &str,
-) -> Result<(), Error> {
+fn validate_bool_bound(manifest: &Manifest, bound: &Bound<bool>, field: &str) -> Result<(), Error> {
     if let Bound::Setting { setting } = bound {
         let definition = manifest
             .settings
@@ -2496,7 +3085,9 @@ fn validate_u8_bound(
             {
                 return Err(Error::new(
                     "validation",
-                    format!("{field} must bind to an integer setting limited to {min} through {max}."),
+                    format!(
+                        "{field} must bind to an integer setting limited to {min} through {max}."
+                    ),
                 ));
             }
         }
@@ -2532,10 +3123,7 @@ fn validate_id(id: &str) -> Result<(), Error> {
     }
     let lowercase = id.to_ascii_lowercase();
     if id != lowercase {
-        return Err(Error::new(
-            "validation",
-            "Plugin id must be lowercase.",
-        ));
+        return Err(Error::new("validation", "Plugin id must be lowercase."));
     }
     let id = lowercase.as_str();
     if id.starts_with("core.") || id == "core" {
@@ -2563,26 +3151,39 @@ fn validate_id(id: &str) -> Result<(), Error> {
 }
 
 fn validate_version(version: &str) -> Result<(), Error> {
-    let parts: Vec<&str> = version.split('.').collect();
-    if parts.len() != 3 || version.len() > 32 {
+    if parse_version(version).is_none() {
         return Err(Error::new(
             "validation",
-            "Plugin version must use major.minor.patch.",
+            "Plugin version must use numeric major.minor.patch components without leading zeros.",
         ));
     }
-    for part in parts {
+    Ok(())
+}
+
+fn parse_version(version: &str) -> Option<[u64; 3]> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() != 3 || version.len() > 32 {
+        return None;
+    }
+    let mut parsed = [0u64; 3];
+    for (index, part) in parts.into_iter().enumerate() {
         if part.is_empty()
             || part.len() > 9
             || (part.len() > 1 && part.starts_with('0'))
             || !part.bytes().all(|byte| byte.is_ascii_digit())
         {
-            return Err(Error::new(
-                "validation",
-                "Plugin version must use numeric major.minor.patch components without leading zeros.",
-            ));
+            return None;
         }
+        parsed[index] = part.parse().ok()?;
     }
-    Ok(())
+    Some(parsed)
+}
+
+fn host_supports(required: &str) -> bool {
+    match (parse_version(HOST_VERSION), parse_version(required)) {
+        (Some(host), Some(required)) => host >= required,
+        _ => false,
+    }
 }
 
 fn valid_key(key: &str) -> bool {
@@ -2643,9 +3244,28 @@ pub(super) fn validate_relative_path(path: &str) -> Result<(), Error> {
         let upper = stem.to_ascii_uppercase();
         if matches!(
             upper.as_str(),
-            "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "COM4" | "COM5"
-                | "COM6" | "COM7" | "COM8" | "COM9" | "LPT1" | "LPT2" | "LPT3" | "LPT4"
-                | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+            "CON"
+                | "PRN"
+                | "AUX"
+                | "NUL"
+                | "COM1"
+                | "COM2"
+                | "COM3"
+                | "COM4"
+                | "COM5"
+                | "COM6"
+                | "COM7"
+                | "COM8"
+                | "COM9"
+                | "LPT1"
+                | "LPT2"
+                | "LPT3"
+                | "LPT4"
+                | "LPT5"
+                | "LPT6"
+                | "LPT7"
+                | "LPT8"
+                | "LPT9"
         ) {
             return Err(Error::new(
                 "validation",
@@ -2673,13 +3293,26 @@ fn install_root(store: &Store) -> Result<PathBuf, Error> {
         .ok_or_else(|| Error::new("storage", "Plugin storage is unavailable."))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InstallMode {
+    Normal,
+    Developer,
+}
+
+pub(crate) struct InstallChange {
+    pub outcome: ImportOutcome,
+    pub enabled: bool,
+    pub first_install: bool,
+    pub review_required: bool,
+}
+
 pub(super) fn import_archive(
     store: &Store,
     bytes: &[u8],
     source: &str,
 ) -> Result<ImportOutcome, Error> {
     let package = archive::read(bytes)?;
-    install(store, package, source)
+    install(store, package, source, InstallMode::Normal, None).map(|change| change.outcome)
 }
 
 pub(super) fn stage_submission(
@@ -2688,14 +3321,29 @@ pub(super) fn stage_submission(
     source: &str,
 ) -> Result<ImportOutcome, Error> {
     let package = validate_submission(submission)?;
-    install(store, package, source)
+    install(store, package, source, InstallMode::Normal, None).map(|change| change.outcome)
+}
+
+pub(crate) fn read_package_dir(path: &Path) -> Result<PreparedPackage, Error> {
+    archive::read_directory(path)
+}
+
+pub(crate) fn developer_install(
+    store: &Store,
+    package: PreparedPackage,
+    source: &str,
+    previous_id: Option<&str>,
+) -> Result<InstallChange, Error> {
+    install(store, package, source, InstallMode::Developer, previous_id)
 }
 
 fn install(
     store: &Store,
     package: PreparedPackage,
     source: &str,
-) -> Result<ImportOutcome, Error> {
+    mode: InstallMode,
+    previous_id: Option<&str>,
+) -> Result<InstallChange, Error> {
     let root = install_root(store)?;
     let mut connection = store.connection()?;
     let existing: Option<(String, String, i64)> = connection
@@ -2707,24 +3355,37 @@ fn install(
         .optional()?;
     let mut existing_version = None;
     if let Some((raw, stored_hash, enabled)) = existing {
-        let manifest: Manifest = serde_json::from_str(&raw)
-            .map_err(|error| Error::new("plugin_storage", error))?;
+        let manifest: Manifest =
+            serde_json::from_str(&raw).map_err(|error| Error::new("plugin_storage", error))?;
         existing_version = Some(manifest.version.clone());
         if manifest.version == package.manifest.version {
-            if stored_hash == package.hash {
-                return Ok(ImportOutcome {
-                    plugin: plugin_record(&connection, &package.manifest.id)?,
-                    already_installed: true,
-                    replaced_version: None,
+            if stored_hash == package.hash && mode == InstallMode::Normal {
+                Store::current(&connection)?.ok_or_else(|| {
+                    Error::new(
+                        "not_initialized",
+                        "Open Luma once before installing a plugin.",
+                    )
+                })?;
+                return Ok(InstallChange {
+                    outcome: ImportOutcome {
+                        plugin: plugin_record(&connection, &package.manifest.id)?,
+                        already_installed: true,
+                        replaced_version: None,
+                    },
+                    enabled: enabled != 0,
+                    first_install: false,
+                    review_required: false,
                 });
             }
-            return Err(Error::new(
-                "immutable_version",
-                format!(
-                    "{} {} is already installed with different content. Increment the version before importing.",
-                    package.manifest.name, package.manifest.version
-                ),
-            ));
+            if stored_hash != package.hash && mode == InstallMode::Normal {
+                return Err(Error::new(
+                    "immutable_version",
+                    format!(
+                        "{} {} is already installed with different content. Increment the version before importing.",
+                        package.manifest.name, package.manifest.version
+                    ),
+                ));
+            }
         }
         if source == "mcp" && enabled != 0 {
             return Err(Error::new(
@@ -2736,13 +3397,21 @@ fn install(
             ));
         }
     }
+    let first_install = existing_version.is_none();
     let staging = write_staging(&root, &package)?;
-    let target = root.join(&package.manifest.id).join(&package.manifest.version);
-    if let Err(error) = finalize_staging(&staging, &target) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    let result = (|| -> Result<Document, Error> {
+    let target = root
+        .join(&package.manifest.id)
+        .join(&package.manifest.version);
+    let backup = match finalize_staging(&staging, &target) {
+        Ok(backup) => backup,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+    let mut enabled = false;
+    let mut review_required = false;
+    let result = (|| -> Result<(), Error> {
         let transaction = connection.transaction()?;
         let was_enabled: bool = transaction
             .query_row(
@@ -2752,16 +3421,52 @@ fn install(
             )
             .optional()?
             .is_some_and(|enabled| enabled != 0);
+        let previous_grant = load_grant(&transaction, &package.manifest.id)?;
+        let grant_compatible = previous_grant.as_ref().is_some_and(|grant| {
+            let declared: BTreeSet<Permission> =
+                package.manifest.permissions.iter().copied().collect();
+            let allowed_network = package
+                .manifest
+                .network
+                .as_ref()
+                .map(|network| network.allow.as_slice())
+                .unwrap_or(&[]);
+            let declared_network: BTreeSet<&String> = allowed_network.iter().collect();
+            let granted_network: BTreeSet<&String> = grant.network.iter().collect();
+            declared == grant.permissions
+                && declared_network == granted_network
+                && grant.trigger.supports(package.manifest.runtime.kind)
+                && (package.manifest.api_version != HOME_API_VERSION
+                    || grant.trigger == Trigger::OnDemand)
+        });
         let installed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         if existing_version.is_some() {
+            enabled = if mode == InstallMode::Developer && was_enabled && grant_compatible {
+                true
+            } else {
+                false
+            };
+            review_required =
+                mode == InstallMode::Developer && previous_grant.is_some() && !grant_compatible;
+            let reason = if review_required {
+                Some(
+                    "The package requested different access. Review it before enabling."
+                        .to_string(),
+                )
+            } else if mode == InstallMode::Normal {
+                Some(format!(
+                    "Updated to version {}. Review it before enabling.",
+                    package.manifest.version
+                ))
+            } else {
+                None
+            };
             transaction.execute(
-                "UPDATE plugins SET manifest = ?1, enabled = 0, detached = '[]', disabled_reason = ?2, source = ?3, installed_at = ?4, size_bytes = ?5, content_hash = ?6 WHERE id = ?7",
+                "UPDATE plugins SET manifest = ?1, enabled = ?2, detached = '[]', disabled_reason = ?3, source = ?4, installed_at = ?5, size_bytes = ?6, content_hash = ?7 WHERE id = ?8",
                 params![
                     package.manifest_json,
-                    format!(
-                        "Updated to version {}. Review it before enabling.",
-                        package.manifest.version
-                    ),
+                    i64::from(enabled),
+                    reason,
                     source,
                     installed_at,
                     package.size as i64,
@@ -2792,23 +3497,8 @@ fn install(
                     )?;
                 }
             }
-            if let Some(grant) = load_grant(&transaction, &package.manifest.id)? {
-                let declared: BTreeSet<Permission> =
-                    package.manifest.permissions.iter().copied().collect();
-                let allowed_network = package
-                    .manifest
-                    .network
-                    .as_ref()
-                    .map(|network| network.allow.as_slice())
-                    .unwrap_or(&[]);
-                let declared_network: BTreeSet<&String> = allowed_network.iter().collect();
-                let granted_network: BTreeSet<&String> = grant.network.iter().collect();
-                let compatible = declared == grant.permissions
-                    && declared_network == granted_network
-                    && grant
-                        .trigger
-                        .supports(package.manifest.runtime.kind);
-                if compatible {
+            if previous_grant.is_some() {
+                if grant_compatible {
                     transaction.execute(
                         "UPDATE plugin_grants SET version = ?1 WHERE plugin_id = ?2",
                         params![package.manifest.version, package.manifest.id],
@@ -2833,6 +3523,16 @@ fn install(
                 ],
             )?;
         }
+        if let Some(previous_id) = previous_id {
+            if let Err(error) = disable(&transaction, previous_id) {
+                if error.code != "plugin_missing" {
+                    return Err(error);
+                }
+            }
+            disable(&transaction, &package.manifest.id)?;
+            enabled = false;
+            review_required = true;
+        }
         let current = Store::current(&transaction)?.ok_or_else(|| {
             Error::new(
                 "not_initialized",
@@ -2840,14 +3540,20 @@ fn install(
             )
         })?;
         let config = apply(&transaction, &current.config)?;
-        let force = was_enabled || config != current.config;
-        let document = Store::write(&transaction, &current, current.config.clone(), force)?;
+        let force = was_enabled || config != current.config || mode == InstallMode::Developer;
+        Store::write(&transaction, &current, current.config.clone(), force)?;
         transaction.commit()?;
-        Ok(document)
+        Ok(())
     })();
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&target);
+        if let Some(backup) = &backup {
+            fs::rename(backup, &target).map_err(|error| Error::new("storage", error))?;
+        }
         return Err(error);
+    }
+    if let Some(backup) = backup {
+        let _ = fs::remove_dir_all(backup);
     }
     if let Some(version) = existing_version.clone() {
         if version != package.manifest.version {
@@ -2855,17 +3561,21 @@ fn install(
             let _ = fs::remove_dir_all(old);
         }
     }
-    Ok(ImportOutcome {
-        plugin: plugin_record(&connection, &package.manifest.id)?,
-        already_installed: false,
-        replaced_version: existing_version,
+    Ok(InstallChange {
+        outcome: ImportOutcome {
+            plugin: plugin_record(&connection, &package.manifest.id)?,
+            already_installed: false,
+            replaced_version: existing_version,
+        },
+        enabled,
+        first_install,
+        review_required,
     })
 }
 
 fn plugin_record(connection: &Connection, plugin_id: &str) -> Result<PluginRecord, Error> {
-    let current = Store::current(connection)?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let current = Store::current(connection)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     let state = state(connection, &current.config)?;
     state
         .plugins
@@ -2879,7 +3589,10 @@ fn write_staging(root: &Path, package: &PreparedPackage) -> Result<PathBuf, Erro
     getrandom::fill(&mut nonce).map_err(|error| Error::new("storage", error))?;
     let staging = root.join(format!(
         ".staging-{}",
-        nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+        nonce
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
     ));
     fs::create_dir_all(&staging).map_err(|error| Error::new("storage", error))?;
     fs::write(staging.join("luma-extension.json"), &package.manifest_json)
@@ -2894,14 +3607,24 @@ fn write_staging(root: &Path, package: &PreparedPackage) -> Result<PathBuf, Erro
     Ok(staging)
 }
 
-fn finalize_staging(staging: &Path, target: &Path) -> Result<(), Error> {
+fn finalize_staging(staging: &Path, target: &Path) -> Result<Option<PathBuf>, Error> {
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|error| Error::new("storage", error))?;
     }
-    if target.exists() {
-        fs::remove_dir_all(target).map_err(|error| Error::new("storage", error))?;
+    let backup = if target.exists() {
+        let backup = staging.with_extension("backup");
+        fs::rename(target, &backup).map_err(|error| Error::new("storage", error))?;
+        Some(backup)
+    } else {
+        None
+    };
+    if let Err(error) = fs::rename(staging, target) {
+        if let Some(backup) = &backup {
+            fs::rename(backup, target).map_err(|error| Error::new("storage", error))?;
+        }
+        return Err(Error::new("storage", error));
     }
-    fs::rename(staging, target).map_err(|error| Error::new("storage", error))
+    Ok(backup)
 }
 
 pub(super) fn delete_package(store: &Store, plugin_id: &str, version: &str) {
@@ -2913,10 +3636,76 @@ pub(super) fn delete_package(store: &Store, plugin_id: &str, version: &str) {
 }
 
 #[derive(Debug)]
-pub(super) struct ImportOutcome {
+pub(crate) struct ImportOutcome {
     pub plugin: PluginRecord,
     pub already_installed: bool,
     pub replaced_version: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PackageInspection {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub api_version: u32,
+    pub runtime: &'static str,
+    pub entry: Option<String>,
+    pub permissions: Vec<String>,
+    pub network: Vec<String>,
+    pub files: usize,
+    pub bytes: u64,
+    pub hash: String,
+}
+
+impl PackageInspection {
+    fn from_package(package: &PreparedPackage) -> Self {
+        Self {
+            id: package.manifest.id.clone(),
+            name: package.manifest.name.clone(),
+            version: package.manifest.version.clone(),
+            api_version: package.manifest.api_version,
+            runtime: package.manifest.runtime.kind.label(),
+            entry: package.manifest.runtime.entry.clone(),
+            permissions: package
+                .manifest
+                .permissions
+                .iter()
+                .map(|permission| permission.label().to_string())
+                .collect(),
+            network: package
+                .manifest
+                .network
+                .as_ref()
+                .map(|network| network.allow.clone())
+                .unwrap_or_default(),
+            files: package.files.len() + 1,
+            bytes: package.size + package.manifest_json.len() as u64,
+            hash: package.hash.clone(),
+        }
+    }
+}
+
+pub(crate) fn inspect_path(path: &Path) -> Result<PackageInspection, Error> {
+    if path.is_dir() {
+        let package = read_package_dir(path)?;
+        return Ok(PackageInspection::from_package(&package));
+    }
+    let bytes = fs::read(path).map_err(|error| Error::new("storage", error).at(path.display()))?;
+    let package = archive::read(&bytes)?;
+    Ok(PackageInspection::from_package(&package))
+}
+
+pub(crate) fn pack_path(path: &Path, target: &Path) -> Result<PackageInspection, Error> {
+    let package = read_package_dir(path)?;
+    let bytes = archive::write(&package.manifest, &package.files)?;
+    let verified = archive::read(&bytes)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| Error::new("storage", error).at(target.display()))?;
+    }
+    fs::write(target, bytes).map_err(|error| Error::new("storage", error).at(target.display()))?;
+    Ok(PackageInspection::from_package(&verified))
 }
 
 pub(super) fn export_archive(store: &Store, plugin_id: &str) -> Result<(String, Vec<u8>), Error> {
@@ -2929,7 +3718,10 @@ pub(super) fn export_archive(store: &Store, plugin_id: &str) -> Result<(String, 
         )
         .optional()?;
     let Some((manifest_json, _)) = row else {
-        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+        return Err(Error::new(
+            "plugin_missing",
+            "That plugin is not installed.",
+        ));
     };
     let manifest: Manifest = serde_json::from_str(&manifest_json)
         .map_err(|error| Error::new("plugin_storage", error))?;
@@ -2977,7 +3769,11 @@ pub(super) fn export_archive(store: &Store, plugin_id: &str) -> Result<(String, 
     ))
 }
 
-fn collect_files(root: &Path, directory: &Path, files: &mut BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
+fn collect_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<(), Error> {
     for entry in fs::read_dir(directory).map_err(|error| Error::new("storage", error))? {
         let entry = entry.map_err(|error| Error::new("storage", error))?;
         let path = entry.path();
@@ -2996,10 +3792,13 @@ fn collect_files(root: &Path, directory: &Path, files: &mut BTreeMap<String, Vec
             .map(|component| component.as_os_str().to_string_lossy().to_string())
             .collect::<Vec<_>>()
             .join("/");
-        validate_relative_path(&relative)?;
-        let bytes = fs::read(&path).map_err(|error| Error::new("storage", error))?;
+        validate_relative_path(&relative).map_err(|error| error.at(&relative))?;
+        let bytes = fs::read(&path).map_err(|error| Error::new("storage", error).at(&relative))?;
         if bytes.len() as u64 > MAX_FILE_BYTES {
-            return Err(Error::new("storage", "A plugin file is too large to export."));
+            return Err(Error::new(
+                "storage",
+                "A plugin file is too large to export.",
+            ));
         }
         files.insert(relative, bytes);
     }
@@ -3025,11 +3824,11 @@ pub(super) fn save_target(app: &tauri::AppHandle, name: &str) -> Option<PathBuf>
         .and_then(|path| path.into_path().ok())
 }
 
-pub(super) fn state_for_app(app: &tauri::AppHandle) -> Result<PluginsState, Error> {
+pub(crate) fn state_for_app(app: &tauri::AppHandle) -> Result<PluginsState, Error> {
     let store = app.state::<Store>();
-    let document = store.read()?.ok_or_else(|| {
-        Error::new("not_initialized", "Open Luma once before managing plugins.")
-    })?;
+    let document = store
+        .read()?
+        .ok_or_else(|| Error::new("not_initialized", "Open Luma once before managing plugins."))?;
     let mut state = {
         let connection = store.connection()?;
         state(&connection, &document.config)?
@@ -3067,7 +3866,10 @@ pub(crate) fn disable_on_crash(
         params![reason, plugin_id],
     )?;
     if changed == 0 {
-        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+        return Err(Error::new(
+            "plugin_missing",
+            "That plugin is not installed.",
+        ));
     }
     transaction.execute(
         "DELETE FROM plugin_grants WHERE plugin_id = ?1",
@@ -3095,17 +3897,45 @@ pub(crate) fn remote_panels(app: &tauri::AppHandle) -> Result<Vec<RemotePanel>, 
     remote_panels_for(&connection)
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum RemoteInvocation {
+    Playback(RemoteAction),
+    Command(CommandSpec),
+}
+
 fn remote_panels_for(connection: &Connection) -> Result<Vec<RemotePanel>, Error> {
     let mut panels = Vec::new();
     for (id, plugin) in load_plugins(connection)? {
-        if !plugin.enabled
-            || plugin.manifest.runtime.kind != RuntimeKind::Declarative
-            || plugin.execution_reason().is_some()
-        {
+        if !plugin.enabled || plugin.execution_reason().is_some() {
             continue;
         }
         let Some(remote) = &plugin.manifest.remote else {
             continue;
+        };
+        let (actions, commands) = match plugin.manifest.api_version {
+            API_VERSION if plugin.manifest.runtime.kind == RuntimeKind::Declarative => {
+                (remote.actions.clone(), Vec::new())
+            }
+            HOME_API_VERSION if plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi => {
+                let Some(grant) = load_grant(connection, &id)? else {
+                    continue;
+                };
+                if !plugin.accepts_grant(&grant) {
+                    continue;
+                }
+                (
+                    Vec::new(),
+                    remote
+                        .commands
+                        .iter()
+                        .map(|entry| RemotePanelCommand {
+                            id: entry.command.clone(),
+                            label: entry.label.trim().to_string(),
+                        })
+                        .collect(),
+                )
+            }
+            _ => continue,
         };
         let title = remote.title.trim();
         panels.push(RemotePanel {
@@ -3116,33 +3946,65 @@ fn remote_panels_for(connection: &Connection) -> Result<Vec<RemotePanel>, Error>
             } else {
                 title.to_string()
             },
-            actions: remote.actions.clone(),
+            actions,
+            version: (!commands.is_empty()).then(|| plugin.manifest.version.clone()),
+            commands,
         });
     }
     panels.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(panels)
 }
 
-pub(crate) fn remote_action(
+pub(crate) fn remote_invocation(
     app: &tauri::AppHandle,
     plugin_id: &str,
     action: &str,
-) -> Result<RemoteAction, Error> {
+) -> Result<RemoteInvocation, Error> {
     let store = app.state::<Store>();
-    let connection = store.connection()?;
-    remote_action_for(&connection, plugin_id, action)
+    remote_invocation_for(&store, plugin_id, action)
 }
 
-fn remote_action_for(
-    connection: &Connection,
+fn remote_invocation_for(
+    store: &Store,
     plugin_id: &str,
     action: &str,
-) -> Result<RemoteAction, Error> {
-    let plugins = load_plugins(connection)?;
+) -> Result<RemoteInvocation, Error> {
+    let connection = store.connection()?;
+    let plugins = load_plugins(&connection)?;
     let (_, plugin) = plugins
         .iter()
         .find(|(id, _)| id == plugin_id)
         .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    if plugin.manifest.api_version == HOME_API_VERSION {
+        if !plugin.enabled {
+            return Err(Error::new(
+                "plugin_disabled",
+                "That plugin is not enabled for remote control.",
+            ));
+        }
+        if let Some(reason) = plugin.execution_reason() {
+            return Err(Error::new("plugin_unsupported", reason));
+        }
+        if plugin.manifest.runtime.kind != RuntimeKind::IsolatedUi {
+            return Err(Error::new(
+                "plugin_disabled",
+                "That plugin is not enabled for remote control.",
+            ));
+        }
+        let declared = plugin.manifest.remote.as_ref().is_some_and(|remote| {
+            remote
+                .commands
+                .iter()
+                .any(|declared| declared.command == action)
+        });
+        if !declared {
+            return Err(Error::new(
+                "denied",
+                "That plugin did not declare this remote action.",
+            ));
+        }
+        return command_spec_for(&connection, store, plugin, action).map(RemoteInvocation::Command);
+    }
     if !plugin.enabled
         || plugin.manifest.runtime.kind != RuntimeKind::Declarative
         || plugin.execution_reason().is_some()
@@ -3152,11 +4014,12 @@ fn remote_action_for(
             "That plugin is not enabled for remote control.",
         ));
     }
-    let declared = plugin
-        .manifest
-        .remote
-        .as_ref()
-        .is_some_and(|remote| remote.actions.iter().any(|declared| declared.label() == action));
+    let declared = plugin.manifest.remote.as_ref().is_some_and(|remote| {
+        remote
+            .actions
+            .iter()
+            .any(|declared| declared.label() == action)
+    });
     if !declared {
         return Err(Error::new(
             "denied",
@@ -3164,6 +4027,7 @@ fn remote_action_for(
         ));
     }
     RemoteAction::parse(action)
+        .map(RemoteInvocation::Playback)
         .ok_or_else(|| Error::new("denied", "Unknown remote action."))
 }
 
@@ -3185,6 +4049,9 @@ pub fn schema_document() -> Value {
         "manifestFile": "luma-extension.json",
         "apiVersion": API_VERSION,
         "executableApiVersion": EXECUTABLE_API_VERSION,
+        "homeApiVersion": HOME_API_VERSION,
+        "hostVersion": HOST_VERSION,
+        "minHostVersion": "Required for API version 3. The package installs disabled when the running Luma is older.",
         "id": {
             "pattern": "lowercase vendor-qualified segments such as com.example.pack",
             "maxLength": 96
@@ -3226,8 +4093,22 @@ pub fn schema_document() -> Value {
         "remote": {
             "field": "remote",
             "apiVersion": API_VERSION,
-            "shape": { "title": "optional 1-48 character panel title", "actions": ["playback.toggle", "playback.next", "playback.previous"] },
-            "behavior": "A declarative package may contribute one host-rendered remote panel. Empty actions show now-playing only. Only enabled declarative packages are projected; extension code never reaches the remote."
+            "commandApiVersion": HOME_API_VERSION,
+            "shape": {
+                "title": "optional 1-48 character panel title",
+                "actions": ["playback.toggle", "playback.next", "playback.previous"],
+                "commands": [{ "command": "stable local command id", "label": "1-32 character host-rendered label" }]
+            },
+            "behavior": "A declarative package may contribute one host-rendered remote panel with playback actions. An API version 3 isolated-ui package may instead contribute up to three commands declared by the same package. Empty actions show now-playing only. Declarative panels appear while the package is enabled; command panels also require a current on-demand grant. Extension code never reaches the remote. Every action rechecks pairing, the current panel, the declared command, and the current grant. Phone commands start a hidden runtime and never open or focus a desktop surface."
+        },
+        "homeCards": {
+            "field": "contributes",
+            "apiVersion": HOME_API_VERSION,
+            "shape": {
+                "commands": ["stable local command ids"],
+                "cards": [{ "id": "stable local card id", "title": "1-48 character title", "command": "a command declared by this package" }]
+            },
+            "behavior": "API version 3 packages register host-rendered Home cards backed by commands declared by the same package. Cards are projected only while the package is enabled, compatible, and granted. Rendering Home never starts a runtime or fetches data. Selecting a card starts the isolated-ui runtime on demand and delivers the command through the isolated bridge after the surface is ready."
         },
         "runtime": {
             "kinds": ["declarative", "isolated-ui", "background", "main-page"],
@@ -3239,9 +4120,10 @@ pub fn schema_document() -> Value {
                 "permissions": PERMISSIONS.iter().map(|permission| permission.label()).collect::<Vec<_>>(),
                 "network": "network.get requires network.allow with 1 to 8 public HTTPS origins; the host resolves the name and rejects non-public addresses",
                 "triggers": {
-                    "isolated-ui": ["launcher-open"],
+                    "isolated-ui": ["launcher-open", "on-demand"],
                     "background": ["launcher-open", "startup", "always"]
                 },
+                "homeCommands": "API version 3 packages use the on-demand trigger and run only for a selected Home card or paired-phone panel command.",
                 "behavior": "Executable packages install disabled. The user reviews the exact declared permissions, network origins, and trigger in Settings > Plugins; that consent is required before the runtime starts. Isolated-ui packages open in a host-owned window with a package-specific origin and a fixed bridge. Background packages run headless in the same isolated runtime. Disable, removal, and exit stop the runtime."
             },
             "unsupportedBehavior": "The main-page runtime installs disabled and can never be enabled. It is never executed inside the main window."
@@ -3265,6 +4147,14 @@ pub(crate) fn limits() -> Value {
         "settingOptions": MAX_SETTING_OPTIONS,
         "sourceFiles": MAX_SOURCE_FILES,
         "networkOrigins": MAX_NETWORK_ORIGINS,
+        "remoteActions": MAX_REMOTE_ACTIONS,
+        "remoteCommands": MAX_REMOTE_COMMANDS,
+        "remoteTitle": MAX_REMOTE_TITLE,
+        "remoteLabel": MAX_REMOTE_LABEL,
+        "homeCards": MAX_HOME_CARDS,
+        "commands": MAX_COMMANDS,
+        "cardTitle": MAX_CARD_TITLE,
+        "localId": MAX_LOCAL_ID,
         "pathBytes": MAX_PATH_BYTES
     })
 }
@@ -3335,9 +4225,9 @@ pub(super) fn command_import(app: tauri::AppHandle) -> Result<Option<ImportResul
     let bytes = fs::read(&path).map_err(|error| Error::new("storage", error))?;
     let store = app.state::<Store>();
     let outcome = import_archive(&store, &bytes, "import")?;
-    let document = store.snapshot()?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let document = store
+        .snapshot()?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     super::publish(&app, &document.document);
     Ok(Some(ImportResult {
         plugin: outcome.plugin,
@@ -3354,7 +4244,10 @@ pub struct ImportResult {
     pub replaced_version: Option<String>,
 }
 
-pub(super) fn command_export(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, Error> {
+pub(super) fn command_export(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, Error> {
     let store = app.state::<Store>();
     let (name, bytes) = export_archive(&store, &plugin_id)?;
     let Some(target) = save_target(&app, &name) else {
@@ -3366,7 +4259,9 @@ pub(super) fn command_export(app: tauri::AppHandle, plugin_id: String) -> Result
         target
     };
     fs::write(&target, bytes).map_err(|error| Error::new("storage", error))?;
-    Ok(target.file_name().map(|name| name.to_string_lossy().to_string()))
+    Ok(target
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string()))
 }
 
 pub(super) fn command_preview(
@@ -3377,7 +4272,7 @@ pub(super) fn command_preview(
     store.preview_plugin(plugin_id, expected_revision)
 }
 
-pub(super) fn command_enable_runtime(
+pub(crate) fn command_enable_runtime(
     store: &Store,
     plugin_id: &str,
     expected_revision: u64,
@@ -3387,9 +4282,8 @@ pub(super) fn command_enable_runtime(
 ) -> Result<(), Error> {
     let mut connection = store.connection()?;
     let transaction = connection.transaction()?;
-    let current = Store::current(&transaction)?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     if current.revision != expected_revision {
         return Err(Error::new("conflict", "Customization changed elsewhere."));
     }
@@ -3423,14 +4317,16 @@ pub(super) fn command_enable_runtime(
             ),
         ));
     }
+    if plugin.manifest.api_version == HOME_API_VERSION && trigger != Trigger::OnDemand {
+        return Err(Error::new(
+            "plugin_trigger",
+            "API version 3 Home cards start on demand. Choose the on-demand trigger.",
+        ));
+    }
     let mut granted = BTreeSet::new();
     for label in &permissions {
-        let permission = Permission::parse(label).ok_or_else(|| {
-            Error::new(
-                "denied",
-                format!("Unknown runtime permission: {label}."),
-            )
-        })?;
+        let permission = Permission::parse(label)
+            .ok_or_else(|| Error::new("denied", format!("Unknown runtime permission: {label}.")))?;
         if !granted.insert(permission) {
             return Err(Error::new(
                 "validation",
@@ -3460,7 +4356,10 @@ pub(super) fn command_enable_runtime(
         .as_ref()
         .map(|network| network.allow.as_slice())
         .unwrap_or(&[]);
-    if !network.iter().all(|origin| declared_network.contains(origin)) {
+    if !network
+        .iter()
+        .all(|origin| declared_network.contains(origin))
+    {
         return Err(Error::new(
             "denied",
             "The requested network origins were not declared by this package.",
@@ -3521,16 +4420,15 @@ pub(super) fn command_enable_runtime(
     Ok(())
 }
 
-pub(super) fn command_disable(
+pub(crate) fn command_disable(
     store: &Store,
     plugin_id: &str,
     expected_revision: u64,
 ) -> Result<(), Error> {
     let mut connection = store.connection()?;
     let transaction = connection.transaction()?;
-    let current = Store::current(&transaction)?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     if current.revision != expected_revision {
         return Err(Error::new("conflict", "Customization changed elsewhere."));
     }
@@ -3548,9 +4446,8 @@ pub(super) fn command_remove(
 ) -> Result<(), Error> {
     let mut connection = store.connection()?;
     let transaction = connection.transaction()?;
-    let current = Store::current(&transaction)?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     if current.revision != expected_revision {
         return Err(Error::new("conflict", "Customization changed elsewhere."));
     }
@@ -3562,10 +4459,13 @@ pub(super) fn command_remove(
         )
         .optional()?;
     let Some((raw, _enabled)) = row else {
-        return Err(Error::new("plugin_missing", "That plugin is not installed."));
+        return Err(Error::new(
+            "plugin_missing",
+            "That plugin is not installed.",
+        ));
     };
-    let manifest: Manifest = serde_json::from_str(&raw)
-        .map_err(|error| Error::new("plugin_storage", error))?;
+    let manifest: Manifest =
+        serde_json::from_str(&raw).map_err(|error| Error::new("plugin_storage", error))?;
     remove_row(&transaction, plugin_id, delete_data)?;
     Store::write(&transaction, &current, current.config.clone(), true)?;
     transaction.commit()?;
@@ -3581,9 +4481,8 @@ pub(super) fn command_save_settings(
 ) -> Result<(), Error> {
     let mut connection = store.connection()?;
     let transaction = connection.transaction()?;
-    let current = Store::current(&transaction)?.ok_or_else(|| {
-        Error::new("not_initialized", "Customization is not initialized.")
-    })?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
     if current.revision != expected_revision {
         return Err(Error::new("conflict", "Customization changed elsewhere."));
     }
@@ -3753,7 +4652,9 @@ mod tests {
             assert!(!super::super::mcp::known_tool_for_test(name));
         }
         assert!(super::super::mcp::known_tool_for_test("luma_plugin_stage"));
-        assert!(super::super::mcp::known_tool_for_test("luma_plugin_settings_stage"));
+        assert!(super::super::mcp::known_tool_for_test(
+            "luma_plugin_settings_stage"
+        ));
     }
 
     #[test]
@@ -3766,7 +4667,15 @@ mod tests {
         let effective = store.read_effective().unwrap().unwrap();
         assert_eq!(effective.config.theme, "ember");
         assert_eq!(effective.config.home_columns, 2);
-        assert!(effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert!(
+            effective
+                .config
+                .home
+                .iter()
+                .find(|row| row.component == "featured")
+                .unwrap()
+                .visible
+        );
 
         let revision = store.read().unwrap().unwrap().revision;
         command_save_settings(
@@ -3779,7 +4688,15 @@ mod tests {
         let effective = store.read_effective().unwrap().unwrap();
         assert_eq!(effective.config.theme, "onyx");
         assert_eq!(effective.config.home_columns, 1);
-        assert!(!effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert!(
+            !effective
+                .config
+                .home
+                .iter()
+                .find(|row| row.component == "featured")
+                .unwrap()
+                .visible
+        );
 
         let revision = store.read().unwrap().unwrap().revision;
         command_disable(&store, "com.example.lounge", revision).unwrap();
@@ -3787,12 +4704,23 @@ mod tests {
         assert_eq!(effective.config, original.config);
         let state = state_for_store(&store);
         assert!(!state.plugins[0].enabled);
-        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+        assert_eq!(
+            state.plugins[0].settings[0].value,
+            serde_json::json!("onyx")
+        );
         enable(&store, "com.example.lounge");
         let effective = store.read_effective().unwrap().unwrap();
         assert_eq!(effective.config.theme, "onyx");
         assert_eq!(effective.config.home_columns, 1);
-        assert!(!effective.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert!(
+            !effective
+                .config
+                .home
+                .iter()
+                .find(|row| row.component == "featured")
+                .unwrap()
+                .visible
+        );
     }
 
     fn state_for_store(store: &Store) -> PluginsState {
@@ -3818,7 +4746,10 @@ mod tests {
         let state = state_for_store(&store);
         assert!(state.plugins[0].controls.contains(&"theme".into()));
         assert!(state.plugins[0].detached_fields.is_empty());
-        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "ember");
+        assert_eq!(
+            store.read_effective().unwrap().unwrap().config.theme,
+            "ember"
+        );
         let mut requested = store.read_effective().unwrap().unwrap().config;
         requested.theme = "sapphire".into();
         let revision = store.read().unwrap().unwrap().revision;
@@ -3857,7 +4788,10 @@ mod tests {
         store.keep(&preview.id).unwrap();
         let state = state_for_store(&store);
         assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
-        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "sapphire");
+        assert_eq!(
+            store.read_effective().unwrap().unwrap().config.theme,
+            "sapphire"
+        );
     }
 
     #[test]
@@ -3879,7 +4813,11 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "plugin_conflict");
         let state = state_for_store(&store);
-        let second = state.plugins.iter().find(|plugin| plugin.id == "com.example.two").unwrap();
+        let second = state
+            .plugins
+            .iter()
+            .find(|plugin| plugin.id == "com.example.two")
+            .unwrap();
         assert!(!second.enabled);
         assert!(!second.conflicts.is_empty());
     }
@@ -3913,10 +4851,14 @@ mod tests {
         assert_eq!(outcome.plugin.permissions, ["settings.read"]);
         assert_eq!(outcome.plugin.entry.as_deref(), Some("ui/index.html"));
         let revision = store.read().unwrap().unwrap().revision;
-        let error = store.preview_plugin("com.example.code", revision).unwrap_err();
+        let error = store
+            .preview_plugin("com.example.code", revision)
+            .unwrap_err();
         assert_eq!(error.code, "plugin_runtime");
         assert_eq!(
-            runtime_package(&store, "com.example.code").unwrap_err().code,
+            runtime_package(&store, "com.example.code")
+                .unwrap_err()
+                .code,
             "plugin_disabled"
         );
     }
@@ -4052,7 +4994,8 @@ mod tests {
         let runtime = |manifest: &mut Value| {
             manifest["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
             manifest["contributes"] = serde_json::json!({});
-            manifest["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+            manifest["runtime"] =
+                serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
         };
         let files = serde_json::json!([{ "path": "ui/index.html", "text": "<!doctype html>" }]);
         let stage_with = |manifest: Value| {
@@ -4065,8 +5008,12 @@ mod tests {
 
         let mut undeclared_network = manifest("com.example.network", "1.0.0");
         runtime(&mut undeclared_network);
-        undeclared_network["network"] = serde_json::json!({ "allow": ["https://api.open-meteo.com"] });
-        assert_eq!(stage_with(undeclared_network).unwrap_err().code, "validation");
+        undeclared_network["network"] =
+            serde_json::json!({ "allow": ["https://api.open-meteo.com"] });
+        assert_eq!(
+            stage_with(undeclared_network).unwrap_err().code,
+            "validation"
+        );
 
         let mut missing_network = manifest("com.example.missing-network", "1.0.0");
         runtime(&mut missing_network);
@@ -4095,7 +5042,10 @@ mod tests {
         let mut unknown_permission = manifest("com.example.permission", "1.0.0");
         runtime(&mut unknown_permission);
         unknown_permission["permissions"] = serde_json::json!(["network.any"]);
-        assert_eq!(stage_with(unknown_permission).unwrap_err().code, "validation");
+        assert_eq!(
+            stage_with(unknown_permission).unwrap_err().code,
+            "validation"
+        );
 
         let mut playback = manifest("com.example.playback", "1.0.0");
         runtime(&mut playback);
@@ -4144,38 +5094,52 @@ mod tests {
         });
         let outcome = stage_submission(&store, &submission, "import").unwrap();
         assert_eq!(outcome.plugin.id, "com.example.weather");
-        assert_eq!(outcome.plugin.api_version, EXECUTABLE_API_VERSION);
+        assert_eq!(outcome.plugin.api_version, HOME_API_VERSION);
         assert_eq!(outcome.plugin.runtime, "isolated-ui");
         assert!(!outcome.plugin.enabled);
         assert!(outcome.plugin.executable);
         assert!(outcome.plugin.can_enable);
-        assert_eq!(
-            outcome.plugin.permissions,
-            ["settings.read", "network.get"]
-        );
+        assert!(outcome.plugin.execution_reason.is_none());
+        assert_eq!(outcome.plugin.permissions, ["settings.read", "network.get"]);
         assert_eq!(outcome.plugin.network, ["https://api.open-meteo.com"]);
         assert!(granted_plugins(&store).unwrap().is_empty());
+        assert!(state_for_store(&store).home_cards.is_empty());
 
         enable_runtime(
             &store,
             "com.example.weather",
             &["settings.read", "network.get"],
             &["https://api.open-meteo.com"],
-            Trigger::LauncherOpen,
+            Trigger::OnDemand,
+        );
+        assert_eq!(granted_plugins(&store).unwrap()[0].0, "com.example.weather");
+        assert_eq!(
+            state_for_store(&store).home_cards,
+            vec![HomeCard {
+                id: "com.example.weather:forecast".into(),
+                plugin_id: "com.example.weather".into(),
+                title: "Weather".into(),
+                command_id: "openForecast".into(),
+            }]
         );
         assert_eq!(
-            granted_plugins(&store).unwrap()[0].0,
-            "com.example.weather"
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap()
+                .version,
+            outcome.plugin.version
         );
 
         let package = runtime_package(&store, "com.example.weather").unwrap();
-        assert_eq!(package.api_version, EXECUTABLE_API_VERSION);
+        assert_eq!(package.api_version, HOME_API_VERSION);
         assert_eq!(package.entry, "ui/index.html");
         assert!(package.allows(Permission::SettingsRead));
         assert!(package.allows(Permission::NetworkGet));
         assert!(!package.allows(Permission::PlaybackRead));
         assert_eq!(package.network, ["https://api.open-meteo.com"]);
-        assert_eq!(package.settings.get("location"), Some(&serde_json::json!("seattle")));
+        assert_eq!(
+            package.settings.get("location"),
+            Some(&serde_json::json!("seattle"))
+        );
         assert_eq!(package.settings.get("units"), Some(&serde_json::json!("c")));
         assert!(String::from_utf8(package.read("").unwrap())
             .unwrap()
@@ -4183,8 +5147,14 @@ mod tests {
         assert!(String::from_utf8(package.read("ui/page.js").unwrap())
             .unwrap()
             .contains("extension_bridge"));
-        assert_eq!(package.read("../luma-extension.json").unwrap_err().code, "validation");
-        assert_eq!(package.read("ui/missing.js").unwrap_err().code, "plugin_missing");
+        assert_eq!(
+            package.read("../luma-extension.json").unwrap_err().code,
+            "validation"
+        );
+        assert_eq!(
+            package.read("ui/missing.js").unwrap_err().code,
+            "plugin_missing"
+        );
     }
 
     #[test]
@@ -4270,7 +5240,10 @@ mod tests {
         store
             .connection()
             .unwrap()
-            .execute("DELETE FROM plugin_grants WHERE plugin_id = ?1", ["com.example.orphan"])
+            .execute(
+                "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+                ["com.example.orphan"],
+            )
             .unwrap();
         reconcile(&store.connection().unwrap()).unwrap();
         let state = state_for_store(&store);
@@ -4287,13 +5260,14 @@ mod tests {
     fn runtime_trigger_names_match_the_command_contract() {
         for (json, trigger) in [
             ("\"launcher-open\"", Trigger::LauncherOpen),
+            ("\"on-demand\"", Trigger::OnDemand),
             ("\"startup\"", Trigger::Startup),
             ("\"always\"", Trigger::Always),
         ] {
             assert_eq!(serde_json::from_str::<Trigger>(json).unwrap(), trigger);
         }
-        assert!(serde_json::from_str::<Trigger>("\"on-demand\"").is_err());
         assert!(Trigger::LauncherOpen.supports(RuntimeKind::IsolatedUi));
+        assert!(Trigger::OnDemand.supports(RuntimeKind::IsolatedUi));
         assert!(!Trigger::Startup.supports(RuntimeKind::IsolatedUi));
         assert!(Trigger::Always.supports(RuntimeKind::Background));
         assert!(!Trigger::Always.supports(RuntimeKind::Declarative));
@@ -4314,7 +5288,9 @@ mod tests {
         .unwrap();
         assert!(!outcome.plugin.enabled);
         assert!(outcome.plugin.can_enable);
-        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
 
         enable(&store, "com.example.music-remote");
         let panels = remote_panels_for(&store.connection().unwrap()).unwrap();
@@ -4346,7 +5322,9 @@ mod tests {
             "import",
         )
         .unwrap();
-        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
 
         enable(&store, "com.example.remote");
         let panels = remote_panels_for(&store.connection().unwrap()).unwrap();
@@ -4360,23 +5338,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["playback.toggle", "playback.next"]
         );
+        assert!(matches!(
+            remote_invocation_for(&store, "com.example.remote", "playback.next").unwrap(),
+            RemoteInvocation::Playback(RemoteAction::PlaybackNext)
+        ));
         assert_eq!(
-            remote_action_for(&store.connection().unwrap(), "com.example.remote", "playback.next")
-                .unwrap(),
-            RemoteAction::PlaybackNext
-        );
-        assert_eq!(
-            remote_action_for(
-                &store.connection().unwrap(),
-                "com.example.remote",
-                "playback.previous"
-            )
-            .unwrap_err()
-            .code,
+            remote_invocation_for(&store, "com.example.remote", "playback.previous")
+                .unwrap_err()
+                .code,
             "denied"
         );
         assert_eq!(
-            remote_action_for(&store.connection().unwrap(), "com.example.missing", "playback.next")
+            remote_invocation_for(&store, "com.example.missing", "playback.next")
                 .unwrap_err()
                 .code,
             "plugin_missing"
@@ -4384,9 +5357,11 @@ mod tests {
 
         let revision = store.read().unwrap().unwrap().revision;
         command_disable(&store, "com.example.remote", revision).unwrap();
-        assert!(remote_panels_for(&store.connection().unwrap()).unwrap().is_empty());
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
         assert_eq!(
-            remote_action_for(&store.connection().unwrap(), "com.example.remote", "playback.next")
+            remote_invocation_for(&store, "com.example.remote", "playback.next")
                 .unwrap_err()
                 .code,
             "plugin_disabled"
@@ -4394,7 +5369,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_manifest_shape_is_bounded_and_executable_packages_cannot_declare_panels() {
+    fn remote_manifest_shape_is_bounded_and_api_v2_packages_cannot_declare_panels() {
         let (store, _root) = store();
         let mut duplicate = manifest("com.example.duplicate", "1.0.0");
         duplicate["remote"] = serde_json::json!({
@@ -4444,7 +5419,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn mcp_settings_stage_uses_the_same_values_and_requires_keep() {
         let (store, _root) = store();
@@ -4464,11 +5438,22 @@ mod tests {
             .preview_plugin_settings("com.example.lounge", revision, &values)
             .unwrap();
         assert_eq!(preview.plugin.as_ref().unwrap().action, "settings");
-        assert!(!preview.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert!(
+            !preview
+                .config
+                .home
+                .iter()
+                .find(|row| row.component == "featured")
+                .unwrap()
+                .visible
+        );
         let kept = store.keep(&preview.id).unwrap();
         assert_eq!(kept.revision, revision + 1);
         let state = state_for_store(&store);
-        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+        assert_eq!(
+            state.plugins[0].settings[0].value,
+            serde_json::json!("onyx")
+        );
         assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
     }
 
@@ -4478,9 +5463,11 @@ mod tests {
         let path = root.join("customization.sqlite3");
         let revision;
         {
-            let store =
-                Store::from_connection_with_root(Connection::open(&path).unwrap(), Some(root.clone()))
-                    .unwrap();
+            let store = Store::from_connection_with_root(
+                Connection::open(&path).unwrap(),
+                Some(root.clone()),
+            )
+            .unwrap();
             store.initialize(Config::default()).unwrap();
             stage(&store, "com.example.lounge", "1.0.0");
             enable(&store, "com.example.lounge");
@@ -4499,7 +5486,15 @@ mod tests {
         let document = store.read_effective().unwrap().unwrap();
         assert!(document.revision > revision);
         assert_eq!(document.config.theme, "ember");
-        assert!(!document.config.home.iter().find(|row| row.component == "featured").unwrap().visible);
+        assert!(
+            !document
+                .config
+                .home
+                .iter()
+                .find(|row| row.component == "featured")
+                .unwrap()
+                .visible
+        );
         let state = state_for_store(&store);
         assert!(state.plugins[0].enabled);
         assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
@@ -4562,7 +5557,10 @@ mod tests {
         let state = state_for_store(&store);
         assert!(state.plugins[0].enabled);
         assert!(state.plugins[0].detached_fields.is_empty());
-        assert_eq!(store.read_effective().unwrap().unwrap().config.theme, "ember");
+        assert_eq!(
+            store.read_effective().unwrap().unwrap().config.theme,
+            "ember"
+        );
         let (restored, _) = store
             .restore_version(restored.revision, detached.revision)
             .unwrap();
@@ -4593,7 +5591,10 @@ mod tests {
         assert!(state.plugins[0].enabled);
         assert!(state.plugins[0].detached_fields.contains(&"theme".into()));
         assert_eq!(state.plugins[0].settings[1].value, serde_json::json!(false));
-        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+        assert_eq!(
+            state.plugins[0].settings[0].value,
+            serde_json::json!("onyx")
+        );
     }
 
     #[test]
@@ -4603,7 +5604,10 @@ mod tests {
         let enabled = enable(&store, "com.example.lounge");
         let revision = store.read().unwrap().unwrap().revision;
         command_remove(&store, "com.example.lounge", revision, false).unwrap();
-        assert_eq!(store.read_effective().unwrap().unwrap().config, Config::default());
+        assert_eq!(
+            store.read_effective().unwrap().unwrap().config,
+            Config::default()
+        );
         assert!(!root.join("com.example.lounge").join("1.0.0").exists());
         let current = store.read().unwrap().unwrap();
         let (restored, notices) = store
@@ -4620,21 +5624,33 @@ mod tests {
         let id = "com.example.lounge";
         stage(&store, id, "1.0.0");
         let revision = store.read().unwrap().unwrap().revision;
-        command_save_settings(&store, id, revision, map(serde_json::json!({
-            "theme": "onyx", "showFeatured": false, "columns": 2, "label": "Lounge"
-        }))).unwrap();
+        command_save_settings(
+            &store,
+            id,
+            revision,
+            map(serde_json::json!({
+                "theme": "onyx", "showFeatured": false, "columns": 2, "label": "Lounge"
+            })),
+        )
+        .unwrap();
         let saved = settings_map(&store.connection().unwrap(), id).unwrap();
         let revision = store.read().unwrap().unwrap().revision;
         command_remove(&store, id, revision, false).unwrap();
         stage(&store, id, "1.0.0");
         let reinstalled = &state_for_store(&store).plugins[0];
         assert!(!reinstalled.enabled);
-        assert_eq!(settings_map(&store.connection().unwrap(), id).unwrap(), saved);
+        assert_eq!(
+            settings_map(&store.connection().unwrap(), id).unwrap(),
+            saved
+        );
         let revision = store.read().unwrap().unwrap().revision;
         command_remove(&store, id, revision, true).unwrap();
         stage(&store, id, "1.0.0");
         let reinstalled = &state_for_store(&store).plugins[0];
-        assert!(reinstalled.settings.iter().all(|setting| setting.value == setting.default));
+        assert!(reinstalled
+            .settings
+            .iter()
+            .all(|setting| setting.value == setting.default));
     }
 
     #[test]
@@ -4677,12 +5693,8 @@ mod tests {
         stage(&store, "com.example.lounge", "1.0.0");
         enable(&store, "com.example.lounge");
         let before = store.read_effective().unwrap().unwrap();
-        let error = stage_submission(
-            &store,
-            &submission("com.example.lounge", "1.1.0"),
-            "mcp",
-        )
-        .unwrap_err();
+        let error = stage_submission(&store, &submission("com.example.lounge", "1.1.0"), "mcp")
+            .unwrap_err();
         assert_eq!(error.code, "plugin_enabled");
         let after = store.read_effective().unwrap().unwrap();
         assert_eq!(after, before);
@@ -4725,7 +5737,10 @@ mod tests {
         let after = store.read_effective().unwrap().unwrap();
         assert_eq!(after, before);
         let state = state_for_store(&store);
-        assert_eq!(state.plugins[0].settings[0].value, serde_json::json!("onyx"));
+        assert_eq!(
+            state.plugins[0].settings[0].value,
+            serde_json::json!("onyx")
+        );
     }
 
     #[test]
@@ -4757,14 +5772,17 @@ mod tests {
         changed.name = "Changed".into();
         let changed_bytes = archive::write(&changed, &files).unwrap();
         assert_eq!(
-            import_archive(&store, &changed_bytes, "import").unwrap_err().code,
+            import_archive(&store, &changed_bytes, "import")
+                .unwrap_err()
+                .code,
             "immutable_version"
         );
     }
 
     fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         for (name, bytes) in entries {
             writer.start_file(*name, options).unwrap();
             writer.write_all(bytes).unwrap();
@@ -4822,7 +5840,11 @@ mod tests {
         let mut declared = manifest("com.example.missing", "1.0.0");
         declared["assets"] = serde_json::json!(["assets/icon.png"]);
         let missing_manifest = serde_json::to_vec(&declared).unwrap();
-        assert!(archive::read(&zip_bytes(&[("luma-extension.json", missing_manifest.as_slice())])).is_err());
+        assert!(archive::read(&zip_bytes(&[(
+            "luma-extension.json",
+            missing_manifest.as_slice()
+        )]))
+        .is_err());
 
         let mut bomb = manifest("com.example.bomb", "1.0.0");
         bomb["source"] = serde_json::json!(["source/big.txt"]);
@@ -4859,6 +5881,813 @@ mod tests {
         assert!(archive::read(&bytes).is_err());
     }
 
+    fn home_manifest(id: &str, version: &str) -> Value {
+        let mut value = manifest(id, version);
+        value["name"] = serde_json::json!("Weather Card");
+        value["apiVersion"] = serde_json::json!(HOME_API_VERSION);
+        value["minHostVersion"] = serde_json::json!(HOST_VERSION);
+        value["settings"] = serde_json::json!([]);
+        value["permissions"] = serde_json::json!(["settings.read"]);
+        value["contributes"] = serde_json::json!({
+            "commands": ["openForecast"],
+            "cards": [
+                { "id": "forecast", "title": "Weather", "command": "openForecast" }
+            ]
+        });
+        value["runtime"] = serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        value["assets"] = serde_json::json!([]);
+        value["source"] = serde_json::json!([]);
+        value
+    }
+
+    fn home_submission(id: &str, version: &str) -> Value {
+        serde_json::json!({
+            "manifest": home_manifest(id, version),
+            "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+        })
+    }
+
+    #[test]
+    fn home_card_packages_project_only_when_enabled_and_compatible() {
+        let (store, _root) = store();
+        let outcome = stage_submission(
+            &store,
+            &home_submission("com.example.weather", "1.0.0"),
+            "import",
+        )
+        .unwrap();
+        assert_eq!(outcome.plugin.api_version, HOME_API_VERSION);
+        assert!(!outcome.plugin.enabled);
+        assert!(outcome.plugin.can_enable);
+        assert!(outcome.plugin.execution_reason.is_none());
+        assert!(!outcome.plugin.surface_openable);
+        assert!(state_for_store(&store).home_cards.is_empty());
+        assert_eq!(state_for_store(&store).effective, Config::default());
+
+        let revision = store.read().unwrap().unwrap().revision;
+        assert_eq!(
+            command_enable_runtime(
+                &store,
+                "com.example.weather",
+                revision,
+                vec!["settings.read".into()],
+                vec![],
+                Trigger::LauncherOpen,
+            )
+            .unwrap_err()
+            .code,
+            "plugin_trigger"
+        );
+
+        enable_runtime(
+            &store,
+            "com.example.weather",
+            &["settings.read"],
+            &[],
+            Trigger::OnDemand,
+        );
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].enabled);
+        assert_eq!(state.plugins[0].trigger.as_deref(), Some("on-demand"));
+        assert!(state.plugins[0].surface_openable);
+        assert_eq!(state.effective, Config::default());
+        assert_eq!(
+            state.home_cards,
+            vec![HomeCard {
+                id: "com.example.weather:forecast".into(),
+                plugin_id: "com.example.weather".into(),
+                title: "Weather".into(),
+                command_id: "openForecast".into(),
+            }]
+        );
+
+        let spec = command_spec(&store, "com.example.weather", "openForecast").unwrap();
+        assert_eq!(spec.plugin_id, "com.example.weather");
+        assert_eq!(spec.version, "1.0.0");
+        assert_eq!(spec.grant.trigger, Trigger::OnDemand);
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "missing")
+                .unwrap_err()
+                .code,
+            "plugin_command"
+        );
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.weather", revision).unwrap();
+        let state = state_for_store(&store);
+        assert!(state.home_cards.is_empty());
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_disabled"
+        );
+    }
+
+    #[test]
+    fn home_cards_do_not_claim_appearance_ownership() {
+        let (store, _root) = store();
+        stage(&store, "com.example.lounge", "1.0.0");
+        stage_submission(
+            &store,
+            &home_submission("com.example.weather", "1.0.0"),
+            "import",
+        )
+        .unwrap();
+        enable(&store, "com.example.lounge");
+        enable_runtime(
+            &store,
+            "com.example.weather",
+            &["settings.read"],
+            &[],
+            Trigger::OnDemand,
+        );
+        let state = state_for_store(&store);
+        assert!(state.plugins.iter().all(|plugin| plugin.enabled));
+        assert_eq!(state.effective.theme, "ember");
+        assert_eq!(state.home_cards.len(), 1);
+    }
+
+    #[test]
+    fn newer_host_requirements_install_disabled_with_an_actionable_reason() {
+        let (store, _root) = store();
+        let mut candidate = home_manifest("com.example.weather", "1.0.0");
+        candidate["minHostVersion"] = serde_json::json!("999.0.0");
+        let outcome = stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": candidate,
+                "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        assert!(!outcome.plugin.enabled);
+        assert!(!outcome.plugin.can_enable);
+        assert!(outcome
+            .plugin
+            .execution_reason
+            .as_deref()
+            .unwrap()
+            .contains("requires Luma 999.0.0"));
+        assert!(state_for_store(&store).home_cards.is_empty());
+        let revision = store.read().unwrap().unwrap().revision;
+        assert_eq!(
+            command_enable_runtime(
+                &store,
+                "com.example.weather",
+                revision,
+                vec!["settings.read".into()],
+                vec![],
+                Trigger::OnDemand,
+            )
+            .unwrap_err()
+            .code,
+            "plugin_unsupported"
+        );
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_unsupported"
+        );
+    }
+
+    #[test]
+    fn home_manifest_rejects_missing_references_duplicates_limits_and_appearance() {
+        let (store, _root) = store();
+        let stage_home = |manifest: Value| {
+            stage_submission(
+                &store,
+                &serde_json::json!({
+                    "manifest": manifest,
+                    "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+                }),
+                "import",
+            )
+        };
+
+        let mut missing_host = home_manifest("com.example.host", "1.0.0");
+        missing_host["minHostVersion"] = Value::Null;
+        missing_host
+            .as_object_mut()
+            .unwrap()
+            .remove("minHostVersion");
+        assert_eq!(stage_home(missing_host).unwrap_err().code, "validation");
+
+        let mut unknown = home_manifest("com.example.unknown", "1.0.0");
+        unknown["contributes"]["cards"][0]["command"] = serde_json::json!("missing");
+        let error = stage_home(unknown).unwrap_err();
+        assert_eq!(error.code, "validation");
+        assert_eq!(error.path.as_deref(), Some("contributes.cards[0].command"));
+
+        let mut duplicate_command = home_manifest("com.example.command", "1.0.0");
+        duplicate_command["contributes"]["commands"] =
+            serde_json::json!(["openForecast", "openForecast"]);
+        assert_eq!(
+            stage_home(duplicate_command).unwrap_err().code,
+            "validation"
+        );
+
+        let mut duplicate_card = home_manifest("com.example.card", "1.0.0");
+        duplicate_card["contributes"]["cards"] = serde_json::json!([
+            { "id": "forecast", "title": "One", "command": "openForecast" },
+            { "id": "forecast", "title": "Two", "command": "openForecast" }
+        ]);
+        assert_eq!(stage_home(duplicate_card).unwrap_err().code, "validation");
+
+        let mut long_title = home_manifest("com.example.title", "1.0.0");
+        long_title["contributes"]["cards"][0]["title"] =
+            serde_json::json!("x".repeat(MAX_CARD_TITLE + 1));
+        assert_eq!(stage_home(long_title).unwrap_err().code, "validation");
+
+        let mut too_many_cards = home_manifest("com.example.cards", "1.0.0");
+        too_many_cards["contributes"]["cards"] = Value::Array(
+            (0..=MAX_HOME_CARDS)
+                .map(|index| {
+                    serde_json::json!({
+                        "id": format!("card-{index}"),
+                        "title": "Weather",
+                        "command": "openForecast"
+                    })
+                })
+                .collect(),
+        );
+        assert_eq!(stage_home(too_many_cards).unwrap_err().code, "validation");
+
+        let mut too_many_commands = home_manifest("com.example.commands", "1.0.0");
+        too_many_commands["contributes"]["commands"] = Value::Array(
+            (0..=MAX_COMMANDS)
+                .map(|index| serde_json::json!(format!("command-{index}")))
+                .collect(),
+        );
+        assert_eq!(
+            stage_home(too_many_commands).unwrap_err().code,
+            "validation"
+        );
+
+        let mut appearance = home_manifest("com.example.appearance", "1.0.0");
+        appearance["contributes"]["theme"] = serde_json::json!("onyx");
+        assert_eq!(stage_home(appearance).unwrap_err().code, "validation");
+
+        let mut background = home_manifest("com.example.background", "1.0.0");
+        background["runtime"] = serde_json::json!({ "kind": "background", "entry": "worker.html" });
+        assert_eq!(stage_home(background).unwrap_err().code, "incompatible");
+
+        let mut v2_cards = manifest("com.example.v2-cards", "1.0.0");
+        v2_cards["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        v2_cards["contributes"] = serde_json::json!({});
+        v2_cards["runtime"] =
+            serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": v2_cards,
+                "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        let mut v2_cards = manifest("com.example.v2-cards", "1.1.0");
+        v2_cards["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        v2_cards["contributes"] = serde_json::json!({
+            "commands": ["openForecast"],
+            "cards": [{ "id": "forecast", "title": "Weather", "command": "openForecast" }]
+        });
+        v2_cards["runtime"] =
+            serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        assert_eq!(stage_home(v2_cards).unwrap_err().code, "validation");
+
+        let mut v1_cards = manifest("com.example.v1-cards", "1.0.0");
+        v1_cards["contributes"] = serde_json::json!({
+            "commands": ["openForecast"],
+            "cards": [{ "id": "forecast", "title": "Weather", "command": "openForecast" }]
+        });
+        assert_eq!(stage_home(v1_cards).unwrap_err().code, "validation");
+    }
+
+    #[test]
+    fn v3_grants_must_stay_on_demand_for_projection_and_dispatch() {
+        let (store, _root) = store();
+        stage_submission(
+            &store,
+            &home_submission("com.example.weather", "1.0.0"),
+            "import",
+        )
+        .unwrap();
+        enable_runtime(
+            &store,
+            "com.example.weather",
+            &["settings.read"],
+            &[],
+            Trigger::OnDemand,
+        );
+        {
+            let connection = store.connection().unwrap();
+            connection
+                .execute(
+                    "UPDATE plugin_grants SET trigger = 'launcher-open' WHERE plugin_id = ?1",
+                    ["com.example.weather"],
+                )
+                .unwrap();
+        }
+        let state = state_for_store(&store);
+        assert!(state.home_cards.is_empty());
+        assert!(!state.plugins[0].surface_openable);
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_denied"
+        );
+        assert_eq!(
+            runtime_package(&store, "com.example.weather")
+                .unwrap_err()
+                .code,
+            "plugin_denied"
+        );
+    }
+
+    #[test]
+    fn command_dispatch_requires_a_current_grant_and_declared_command() {
+        let (store, _root) = store();
+        stage_submission(
+            &store,
+            &home_submission("com.example.weather", "1.0.0"),
+            "import",
+        )
+        .unwrap();
+        enable_runtime(
+            &store,
+            "com.example.weather",
+            &["settings.read"],
+            &[],
+            Trigger::OnDemand,
+        );
+        assert!(command_spec(&store, "com.example.weather", "openForecast").is_ok());
+
+        {
+            let connection = store.connection().unwrap();
+            connection
+                .execute(
+                    "UPDATE plugin_grants SET version = '9.9.9' WHERE plugin_id = ?1",
+                    ["com.example.weather"],
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_denied"
+        );
+        assert!(state_for_store(&store).home_cards.is_empty());
+        {
+            let connection = store.connection().unwrap();
+            connection
+                .execute(
+                    "DELETE FROM plugin_grants WHERE plugin_id = ?1",
+                    ["com.example.weather"],
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            command_spec(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_denied"
+        );
+    }
+
+    #[test]
+    fn home_card_packages_roundtrip_through_archives() {
+        let manifest: Manifest =
+            serde_json::from_value(home_manifest("com.example.weather", "1.0.0")).unwrap();
+        let files = BTreeMap::from([("ui/index.html".to_string(), b"<!doctype html>".to_vec())]);
+        let bytes = archive::write(&manifest, &files).unwrap();
+        let package = archive::read(&bytes).unwrap();
+        assert_eq!(package.manifest.api_version, HOME_API_VERSION);
+        assert_eq!(package.manifest.contributes.cards.len(), 1);
+        assert_eq!(
+            package.manifest.contributes.commands,
+            vec!["openForecast".to_string()]
+        );
+        assert_eq!(package.files, files);
+    }
+
+    #[test]
+    fn command_panels_project_only_with_a_current_on_demand_grant_and_recheck_actions() {
+        let (store, _root) = store();
+        let mut candidate = home_manifest("com.example.weather", "1.0.0");
+        candidate["remote"] = serde_json::json!({
+            "title": "Weather controls",
+            "commands": [{ "command": "openForecast", "label": "Refresh forecast" }]
+        });
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": candidate,
+                "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            remote_invocation_for(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_disabled"
+        );
+
+        enable_runtime(&store, "com.example.weather", &[], &[], Trigger::OnDemand);
+        let panels = remote_panels_for(&store.connection().unwrap()).unwrap();
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].id, "com.example.weather");
+        assert_eq!(panels[0].title, "Weather controls");
+        assert!(panels[0].actions.is_empty());
+        assert_eq!(
+            panels[0].commands,
+            vec![RemotePanelCommand {
+                id: "openForecast".into(),
+                label: "Refresh forecast".into(),
+            }]
+        );
+        match remote_invocation_for(&store, "com.example.weather", "openForecast").unwrap() {
+            RemoteInvocation::Command(spec) => {
+                assert_eq!(spec.plugin_id, "com.example.weather");
+                assert_eq!(spec.command, "openForecast");
+                assert_eq!(spec.version, "1.0.0");
+                assert_eq!(spec.grant.trigger, Trigger::OnDemand);
+            }
+            RemoteInvocation::Playback(_) => panic!("expected a command invocation"),
+        }
+        assert_eq!(
+            remote_invocation_for(&store, "com.example.weather", "playback.toggle")
+                .unwrap_err()
+                .code,
+            "denied"
+        );
+        assert_eq!(
+            remote_invocation_for(&store, "com.example.weather", "refresh")
+                .unwrap_err()
+                .code,
+            "denied"
+        );
+
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE plugin_grants SET version = '0.9.0' WHERE plugin_id = ?1",
+                ["com.example.weather"],
+            )
+            .unwrap();
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            remote_invocation_for(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_denied"
+        );
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.weather", revision).unwrap();
+        assert!(remote_panels_for(&store.connection().unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            remote_invocation_for(&store, "com.example.weather", "openForecast")
+                .unwrap_err()
+                .code,
+            "plugin_disabled"
+        );
+    }
+
+    #[test]
+    fn command_panels_require_declared_references_and_v1_actions_stay_playback_only() {
+        let (store, _root) = store();
+        let stage_home = |manifest: Value| {
+            stage_submission(
+                &store,
+                &serde_json::json!({
+                    "manifest": manifest,
+                    "files": [{ "path": "ui/index.html", "text": "<!doctype html>" }]
+                }),
+                "import",
+            )
+        };
+
+        let mut undeclared = home_manifest("com.example.undeclared", "1.0.0");
+        undeclared["remote"] = serde_json::json!({
+            "commands": [{ "command": "missing", "label": "Missing" }]
+        });
+        let error = stage_home(undeclared).unwrap_err();
+        assert_eq!(error.code, "validation");
+        assert_eq!(error.path.as_deref(), Some("remote.commands[0].command"));
+
+        let mut duplicate = home_manifest("com.example.duplicate-remote", "1.0.0");
+        duplicate["remote"] = serde_json::json!({
+            "commands": [
+                { "command": "openForecast", "label": "One" },
+                { "command": "openForecast", "label": "Two" }
+            ]
+        });
+        assert_eq!(stage_home(duplicate).unwrap_err().code, "validation");
+
+        let mut playback = home_manifest("com.example.playback-remote", "1.0.0");
+        playback["remote"] = serde_json::json!({
+            "actions": ["playback.toggle"],
+            "commands": [{ "command": "openForecast", "label": "Refresh" }]
+        });
+        assert_eq!(stage_home(playback).unwrap_err().code, "validation");
+
+        let mut empty = home_manifest("com.example.empty-remote", "1.0.0");
+        empty["remote"] = serde_json::json!({ "commands": [] });
+        assert_eq!(stage_home(empty).unwrap_err().code, "validation");
+
+        let mut long_label = home_manifest("com.example.label-remote", "1.0.0");
+        long_label["remote"] = serde_json::json!({
+            "commands": [{ "command": "openForecast", "label": "x".repeat(MAX_REMOTE_LABEL + 1) }]
+        });
+        assert_eq!(stage_home(long_label).unwrap_err().code, "validation");
+
+        let mut too_many = home_manifest("com.example.many-remote", "1.0.0");
+        too_many["remote"] = serde_json::json!({
+            "commands": (0..=MAX_REMOTE_COMMANDS)
+                .map(|index| serde_json::json!({
+                    "command": "openForecast",
+                    "label": format!("Command {index}")
+                }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(stage_home(too_many).unwrap_err().code, "validation");
+
+        let mut declarative = manifest("com.example.declarative-commands", "1.0.0");
+        declarative["remote"] = serde_json::json!({
+            "commands": [{ "command": "openForecast", "label": "Refresh" }]
+        });
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": declarative, "files": [] }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+    }
+
+    #[test]
+    fn v1_manifests_serialize_without_v3_fields() {
+        let manifest: Manifest =
+            serde_json::from_value(manifest("com.example.v1", "1.0.0")).unwrap();
+        let serialized = serde_json::to_string(&manifest).unwrap();
+        assert!(!serialized.contains("minHostVersion"));
+        assert!(!serialized.contains("\"cards\""));
+        assert!(!serialized.contains("\"commands\""));
+    }
+
+    #[test]
+    fn host_requirement_comparison_is_numeric() {
+        assert!(host_supports("0.0.0"));
+        assert!(host_supports(HOST_VERSION));
+        assert!(!host_supports("999.0.0"));
+        assert!(!host_supports("1"));
+    }
+
+    fn executable_directory(
+        parent: &Path,
+        id: &str,
+        version: &str,
+        permissions: Value,
+        network: Option<Value>,
+    ) -> PathBuf {
+        let directory = parent.join(format!("package-{id}-{version}"));
+        fs::create_dir_all(directory.join("ui")).unwrap();
+        let mut manifest = manifest(id, version);
+        manifest["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        manifest["contributes"] = serde_json::json!({});
+        manifest["runtime"] =
+            serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        manifest["permissions"] = permissions;
+        manifest["assets"] = serde_json::json!(["ui/index.html"]);
+        if let Some(network) = network {
+            manifest["network"] = network;
+        }
+        fs::write(
+            directory.join("luma-extension.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.join("ui/index.html"),
+            "<!doctype html><title>One</title>",
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn development_reload_replaces_same_version_and_preserves_settings_and_grant() {
+        let (store, root) = store();
+        let directory = executable_directory(
+            &root,
+            "com.example.dev",
+            "1.0.0",
+            serde_json::json!(["settings.read"]),
+            None,
+        );
+        let inspection = inspect_path(&directory).unwrap();
+        assert_eq!(inspection.id, "com.example.dev");
+        assert_eq!(inspection.runtime, "isolated-ui");
+        assert_eq!(inspection.files, 2);
+        let change = developer_install(
+            &store,
+            read_package_dir(&directory).unwrap(),
+            "development",
+            None,
+        )
+        .unwrap();
+        assert!(change.first_install);
+        assert!(!change.enabled);
+        enable_runtime(
+            &store,
+            "com.example.dev",
+            &["settings.read"],
+            &[],
+            Trigger::LauncherOpen,
+        );
+        let revision = store.read().unwrap().unwrap().revision;
+        command_save_settings(
+            &store,
+            "com.example.dev",
+            revision,
+            map(serde_json::json!({ "label": "Custom" })),
+        )
+        .unwrap();
+
+        let mut archive_files = read_package_dir(&directory).unwrap().files;
+        archive_files.insert(
+            "ui/index.html".into(),
+            b"<!doctype html><title>Two</title>".to_vec(),
+        );
+        let manifest = serde_json::from_value(
+            serde_json::from_slice::<Value>(
+                &fs::read(directory.join("luma-extension.json")).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let bytes = archive::write(&manifest, &archive_files).unwrap();
+        assert_eq!(
+            import_archive(&store, &bytes, "import").unwrap_err().code,
+            "immutable_version"
+        );
+
+        fs::write(
+            directory.join("ui/index.html"),
+            "<!doctype html><title>Two</title>",
+        )
+        .unwrap();
+        let change = developer_install(
+            &store,
+            read_package_dir(&directory).unwrap(),
+            "development",
+            None,
+        )
+        .unwrap();
+        assert!(!change.first_install);
+        assert!(change.enabled);
+        assert!(!change.review_required);
+        assert_eq!(change.outcome.replaced_version.as_deref(), Some("1.0.0"));
+        let package = runtime_package(&store, "com.example.dev").unwrap();
+        assert_eq!(
+            package.read("ui/index.html").unwrap(),
+            b"<!doctype html><title>Two</title>"
+        );
+        let state = state_for_store(&store);
+        let record = &state.plugins[0];
+        assert!(record.enabled);
+        assert_eq!(record.settings[3].value, serde_json::json!("Custom"));
+    }
+
+    #[test]
+    fn development_reload_clears_the_grant_when_access_changes() {
+        let (store, root) = store();
+        let directory = executable_directory(
+            &root,
+            "com.example.dev",
+            "1.0.0",
+            serde_json::json!(["settings.read"]),
+            None,
+        );
+        developer_install(
+            &store,
+            read_package_dir(&directory).unwrap(),
+            "development",
+            None,
+        )
+        .unwrap();
+        enable_runtime(
+            &store,
+            "com.example.dev",
+            &["settings.read"],
+            &[],
+            Trigger::LauncherOpen,
+        );
+        executable_directory(
+            &root,
+            "com.example.dev",
+            "1.0.0",
+            serde_json::json!(["settings.read", "network.get"]),
+            Some(serde_json::json!({ "allow": ["https://api.open-meteo.com"] })),
+        );
+        let change = developer_install(
+            &store,
+            read_package_dir(&directory).unwrap(),
+            "development",
+            None,
+        )
+        .unwrap();
+        assert!(!change.enabled);
+        assert!(change.review_required);
+        let state = state_for_store(&store);
+        assert!(state.plugins[0].granted_permissions.is_empty());
+        assert!(state.plugins[0].granted_network.is_empty());
+        assert_eq!(
+            runtime_package(&store, "com.example.dev").unwrap_err().code,
+            "plugin_disabled"
+        );
+    }
+
+    #[test]
+    fn development_identity_change_disables_both_packages_for_review() {
+        let (store, root) = store();
+        for id in ["com.example.dev", "com.example.other"] {
+            let directory = executable_directory(
+                &root,
+                id,
+                "1.0.0",
+                serde_json::json!(["settings.read"]),
+                None,
+            );
+            developer_install(
+                &store,
+                read_package_dir(&directory).unwrap(),
+                "development",
+                None,
+            )
+            .unwrap();
+            enable_runtime(&store, id, &["settings.read"], &[], Trigger::LauncherOpen);
+        }
+        let change = developer_install(
+            &store,
+            read_package_dir(&root.join("package-com.example.other-1.0.0")).unwrap(),
+            "development",
+            Some("com.example.dev"),
+        )
+        .unwrap();
+        assert!(change.review_required);
+        assert!(!change.enabled);
+        for record in state_for_store(&store).plugins {
+            assert!(!record.enabled);
+            assert!(record.granted_permissions.is_empty());
+        }
+    }
+
+    #[test]
+    fn directory_validation_reports_the_missing_package_path() {
+        let root = root();
+        let directory = root.join("package");
+        fs::create_dir_all(&directory).unwrap();
+        let error = inspect_path(&directory).unwrap_err();
+        assert_eq!(error.code, "validation");
+        assert_eq!(error.path.as_deref(), Some("luma-extension.json"));
+
+        let mut manifest = manifest("com.example.missing", "1.0.0");
+        manifest["apiVersion"] = serde_json::json!(EXECUTABLE_API_VERSION);
+        manifest["contributes"] = serde_json::json!({});
+        manifest["runtime"] =
+            serde_json::json!({ "kind": "isolated-ui", "entry": "ui/index.html" });
+        manifest["assets"] = serde_json::json!(["ui/index.html", "ui/missing.css"]);
+        fs::write(
+            directory.join("luma-extension.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::create_dir_all(directory.join("ui")).unwrap();
+        fs::write(directory.join("ui/index.html"), "<!doctype html>").unwrap();
+        let error = inspect_path(&directory).unwrap_err();
+        assert_eq!(error.code, "validation");
+        assert_eq!(error.path.as_deref(), Some("ui/missing.css"));
+    }
+
     #[test]
     fn failed_update_leaves_the_previous_enabled_package_intact() {
         let (store, root) = store();
@@ -4867,11 +6696,8 @@ mod tests {
         let before = store.read_effective().unwrap().unwrap();
         let mut bad = manifest("com.example.lounge", "1.1.0");
         bad["assets"] = serde_json::json!(["assets/missing.png"]);
-        let bytes = archive::write(
-            &serde_json::from_value(bad).unwrap(),
-            &BTreeMap::new(),
-        )
-        .unwrap();
+        let bad_manifest = serde_json::to_vec(&bad).unwrap();
+        let bytes = zip_bytes(&[("luma-extension.json", bad_manifest.as_slice())]);
         assert!(import_archive(&store, &bytes, "import").is_err());
         let after = store.read_effective().unwrap().unwrap();
         assert_eq!(after.config, before.config);
@@ -4879,4 +6705,3 @@ mod tests {
         assert!(root.join("com.example.lounge").join("1.0.0").is_dir());
     }
 }
-

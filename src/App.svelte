@@ -40,6 +40,7 @@
   import { providerName } from './lib/services/activity';
   import { native, searchYouTube, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube } from './lib/services/tauri';
   import { searchMovies, searchShows } from './lib/services/catalog';
+  import type { PluginHomeCard, PluginHomeCardFailure } from './lib/services/plugins';
   import type { ActivityItem, AppId, ExecutableAppId, MediaItem } from './lib/types';
   import { loadSportsListing, type SportsEvent } from './lib/services/sports';
   import type { GameScore } from './lib/services/sportsScores';
@@ -126,6 +127,10 @@
   let player = $state<NowPlaying>();
   let launching = $state<AppId | null>(null);
   let stremioPairing = $state(false);
+  const pluginHomeCards = $derived(preferences.plugins?.homeCards ?? []);
+  let pluginCardPending = $state<string | null>(null);
+  let pluginCardFailure = $state<PluginHomeCardFailure | null>(null);
+  let pluginFocusReturn: string | null = null;
   const stremio = $derived(stremioState.status);
   const steamGames = $derived(steamState.games);
   const steamRecommendations = $derived(steamState.recommendations);
@@ -219,6 +224,11 @@
   $effect(() => {
     if (preferences.notice) { message = preferences.notice; preferences.notice = ''; }
   });
+  $effect(() => {
+    const cards = preferences.plugins?.homeCards;
+    const failure = pluginCardFailure;
+    if (cards && failure && !cards.some(card => card.id === failure.card.id)) pluginCardFailure = null;
+  });
   $effect(() => { if (stremioState.error) message = stremioState.error; });
   $effect(() => {
     if (activity.error) message = activity.error;
@@ -233,6 +243,8 @@
     window.addEventListener('keydown', unlock, { once: true, capture: true });
     void initializeUpdates();
     let disposed = false;
+    const restoreFocus = () => { if (!disposed) restorePluginFocus(); };
+    window.addEventListener('focus', restoreFocus);
     const cleanup: (() => void)[] = [];
     function track(stop: () => void) { if (disposed) stop(); else cleanup.push(stop); }
     async function start() {
@@ -316,6 +328,7 @@
       cleanup.splice(0).forEach(stop => stop());
       window.removeEventListener('pointerdown', unlock, true);
       window.removeEventListener('keydown', unlock, true);
+      window.removeEventListener('focus', restoreFocus);
     };
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
@@ -438,6 +451,53 @@
   function openIntegrations() { showSettings('Integrations'); }
   function showSettings(category: string) { if (layoutPreview) { void cancelReview(false).then(cancelled => { if (cancelled) showSettings(category); }); return; } homeState.clearPreview(); rememberFocus(); message = ''; settingsCategory = category; panel = true; }
   function select(item: MediaItem) { rememberFocus(); message = ''; details = item; }
+  function errorText(error: unknown) {
+    return error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
+  }
+  async function openPluginCard(card: PluginHomeCard) {
+    if (!native) {
+      pluginCardFailure = { card, message: 'Plugin cards are available in the Luma desktop app.' };
+      return;
+    }
+    if (pluginCardPending) return;
+    pluginCardPending = card.id;
+    pluginCardFailure = null;
+    pluginFocusReturn = card.id;
+    try {
+      await invoke('customization_plugin_command', { pluginId: card.pluginId, commandId: card.commandId });
+      void playSound('open');
+    } catch (error) {
+      pluginCardFailure = { card, message: errorText(error) };
+      if (document.hasFocus()) pluginFocusReturn = null;
+      void playSound('error');
+    } finally {
+      pluginCardPending = null;
+    }
+  }
+  function retryPluginCard() {
+    const card = pluginCardFailure?.card;
+    if (!card || pluginCardPending) return;
+    const target = document.querySelector<HTMLElement>(`[data-plugin-card="${CSS.escape(card.id)}"]`);
+    if (target) navigation.focus(target);
+    void openPluginCard(card);
+  }
+  function restorePluginFocus() {
+    const id = pluginFocusReturn;
+    if (!id) return;
+    pluginFocusReturn = null;
+    if (tab !== 'Home' || panel || details || playerOpen || remotePairing || stremioPairing || exitRequested || layoutPreview) return;
+    requestAnimationFrame(() => {
+      if (document.querySelector('dialog[open]')) return;
+      const target = document.querySelector<HTMLElement>(`[data-plugin-card="${CSS.escape(id)}"]`);
+      if (target?.isConnected) {
+        navigation.focus(target);
+        return;
+      }
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const fallback = document.querySelector<HTMLElement>('[data-home-instance="plugins"] [data-plugin-card]') ?? document.querySelector<HTMLElement>('#home-button');
+      if (fallback) navigation.focus(fallback);
+    });
+  }
   async function launch(id: AppId) {
     if (id === 'Spotify') {
       await openMusic();
@@ -572,8 +632,8 @@
   {/if}
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
-      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading }}
-      actions={{ openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie }} />
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading, homeCards: pluginHomeCards, pluginCardPending, pluginCardFailure }}
+      actions={{ openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie, openPluginCard, retryPluginCard }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} {sports} ondetailclose={returnFromSportsDetail} />{/if}

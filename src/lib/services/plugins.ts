@@ -2,7 +2,7 @@ import type { CustomizationConfig } from './customization';
 
 export type PluginSettingValue = string | number | boolean;
 export type PluginRuntimeKind = 'declarative' | 'isolated-ui' | 'background' | 'main-page';
-export type PluginTrigger = 'launcher-open' | 'startup' | 'always';
+export type PluginTrigger = 'on-demand' | 'launcher-open' | 'startup' | 'always';
 
 export interface PluginRuntimeStatus {
   state: string;
@@ -67,9 +67,22 @@ export interface PluginRecord {
   trigger?: string | null;
 }
 
+export interface PluginHomeCard {
+  id: string;
+  pluginId: string;
+  title: string;
+  commandId: string;
+}
+
+export interface PluginHomeCardFailure {
+  card: PluginHomeCard;
+  message: string;
+}
+
 export interface PluginsState {
   plugins: PluginRecord[];
   effective: CustomizationConfig;
+  homeCards: PluginHomeCard[];
 }
 
 export const pluginFieldLabels: Record<string, string> = {
@@ -114,32 +127,35 @@ export function pluginRuntimeLabel(record: Pick<PluginRecord, 'runtime' | 'execu
   return 'Declarative';
 }
 
-export function pluginTriggers(record: Pick<PluginRecord, 'runtime' | 'executable'>): PluginTrigger[] {
+export function pluginTriggers(record: Pick<PluginRecord, 'runtime' | 'executable' | 'apiVersion'>): PluginTrigger[] {
   const kind = pluginRuntimeKind(record);
   if (kind === 'background') return ['launcher-open', 'startup', 'always'];
-  if (kind === 'isolated-ui') return ['launcher-open'];
+  if (kind === 'isolated-ui') return record.apiVersion >= 3 ? ['on-demand'] : ['launcher-open'];
   return [];
 }
 
-export function pluginDefaultTrigger(record: Pick<PluginRecord, 'runtime' | 'executable' | 'trigger'>): PluginTrigger {
+export function pluginDefaultTrigger(record: Pick<PluginRecord, 'runtime' | 'executable' | 'trigger' | 'apiVersion'>): PluginTrigger {
   const triggers = pluginTriggers(record);
   const previous = record.trigger as PluginTrigger | null | undefined;
   return previous && triggers.includes(previous) ? previous : triggers[0] ?? 'launcher-open';
 }
 
 export function pluginTriggerLabel(trigger: PluginTrigger) {
+  if (trigger === 'on-demand') return 'When you open it';
   if (trigger === 'startup') return 'When Luma starts';
   if (trigger === 'always') return 'Always while enabled';
   return 'While Luma is open';
 }
 
 export function pluginTriggerDescription(trigger: PluginTrigger) {
+  if (trigger === 'on-demand') return 'Starts only when you choose its Home card or Open in Settings. It stops when you press Back.';
   if (trigger === 'startup') return 'Starts with Luma, including when Luma opens in the tray, and keeps running after the window closes.';
   if (trigger === 'always') return 'Runs the whole time it is enabled, including while Luma is in the tray, until you disable it.';
   return 'Runs only while Luma is open. Hiding Luma to the tray stops it.';
 }
 
 export function pluginTriggerSummary(trigger: PluginTrigger) {
+  if (trigger === 'on-demand') return 'Starts only when you open it';
   if (trigger === 'startup') return 'Starts with Luma, including in the tray';
   if (trigger === 'always') return 'Always on while enabled, including in the tray';
   return 'Runs while Luma is open';
