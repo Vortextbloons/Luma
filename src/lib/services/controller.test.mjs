@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   controllerButtonLabel,
+  controllerFamily,
   createController,
   defaultControllerBinds,
   sanitizeControllerBinds,
@@ -12,20 +13,39 @@ test('controller binds sanitize invalid values and preserve valid custom binds',
   assert.equal(defaults.activate, 0);
   assert.equal(defaults.back, 1);
   assert.equal(defaults.home, 8);
+  assert.equal(defaults.tabprev, 4);
+  assert.equal(defaults.tabnext, 5);
+  assert.equal(defaults.search, 3);
+  assert.equal(defaults.settings, 9);
+  assert.equal(defaults.playpause, 2);
+  assert.equal(defaults.trackprev, 6);
+  assert.equal(defaults.tracknext, 7);
+  assert.equal(defaults.scores, 11);
 
   const sanitized = sanitizeControllerBinds({
     activate: 2,
     back: null,
     home: 99,
     up: 'bad',
+    tabnext: 0,
+    scores: null,
+    playpause: 6,
   });
   assert.equal(sanitized.activate, 2);
   assert.equal(sanitized.back, null);
   assert.equal(sanitized.home, 8);
   assert.equal(sanitized.up, 12);
+  assert.equal(sanitized.tabnext, 0);
+  assert.equal(sanitized.scores, null);
+  assert.equal(sanitized.playpause, 6);
   assert.equal(controllerButtonLabel(2), 'X / Square');
+  assert.equal(controllerButtonLabel(2, 'playstation'), 'Square');
+  assert.equal(controllerButtonLabel(0, 'switch'), 'B');
   assert.equal(controllerButtonLabel(null), 'Unbound');
   assert.equal(controllerButtonLabel(22), 'Button 22');
+  assert.equal(controllerFamily('DualSense Wireless Controller'), 'playstation');
+  assert.equal(controllerFamily('Nintendo Switch Pro Controller'), 'switch');
+  assert.equal(controllerFamily('Xbox Wireless Controller'), 'xbox');
 });
 
 test('controller dispatches custom binds, stick repeat, and button capture', () => {
@@ -59,7 +79,7 @@ test('controller dispatches custom binds, stick repeat, and button capture', () 
   const commands = [];
   const captured = [];
   let captureActive = false;
-  let binds = { ...defaultControllerBinds(), activate: 3 };
+  let binds = { ...defaultControllerBinds(), activate: 3, search: null };
 
   const controller = createController({
     enabled: () => true,

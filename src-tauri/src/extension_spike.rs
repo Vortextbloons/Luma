@@ -35,7 +35,7 @@ const BRIDGE: &str = "extension_bridge";
 const SETTINGS_EVENT: &str = "luma:settings";
 const PLAYBACK_EVENT: &str = "luma:playback";
 const MAX_TEXT: usize = 200;
-const MAX_ARGS: usize = 16 * 1024;
+const MAX_ARGS: usize = 128 * 1024;
 const MAX_ORIGIN: usize = 128;
 const MAX_PATH: usize = 256;
 const MAX_QUERY_PAIRS: usize = 16;
@@ -488,6 +488,7 @@ fn take_runtime(app: &AppHandle, plugin_id: &str) -> Option<Runtime> {
 }
 
 fn stop_runtime(app: &AppHandle, plugin_id: &str) {
+    crate::commands::sports::clear_plugin_badges(app, plugin_id);
     if let Some(runtime) = take_runtime(app, plugin_id) {
         destroy_window(app, runtime.session.label);
     }
@@ -646,6 +647,29 @@ pub(crate) async fn remove_data(app: &AppHandle, plugin_id: &str) -> Result<(), 
     remove_directory(directory).await
 }
 
+fn prune_orphaned_data(app: &AppHandle) {
+    let Ok(data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let runtime_root = data_dir.join("extension-runtime");
+    let plugins_root = data_dir.join("plugins");
+    let Ok(entries) = std::fs::read_dir(&runtime_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if !plugins_root.join(&name).is_dir() {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
+
 fn start(
     app: &AppHandle,
     plugin_id: &str,
@@ -758,6 +782,13 @@ fn start(
         "starting",
         format!("{} {}", package.name, package.version),
     );
+    #[cfg(debug_assertions)]
+    {
+        use tauri::Emitter;
+        let msg = format!("start:{plugin_id}");
+        crate::commands::sports::push_log(app, msg.clone());
+        let _ = app.emit_to("main", "luma:plugin-log", msg);
+    }
     let url = match format!("{}/{token}/{entry}", origin(slot), entry = package.entry)
         .parse::<tauri::Url>()
     {
@@ -775,6 +806,7 @@ fn start(
             .inner_size(640.0, 540.0)
             .min_inner_size(520.0, 420.0)
             .incognito(true)
+            .additional_browser_args("--disk-cache-size=33554432")
             .visible(false)
             .focused(false)
             .background_throttling(BackgroundThrottlingPolicy::Disabled)
@@ -1429,6 +1461,7 @@ async fn dispatch_command_inner(
 
 pub(crate) fn autostart(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        prune_orphaned_data(&app);
         let Some(store) = app.try_state::<Store>() else {
             return;
         };
@@ -1638,6 +1671,10 @@ enum Op {
     CommandPending,
     #[serde(rename = "development.report")]
     DevelopmentReport,
+    #[serde(rename = "sports.active.read")]
+    SportsActiveRead,
+    #[serde(rename = "sports.badges.publish")]
+    SportsBadgesPublish,
 }
 
 impl Op {
@@ -1656,6 +1693,8 @@ impl Op {
             Self::SurfaceClose => "surface.close",
             Self::CommandPending => "commands.pending",
             Self::DevelopmentReport => "development.report",
+            Self::SportsActiveRead => "sports.active.read",
+            Self::SportsBadgesPublish => "sports.badges.publish",
         }
     }
 
@@ -1667,6 +1706,7 @@ impl Op {
             Self::PlaybackToggle | Self::PlaybackNext | Self::PlaybackPrevious => {
                 Some(Permission::PlaybackControl)
             }
+            Self::SportsActiveRead | Self::SportsBadgesPublish => Some(Permission::SportsRead),
             Self::Identity | Self::SurfaceReady | Self::SurfaceClose | Self::CommandPending
             | Self::DevelopmentReport => None,
         }
@@ -1680,6 +1720,66 @@ impl Op {
             _ => None,
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SportsBadgesArgs {
+    badges: Vec<crate::commands::sports::SportsBadge>,
+    #[serde(default = "default_true", rename = "showOnCards")]
+    show_on_cards: bool,
+    #[serde(default = "default_true", rename = "showInPlayer")]
+    show_in_player: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn sanitize_sports_badges(
+    plugin_id: &str,
+    args: Option<Value>,
+) -> Result<Vec<crate::commands::sports::SportsBadge>, Value> {
+    let Some(value) = args else {
+        return Err(failure("invalid", "Sports badges require an arguments object."));
+    };
+    let parsed: SportsBadgesArgs = serde_json::from_value(value)
+        .map_err(|_| failure("invalid", "Sports badges payload is malformed."))?;
+    if parsed.badges.len() > 400 {
+        return Err(failure("invalid", "At most 400 sports badges can be published at once."));
+    }
+    Ok(parsed
+        .badges
+        .into_iter()
+        .filter_map(|mut badge| {
+            badge.plugin_id = plugin_id.to_string();
+            badge.league = bounded_text(Some(&badge.league))?;
+            badge.label = bounded_text(Some(&badge.label))?;
+            badge.teams = badge
+                .teams
+                .into_iter()
+                .filter_map(|t| bounded_text(Some(&t)))
+                .take(4)
+                .collect();
+            if badge.teams.len() < 2 {
+                return None;
+            }
+            badge.sides = badge
+                .sides
+                .into_iter()
+                .filter_map(|mut side| {
+                    side.team = bounded_text(Some(&side.team))?;
+                    side.value = bounded_text(Some(&side.value))?;
+                    side.pct = side.pct.map(|p| p.min(100));
+                    Some(side)
+                })
+                .take(4)
+                .collect();
+            badge.show_on_cards = parsed.show_on_cards;
+            badge.show_in_player = parsed.show_in_player;
+            Some(badge)
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -1700,6 +1800,14 @@ fn log_bridge(app: &AppHandle, plugin_id: &str, operation: &str, error: &Value) 
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("The bridge request was rejected.");
+    #[cfg(debug_assertions)]
+    {
+        use tauri::Emitter;
+        let msg = format!("{plugin_id}:{operation}: {message}");
+        eprintln!("[plugin:{msg}]");
+        crate::commands::sports::push_log(app, msg.clone());
+        let _ = app.emit_to("main", "luma:plugin-log", msg);
+    }
     crate::developer::bridge_error(app, plugin_id, operation, message);
 }
 
@@ -2177,6 +2285,41 @@ where
                     resolver.reject(error)
                 }
             },
+            Op::SportsActiveRead => match no_args(request.args) {
+                Ok(()) => resolver.resolve(
+                    serde_json::to_value(crate::commands::sports::active_snapshot(&app))
+                        .unwrap_or(Value::Null),
+                ),
+                Err(error) => {
+                    log_bridge(&app, &session.plugin_id, operation, &error);
+                    resolver.reject(error)
+                }
+            },
+            Op::SportsBadgesPublish => {
+                match sanitize_sports_badges(&session.plugin_id, request.args) {
+                    Ok(badges) => {
+                        let count = badges.len();
+                        #[cfg(debug_assertions)]
+                        {
+                            use tauri::Emitter;
+                            let msg = format!("{}:sports.badges.publish: published {count} badges", session.plugin_id);
+                            eprintln!("[plugin:{msg}]");
+                            crate::commands::sports::push_log(&app, msg.clone());
+                            let _ = app.emit_to("main", "luma:plugin-log", msg);
+                        }
+                        crate::commands::sports::set_plugin_badges(
+                            &app,
+                            &session.plugin_id,
+                            badges,
+                        );
+                        resolver.resolve(json!({ "published": count }))
+                    }
+                    Err(error) => {
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error)
+                    }
+                }
+            }
             Op::PlaybackSubscribe => match no_args(request.args) {
                 Ok(()) => {
                     let payload = playback_snapshot(&app);

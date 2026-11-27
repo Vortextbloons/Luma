@@ -62,6 +62,7 @@
   import type { Snippet } from 'svelte';
   import MovieHero from './MovieHero.svelte';
   import BackdropRow from './BackdropRow.svelte';
+  import EmptyState from './EmptyState.svelte';
   import VideoRow from './VideoRow.svelte';
   import PlaylistRow from './spotify/PlaylistRow.svelte';
   import ActivityCard from './activity/ActivityCard.svelte';
@@ -95,6 +96,10 @@
 
 {#snippet hero(inset: boolean)}
   {#if data.heroSlides.length}<MovieHero slides={data.heroSlides} sourceKey={data.heroSource} {inset} />{/if}
+{/snippet}
+
+{#snippet previewOpenAction()}
+  <button class="text-link" onclick={() => data.previewApp && actions.launch(data.previewApp)}>Open {data.previewApp === 'Custom' ? 'custom app' : data.previewApp}</button>
 {/snippet}
 
 {#snippet continuing()}
@@ -134,7 +139,12 @@
         {:else if data.previewActivity.length}
           <section class="content-row"><div class="row-heading"><h2>From {data.previewApp}</h2></div><div class="activity-track">{#each data.previewActivity as item (item.id)}<ActivityCard {item} onopen={actions.openItem} onremove={actions.removeItem} onpreview={actions.previewActivityItem} />{/each}</div></section>
         {:else}
-          <section class="content-row" aria-label={`${data.previewApp} recommendations`}><div class="row-heading"><h2>From {data.previewApp === 'Custom' ? 'your custom app' : data.previewApp}</h2></div><div class="activity-empty"><strong>{data.previewApp === 'Spotify' && data.musicLoading ? 'Loading your music...' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'No recommendations right now' : 'No games to continue') : 'No recommendations available yet'}</strong><span>{data.previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'Steam recommendations could not load. Check your connection and hover Steam again.' : 'Play a game through Steam, then hover Steam here again to see it.') : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => data.previewApp && actions.launch(data.previewApp)}>Open {data.previewApp === 'Custom' ? 'custom app' : data.previewApp}</button></div></section>
+          <section class="content-row" aria-label={`${data.previewApp} recommendations`}><div class="row-heading"><h2>From {data.previewApp === 'Custom' ? 'your custom app' : data.previewApp}</h2></div>
+            <EmptyState
+              title={data.previewApp === 'Spotify' && data.musicLoading ? 'Loading your music...' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'No recommendations right now' : 'No games to continue') : 'No recommendations available yet'}
+              description={data.previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'Steam recommendations could not load. Check your connection and hover Steam again.' : 'Play a game through Steam, then hover Steam here again to see it.') : 'Content from this app will appear here when available.'}
+              actions={previewOpenAction} />
+          </section>
         {/if}
         </div>
       {/key}

@@ -2,6 +2,17 @@
 
 Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
+## [Unreleased]
+
+### Added
+
+- **Widget studio**: place widgets with layout presets, choose sizes and looks, preview Home, the player, and idle, and add multiple widget instances. The new Clock widget can stay in the player HUD, and widgets can appear only when the launcher is idle.
+- Widget settings now store presentation per instance (`type`, placement, size, look, presence, order, and widget-specific settings), so future widgets do not need new configuration fields in Rust or the MCP schema.
+
+### Changed
+
+- Widgets no longer overlap when they share a corner or rail; they stack in order. The player shows opted-in compact widgets while music is open.
+
 ## [0.9.0] - 2026-11-20
 
 ### Added

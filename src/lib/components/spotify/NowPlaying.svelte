@@ -1,12 +1,13 @@
 <script lang="ts">
   import MusicIcon from './MusicIcon.svelte';
   import { onMount, tick } from 'svelte';
+  import type { Snippet } from 'svelte';
   import { spotify } from '../../state/spotify.svelte';
   import DevicePicker from './DevicePicker.svelte';
   import TrackList from './TrackList.svelte';
   import PlaybackControls from './PlaybackControls.svelte';
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, hud, hasHud = false }: { onclose: () => void; hud?: Snippet; hasHud?: boolean } = $props();
   const playback = $derived(spotify.playback);
   const connection = $derived(spotify.connection);
   let panel = $state<'queue' | 'devices' | null>(null);
@@ -63,7 +64,7 @@
   }
 </script>
 
-<dialog open class="now-playing" aria-modal="true" aria-labelledby="now-playing-title">
+<dialog open class="now-playing" class:has-hud={hasHud} aria-modal="true" aria-labelledby="now-playing-title">
   {#if playback.artworkUrl}<div class="now-playing-ambient" style:background-image={`url("${playback.artworkUrl}")`} aria-hidden="true"></div>{:else}<div class="now-playing-ambient" aria-hidden="true"></div>{/if}
   <header class="now-playing-header">
     <button class="now-playing-back" onclick={onclose}><MusicIcon name="chevron-right" size={18} /><span>Minimize</span></button>
@@ -109,6 +110,8 @@
     </div>
   </div>
 
+  {#if hud}<div class="now-playing-hud">{@render hud()}</div>{/if}
+
   {#if panel === 'devices'}<div class="player-devices" id="player-devices"><DevicePicker /></div>{/if}
   {#if panel === 'queue'}
     <section id="player-queue" class="now-playing-queue" aria-label="Playback queue">
@@ -151,6 +154,10 @@
   .queue-current { display: flex; align-items: center; gap: 7px; color: var(--dim); margin: 0 0 12px; }
   .queue-current :global(svg) { color: var(--accent); flex: none; }
   .now-playing-queue,.player-devices { max-width: 1400px; margin: 34px auto 0; }
+  .now-playing.has-hud { padding-bottom: clamp(112px, 13vh, 156px); }
+  .now-playing-hud { position: fixed; left: var(--side); right: var(--side); bottom: 16px; z-index: 2; pointer-events: none; }
+  .now-playing-hud :global(.widget-hud) { margin-top: 0; }
+  .now-playing-hud :global(.hud-widget) { pointer-events: auto; }
   .now-playing-queue { padding: 0; background: transparent; border: 0; }
   .now-playing-queue :global(.row-heading h2) { font-size: clamp(20px,1.7vw,28px); }
   .now-playing-queue :global(.row-heading p),.now-playing-queue :global(.text-link) { font-size: clamp(12px,.82vw,15px); }

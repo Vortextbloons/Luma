@@ -45,7 +45,7 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 | Spotify | Playlists, saved albums, liked songs, search, device picking, and transport controls from the TV UI. |
 | Phone remote | Same Wi-Fi, scan the QR code to pair, add it to your phone's home screen, then control Luma with a D-pad or touchpad, playback, volume, and a separate apps screen. A Display Box frame can pair too. |
 | In-app control | While a launched app is focused, the remote can move the mouse and click inside it. Home returns you to Luma. |
-| TV layout | 10-foot typography, six themes, reorderable home rows and hero, widget placement, drag-to-reorder app dock shared with both remotes, comfortable or compact density, text size and reduced motion, separate display and audio outputs. |
+| TV layout | 10-foot typography, six themes, reorderable home rows and hero, a widget studio with placement, size, look, and presence presets (including the player and idle), drag-to-reorder app dock shared with both remotes, comfortable or compact density, text size and reduced motion, separate display and audio outputs. |
 | Privacy | Local SQLite history, Credential Manager for secrets, remote bound to the local network. |
 | Tray and updates | System tray icon, optional login startup, single-instance lock, signed in-app updates. |
 

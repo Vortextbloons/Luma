@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GameScore } from '../services/sportsScores';
+  import EmptyState from './EmptyState.svelte';
 
   let { league, games, loading = false, watch, onpreview }: {
     league: string;
@@ -49,9 +50,9 @@
       {/each}
     </div>
   {:else if loading}
-    <div class="activity-empty"><strong>Looking up {league} games</strong><span>Scores refresh in a moment.</span></div>
+    <EmptyState title={`Looking up ${league} games`} description="Scores refresh in a moment." />
   {:else}
-    <div class="activity-empty"><strong>No {league} games listed right now</strong><span>Open Sports to browse every league and what is on.</span></div>
+    <EmptyState title={`No ${league} games listed right now`} description="Open Sports to browse every league and what is on." />
   {/if}
 </section>
 

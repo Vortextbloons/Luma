@@ -66,12 +66,16 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
-const PLACEMENTS: [&str; 5] = [
+const PLACEMENTS: [&str; 9] = [
     "bar",
     "top-left",
+    "top-center",
     "top-right",
-    "bottom-right",
     "bottom-left",
+    "bottom-center",
+    "bottom-right",
+    "rail-left",
+    "rail-right",
 ];
 pub const FIELDS: [&str; 9] = [
     "theme",
@@ -126,13 +130,16 @@ pub enum Permission {
     PlaybackRead,
     #[serde(rename = "playback.control")]
     PlaybackControl,
+    #[serde(rename = "sports.read")]
+    SportsRead,
 }
 
-pub const PERMISSIONS: [Permission; 4] = [
+pub const PERMISSIONS: [Permission; 5] = [
     Permission::SettingsRead,
     Permission::NetworkGet,
     Permission::PlaybackRead,
     Permission::PlaybackControl,
+    Permission::SportsRead,
 ];
 
 impl Permission {
@@ -142,6 +149,7 @@ impl Permission {
             Self::NetworkGet => "network.get",
             Self::PlaybackRead => "playback.read",
             Self::PlaybackControl => "playback.control",
+            Self::SportsRead => "sports.read",
         }
     }
 
@@ -302,6 +310,8 @@ pub struct Contributions {
     pub cards: Vec<HomeCardContribution>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
+    #[serde(default)]
+    pub sports_enrich: bool,
 }
 
 impl Contributions {
@@ -651,7 +661,10 @@ impl StoredPlugin {
             RuntimeKind::Declarative => None,
             RuntimeKind::IsolatedUi | RuntimeKind::Background => {
                 if self.manifest.api_version == HOME_API_VERSION {
-                    if self.manifest.runtime.kind != RuntimeKind::IsolatedUi {
+                    let background_sports = self.manifest.runtime.kind == RuntimeKind::Background
+                        && self.manifest.contributes.sports_enrich
+                        && !self.manifest.contributes.has_cards();
+                    if self.manifest.runtime.kind != RuntimeKind::IsolatedUi && !background_sports {
                         return Some(
                             "API version 3 Home cards require the isolated-ui runtime. Background runtimes are not supported with commands yet."
                                 .to_string(),
@@ -725,7 +738,9 @@ impl StoredPlugin {
     fn accepts_grant(&self, grant: &Grant) -> bool {
         grant.version == self.manifest.version
             && grant.trigger.supports(self.manifest.runtime.kind)
-            && (self.manifest.api_version != HOME_API_VERSION || grant.trigger == Trigger::OnDemand)
+            && (self.manifest.api_version != HOME_API_VERSION
+                || self.manifest.runtime.kind != RuntimeKind::IsolatedUi
+                || grant.trigger == Trigger::OnDemand)
     }
 }
 
@@ -855,7 +870,10 @@ pub(crate) fn runtime_package(store: &Store, plugin_id: &str) -> Result<RuntimeP
             "This plugin's runtime grant does not allow this runtime. Review its permissions again.",
         ));
     }
-    if plugin.manifest.api_version == HOME_API_VERSION && grant.trigger != Trigger::OnDemand {
+    if plugin.manifest.api_version == HOME_API_VERSION
+        && plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
+        && grant.trigger != Trigger::OnDemand
+    {
         return Err(Error::new(
             "plugin_denied",
             "API version 3 command packages require the on-demand trigger. Review its permissions again.",
@@ -1479,12 +1497,14 @@ fn apply_plugin(config: &mut Config, plugin: &StoredPlugin) -> Result<(), Error>
     }
     if active.contains("widgets") {
         if let Some(widgets) = &contributes.widgets {
-            if let Some(bound) = &widgets.spotify_enabled {
-                config.widgets.spotify.enabled = resolve_bool(plugin, bound, "widgets")?;
-            }
-            if let Some(bound) = &widgets.spotify_placement {
-                config.widgets.spotify.placement = resolve_string(plugin, bound, "widgets")?;
-                config.widgets.spotify.position = None;
+            if let Some(spotify) = config.widgets.get_mut("spotify") {
+                if let Some(bound) = &widgets.spotify_enabled {
+                    spotify.enabled = resolve_bool(plugin, bound, "widgets")?;
+                }
+                if let Some(bound) = &widgets.spotify_placement {
+                    spotify.placement = resolve_string(plugin, bound, "widgets")?;
+                    spotify.position = None;
+                }
             }
         }
     }
@@ -2511,7 +2531,7 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
         )
         .field("runtime.kind"));
     }
-    if !manifest.contributes.is_empty() {
+    if !manifest.contributes.is_empty() || manifest.contributes.sports_enrich {
         return Err(Error::new(
             "validation",
             "An executable plugin cannot declare appearance or Home contributions.",
@@ -2529,12 +2549,23 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
 }
 
 fn validate_home_manifest(manifest: &Manifest) -> Result<(), Error> {
-    if manifest.runtime.kind != RuntimeKind::IsolatedUi {
+    let background_sports = manifest.runtime.kind == RuntimeKind::Background
+        && manifest.contributes.sports_enrich
+        && !manifest.contributes.has_cards();
+    if manifest.runtime.kind != RuntimeKind::IsolatedUi && !background_sports {
         return Err(Error::new(
             "incompatible",
             "API version 3 Home cards require the isolated-ui runtime.",
         )
         .field("runtime.kind"));
+    }
+    if manifest.contributes.sports_enrich && !manifest.permissions.contains(&Permission::SportsRead)
+    {
+        return Err(Error::new(
+            "validation",
+            "Sports enrichment requires the sports.read permission.",
+        )
+        .field("permissions"));
     }
     if manifest.contributes.has_appearance() {
         return Err(Error::new(
@@ -2573,13 +2604,13 @@ fn validate_home_contributions(contributes: &Contributions) -> Result<(), Error>
             );
         }
     }
-    if commands.is_empty() {
+    if !contributes.sports_enrich && commands.is_empty() {
         return Err(
             Error::new("validation", "API version 3 requires at least one command.")
                 .field("contributes.commands"),
         );
     }
-    if contributes.cards.is_empty() {
+    if !contributes.sports_enrich && contributes.cards.is_empty() {
         return Err(Error::new(
             "validation",
             "API version 3 requires at least one Home card.",
@@ -3322,6 +3353,54 @@ pub(super) fn stage_submission(
 ) -> Result<ImportOutcome, Error> {
     let package = validate_submission(submission)?;
     install(store, package, source, InstallMode::Normal, None).map(|change| change.outcome)
+}
+
+pub(super) fn seed_bundled(store: &Store) -> Result<(), Error> {
+    let root = install_root(store)?;
+    let marker = root.join(".bundled-kalshi-v6");
+    if marker.exists() {
+        return Ok(());
+    }
+    let Some(doc) = store.read()? else {
+        return Ok(());
+    };
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../examples/plugins/com.luma.kalshi-sports/luma-extension.json"
+    ))
+    .map_err(|error| Error::new("plugin_storage", error))?;
+    let submission = serde_json::json!({
+        "manifest": manifest,
+        "files": [
+            {
+                "path": "index.html",
+                "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/index.html"),
+            },
+            {
+                "path": "main.js",
+                "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/main.js"),
+            }
+        ]
+    });
+    let outcome = stage_submission(store, &submission, "builtin")?;
+    if !outcome.plugin.enabled {
+        command_enable_runtime(
+            store,
+            &outcome.plugin.id,
+            doc.revision,
+            vec![
+                "settings.read".into(),
+                "network.get".into(),
+                "sports.read".into(),
+            ],
+            vec![
+                "https://api.elections.kalshi.com".into(),
+                "https://external-api.kalshi.com".into(),
+            ],
+            Trigger::Always,
+        )?;
+    }
+    let _ = std::fs::write(&marker, b"1");
+    Ok(())
 }
 
 pub(crate) fn read_package_dir(path: &Path) -> Result<PreparedPackage, Error> {
@@ -4317,7 +4396,10 @@ pub(crate) fn command_enable_runtime(
             ),
         ));
     }
-    if plugin.manifest.api_version == HOME_API_VERSION && trigger != Trigger::OnDemand {
+    if plugin.manifest.api_version == HOME_API_VERSION
+        && plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
+        && trigger != Trigger::OnDemand
+    {
         return Err(Error::new(
             "plugin_trigger",
             "API version 3 Home cards start on demand. Choose the on-demand trigger.",
@@ -5676,15 +5758,18 @@ mod tests {
         assert_eq!(effective.config.theme, "ember");
         assert_eq!(effective.config.home_columns, 2);
         assert_eq!(effective.config.density, "compact");
-        assert!(!effective.config.widgets.spotify.enabled);
-        assert_eq!(effective.config.widgets.spotify.placement, "bottom-left");
+        assert!(!effective.config.widgets.get("spotify").unwrap().enabled);
+        assert_eq!(
+            effective.config.widgets.get("spotify").unwrap().placement,
+            "bottom-left"
+        );
         let revision = store.read().unwrap().unwrap().revision;
         command_disable(&store, "com.example.widgets", revision).unwrap();
         let effective = store.read_effective().unwrap().unwrap();
         assert_eq!(effective.config.theme, "ember");
         assert_eq!(effective.config.home_columns, 2);
         assert_eq!(effective.config.density, "comfortable");
-        assert!(effective.config.widgets.spotify.enabled);
+        assert!(effective.config.widgets.get("spotify").unwrap().enabled);
     }
 
     #[test]
@@ -6703,5 +6788,21 @@ mod tests {
         assert_eq!(after.config, before.config);
         assert!(state_for_store(&store).plugins[0].enabled);
         assert!(root.join("com.example.lounge").join("1.0.0").is_dir());
+    }
+
+    #[test]
+    fn bundled_kalshi_plugin_seeds_and_enables_by_default() {
+        let (store, _root) = store();
+        seed_bundled(&store).unwrap();
+        let state = state_for_store(&store);
+        let kalshi = state
+            .plugins
+            .iter()
+            .find(|p| p.id == "com.luma.kalshi-sports")
+            .expect("bundled kalshi plugin must be installed");
+        assert!(kalshi.enabled);
+        let granted = granted_plugins(&store).unwrap();
+        assert!(granted.iter().any(|(id, _)| id == "com.luma.kalshi-sports"));
+        assert!(runtime_package(&store, "com.luma.kalshi-sports").is_ok());
     }
 }

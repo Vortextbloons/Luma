@@ -1,21 +1,33 @@
 <script lang="ts">
-  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, WidgetConfig } from '../types';
+  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, Settings } from '../types';
   import { appProviders, isApplication, isContinueWatching, isRecentlyPlayed, sortRecent } from '../services/activity';
   import { homeRowMeta } from '../services/home';
+  import { widgetMeta } from '../services/widgetModel';
   import ProviderIcon from './activity/ProviderIcon.svelte';
 
   type PreviewThumb = { key: string; art: string | null; provider: string | null; app: boolean };
 
-  let { rows, columns = 1, popular, featured, activityItems, apps, widget, highlight }: {
+  let { rows, columns = 1, popular, featured, activityItems, apps, widgets, highlight }: {
     rows: HomeRow[];
     columns?: 1 | 2;
     popular: MediaItem[];
     featured: MediaItem[];
     activityItems: ActivityItem[];
     apps: AppId[];
-    widget: WidgetConfig;
+    widgets: Settings['widgets'];
     highlight: string | null;
   } = $props();
+
+  const activeWidgets = $derived(Object.entries(widgets)
+    .map(([id, config]) => ({ id, config, definition: widgetMeta(config.type) }))
+    .filter(item => item.definition && item.config.enabled)
+    .sort((a, b) => a.config.order - b.config.order || a.id.localeCompare(b.id)));
+  const barWidgets = $derived(activeWidgets.filter(item => !item.config.position && item.config.placement === 'bar'));
+  const freeWidgets = $derived(activeWidgets.filter(item => item.config.position));
+  const widgetGroups = $derived(['top-left', 'top-center', 'top-right', 'rail-left', 'rail-right', 'bottom-left', 'bottom-center', 'bottom-right'].map(placement => ({
+    placement,
+    items: activeWidgets.filter(item => !item.config.position && item.config.placement === placement),
+  })).filter(group => group.items.length));
 
   const placeholders: PreviewThumb[] = [0, 1, 2, 3].map(index => ({ key: `empty-${index}`, art: null, provider: null, app: false }));
 
@@ -79,20 +91,35 @@
             <span class="preview-empty">No rows on Home</span>
           {/each}
         </div>
-        {#if widget.enabled && widget.placement === 'bar' && !widget.position}
-          <div class="widget-bar">
-            <span class="widget-art"><ProviderIcon provider="spotify" /></span>
-            <span class="widget-copy"><i class="widget-line"></i><i class="widget-line is-short"></i></span>
-            <span class="widget-controls"><i></i><i></i><i></i></span>
-          </div>
-        {:else if widget.enabled}
-          <div class="widget-card" style:left={widget.position ? `${widget.position.x / 10}%` : undefined} style:top={widget.position ? `${widget.position.y / 10}%` : undefined} style:transform={widget.position ? `translate(-${widget.position.x / 10}%, -${widget.position.y / 10}%)` : undefined} class:is-top-left={!widget.position && widget.placement === 'top-left'} class:is-top-right={!widget.position && widget.placement === 'top-right'} class:is-bottom-right={!widget.position && widget.placement === 'bottom-right'} class:is-bottom-left={!widget.position && widget.placement === 'bottom-left'}>
-            <span class="widget-art"><ProviderIcon provider="spotify" /></span>
-            <span class="widget-copy"><i class="widget-line"></i><i class="widget-line is-short"></i></span>
-            <span class="widget-controls"><i></i></span>
-            <span class="widget-timeline"></span>
+        {#if barWidgets.length}
+          <div class="widget-bar-stack">
+            {#each barWidgets as item (item.id)}
+              <div class="widget-bar">
+                <span class="widget-glyph" aria-hidden="true">{item.definition!.glyph}</span>
+                <span class="widget-name">{item.definition!.name}</span>
+                <span class="widget-controls" aria-hidden="true"><i></i><i></i><i></i></span>
+              </div>
+            {/each}
           </div>
         {/if}
+        <div class="widget-layer-preview" aria-hidden="true">
+          {#each widgetGroups as group (group.placement)}
+            <div class={`widget-card-group is-${group.placement}`}>
+              {#each group.items as item (item.id)}
+                <div class="widget-card">
+                  <span class="widget-glyph">{item.definition!.glyph}</span>
+                  <span class="widget-name">{item.definition!.name}</span>
+                </div>
+              {/each}
+            </div>
+          {/each}
+          {#each freeWidgets as item (item.id)}
+            <div class="widget-card is-free" style:left={`${item.config.position!.x / 10}%`} style:top={`${item.config.position!.y / 10}%`} style:transform={`translate(-${item.config.position!.x / 10}%, -${item.config.position!.y / 10}%)`}>
+              <span class="widget-glyph">{item.definition!.glyph}</span>
+              <span class="widget-name">{item.definition!.name}</span>
+            </div>
+          {/each}
+        </div>
       </div>
     </div>
   </div>
@@ -337,8 +364,12 @@
     font-size: 2.2cqw;
     color: var(--dim);
   }
-  .widget-bar {
+  .widget-bar-stack {
     flex: none;
+    display: grid;
+    gap: .5cqw;
+  }
+  .widget-bar {
     display: flex;
     align-items: center;
     gap: .8cqw;
@@ -349,39 +380,26 @@
     background: color-mix(in srgb, var(--surface-3) 92%, transparent);
     box-shadow: 0 4px 14px #0006;
   }
-  .widget-art {
+  .widget-glyph {
     flex: none;
     display: grid;
     place-items: center;
-    width: 3.6cqw;
-    height: 3.6cqw;
-    overflow: hidden;
-    border-radius: .9cqw;
-    background: linear-gradient(135deg, #1ed760, #0a5f2e);
+    width: 2.8cqw;
+    height: 2.8cqw;
+    border-radius: .8cqw;
+    background: var(--accent-soft);
+    color: var(--text);
+    font-size: 1.35cqw;
+    font-weight: 700;
   }
-  .widget-art :global(.provider-icon) {
-    width: 74%;
-    height: 74%;
-    border-radius: 0;
-    background: transparent;
-  }
-  .widget-copy {
+  .widget-name {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: .5cqw;
-    min-width: 0;
-  }
-  .widget-line {
-    display: block;
-    width: 70%;
-    height: .9cqw;
-    border-radius: 99px;
-    background: #ffffff3d;
-  }
-  .widget-line.is-short {
-    width: 40%;
-    background: #ffffff1f;
+    overflow: hidden;
+    color: var(--text-dim);
+    font-size: 1.15cqw;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .widget-controls {
     display: flex;
@@ -400,64 +418,38 @@
     height: 2.4cqw;
     background: #f2f4fb;
   }
-  .widget-card {
+  .widget-layer-preview {
     position: absolute;
+    inset: 2.2cqw;
     z-index: 2;
+    pointer-events: none;
+  }
+  .widget-card-group {
+    position: absolute;
+    display: flex;
+    gap: .6cqw;
+  }
+  .widget-card-group.is-top-left { top: 0; left: 0; flex-direction: column; align-items: flex-start; }
+  .widget-card-group.is-top-center { top: 0; left: 0; right: 0; flex-direction: column; align-items: center; }
+  .widget-card-group.is-top-right { top: 0; right: 0; flex-direction: column; align-items: flex-end; }
+  .widget-card-group.is-bottom-left { bottom: 0; left: 0; flex-direction: column; align-items: flex-start; }
+  .widget-card-group.is-bottom-center { bottom: 0; left: 0; right: 0; flex-direction: column; align-items: center; }
+  .widget-card-group.is-bottom-right { bottom: 0; right: 0; flex-direction: column; align-items: flex-end; }
+  .widget-card-group.is-rail-left { left: 0; top: 0; bottom: 0; flex-direction: column; justify-content: center; align-items: flex-start; }
+  .widget-card-group.is-rail-right { right: 0; top: 0; bottom: 0; flex-direction: column; justify-content: center; align-items: flex-end; }
+  .widget-card {
     display: flex;
     align-items: center;
     gap: .6cqw;
     width: 15cqw;
-    padding: .6cqw .7cqw .95cqw;
+    padding: .7cqw;
     border: 1px solid var(--line-strong);
     border-radius: 1.1cqw;
     background: color-mix(in srgb, var(--surface-3) 94%, transparent);
     box-shadow: 0 8px 24px #0008;
     backdrop-filter: blur(4px);
   }
-  .widget-card .widget-art {
-    width: 2.6cqw;
-    height: 2.6cqw;
-    border-radius: .7cqw;
-  }
-  .widget-card .widget-copy {
-    gap: .35cqw;
-  }
-  .widget-card .widget-line {
-    height: .7cqw;
-  }
-  .widget-card .widget-controls i {
-    width: 1.4cqw;
-    height: 1.4cqw;
-    background: #f2f4fb;
-  }
-  .widget-timeline {
-    position: absolute;
-    left: .7cqw;
-    right: .7cqw;
-    bottom: .35cqw;
-    height: .25cqw;
-    border-radius: 99px;
-    background: #ffffff26;
-  }
-  .widget-timeline:before {
-    content: '';
-    display: block;
-    width: 34%;
-    height: 100%;
-    border-radius: inherit;
-    background: var(--accent);
-  }
-  .widget-card.is-top-left { top: 7.4cqw; left: 2.2cqw; }
-  .widget-card.is-top-right {
-    top: 7.4cqw;
-    right: 2.2cqw;
-  }
-  .widget-card.is-bottom-right {
-    right: 2.2cqw;
-    bottom: 2.2cqw;
-  }
-  .widget-card.is-bottom-left {
-    left: 2.2cqw;
-    bottom: 2.2cqw;
-  }
+  .widget-card.is-free { position: absolute; }
+  .widget-card .widget-glyph { width: 2.4cqw; height: 2.4cqw; font-size: 1.1cqw; }
+  .widget-card .widget-name { font-size: 1cqw; }
 </style>

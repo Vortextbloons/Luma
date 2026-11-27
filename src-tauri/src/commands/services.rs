@@ -102,6 +102,30 @@ fn profile_dir(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
         .join(profile_slug(name)))
 }
 
+pub(crate) fn prune_orphaned_profiles(app: &AppHandle) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let services_root = config_dir.join("services");
+    let Ok(entries) = std::fs::read_dir(&services_root) else {
+        return;
+    };
+    let valid: std::collections::HashSet<String> = super::apps::web_service_ids()
+        .map(profile_slug)
+        .collect();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            if !valid.contains(name) {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
+}
+
 fn edge_arguments(profile: &Path, url: &str, fullscreen: bool) -> Vec<String> {
     let mut arguments = vec![
         format!("--app={url}"),

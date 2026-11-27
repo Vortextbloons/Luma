@@ -2,6 +2,7 @@
   import type { ActivityItem } from '../../types';
   import { isRecentlyPlayed, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
+  import EmptyState from '../EmptyState.svelte';
 
   let { items, trackingEnabled, onopen, onremove, onpreview }: {
     items: ActivityItem[];
@@ -19,9 +20,9 @@
     <div><h2>Recently played</h2><p>Music and video activity observed on this PC</p></div>
   </div>
   {#if !trackingEnabled}
-    <div class="activity-empty"><strong>Activity tracking is off</strong><span>Luma is not recording new activity. Existing history is unchanged until you clear it.</span></div>
+    <EmptyState title="Activity tracking is off" description="Luma is not recording new activity. Existing history is unchanged until you clear it." />
   {:else if played.length === 0}
-    <div class="activity-empty"><strong>No recent playback</strong><span>Play a track in Spotify or a video in Luma's YouTube window while Luma is open.</span></div>
+    <EmptyState title="No recent playback" description="Play a track in Spotify or a video in Luma's YouTube window while Luma is open." />
   {:else}
     <div class="activity-track">
       {#each played as item (item.id)}

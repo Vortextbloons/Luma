@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AppId, Settings, WidgetPlacement } from '../types';
+import type { AppId, Settings } from '../types';
 import { defaultHomeRows, legacyHomeRows, sanitizeHomeRows } from '../services/home';
+import { defaultWidgets, sanitizeWidgets } from '../services/widgetModel';
 import { resolveThemeId, themeById, applyTheme, appearanceFor } from '../services/theme';
 import { setSoundSettings } from '../services/sound';
 import { defaultControllerBinds, sanitizeControllerBinds } from '../services/controller';
@@ -12,7 +13,6 @@ import {
 import type { PluginsState } from '../services/plugins';
 
 const executable = ['Steam', 'Spotify', 'Stremio', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'] as const;
-const placements: WidgetPlacement[] = ['bar', 'top-left', 'top-right', 'bottom-right', 'bottom-left'];
 const appOrder: AppId[] = ['YouTube', 'Spotify', 'Stremio', 'Steam', 'NBA', 'NFL', 'MLB', 'NHL', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'Custom'];
 const legacyOrders: AppId[][] = [
   ['YouTube', 'Spotify', 'Stremio', 'Steam', 'Netflix', 'Disney+', 'Prime Video', 'Apple TV+', 'Hulu', 'Max', 'Peacock', 'NBA', 'NFL', 'MLB', 'NHL', 'Custom'],
@@ -37,7 +37,7 @@ function defaultSettings(): Settings {
     controllerBinds: defaultControllerBinds(),
     home: defaultHomeRows(),
     homeColumns: 1,
-    widgets: { spotify: { enabled: true, placement: 'bar', visibility: 'available', position: null } },
+    widgets: defaultWidgets(),
     paths: { Steam: '', Spotify: '', Stremio: '', Netflix: '', 'Disney+': '', 'Prime Video': '', 'Apple TV+': '', Hulu: '', Max: '', Peacock: '', Custom: '' },
     order: [...appOrder],
   };
@@ -69,13 +69,8 @@ function readSettings() {
       if (data.homeColumns === 2) value.homeColumns = 2;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
       if (Array.isArray(data.order)) value.order = normalizeAppOrder(data.order, true);
-      const spotify = data.widgets?.spotify;
-      if (spotify && typeof spotify === 'object') {
-        if (typeof spotify.enabled === 'boolean') value.widgets.spotify.enabled = spotify.enabled;
-        if (placements.includes(spotify.placement)) value.widgets.spotify.placement = spotify.placement;
-        if (['always', 'playing', 'available'].includes(spotify.visibility)) value.widgets.spotify.visibility = spotify.visibility;
-        if (spotify.position && Number.isInteger(spotify.position.x) && Number.isInteger(spotify.position.y) && spotify.position.x >= 0 && spotify.position.x <= 1000 && spotify.position.y >= 0 && spotify.position.y <= 1000) value.widgets.spotify.position = spotify.position;
-      }
+      const widgets = sanitizeWidgets(data.widgets);
+      if (widgets) value.widgets = widgets;
     }
   } catch { error = 'Saved preferences could not be read.'; }
   return { value, error };

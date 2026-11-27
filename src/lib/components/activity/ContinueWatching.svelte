@@ -2,6 +2,7 @@
   import type { ActivityItem } from '../../types';
   import { isContinueWatching, providerName, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
+  import EmptyState from '../EmptyState.svelte';
 
   let { items, trackingEnabled, onopen, onpreview, focusProvider = null }: {
     items: ActivityItem[];
@@ -32,9 +33,9 @@
     <div><h2>{heading}</h2><p>Only verified playback positions from your providers</p></div>
   </div>
   {#if !trackingEnabled}
-    <div class="activity-empty"><strong>Activity tracking is off</strong><span>Turn on local activity tracking in Settings to build this row.</span></div>
+    <EmptyState title="Activity tracking is off" description="Turn on local activity tracking in Settings to build this row." />
   {:else if watching.length === 0}
-    <div class="activity-empty"><strong>Nothing in progress</strong><span>Connect Plex, Jellyfin, or Trakt, or play a video in Luma's YouTube window.</span></div>
+    <EmptyState title="Nothing in progress" description="Connect Plex, Jellyfin, or Trakt, or play a video in Luma's YouTube window." />
   {:else}
     <div class="activity-track is-cinematic">
       {#each watching as item (item.id)}

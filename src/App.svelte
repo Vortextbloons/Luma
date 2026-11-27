@@ -13,8 +13,13 @@
   import ActivityCard from './lib/components/activity/ActivityCard.svelte';
   import MediaRow from './lib/components/MediaRow.svelte';
   import AppDock from './lib/components/AppDock.svelte';
+  import PageHeader from './lib/components/PageHeader.svelte';
+  import EmptyState from './lib/components/EmptyState.svelte';
+  import Screensaver from './lib/components/Screensaver.svelte';
+  import { loadSaver } from './lib/services/screensaver';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
   import WidgetHost from './lib/components/WidgetHost.svelte';
+  import WidgetHud from './lib/components/WidgetHud.svelte';
   import MusicHome from './lib/components/spotify/MusicHome.svelte';
   import NowPlaying from './lib/components/spotify/NowPlaying.svelte';
   import SportsHome from './lib/components/SportsHome.svelte';
@@ -42,7 +47,7 @@
   import { native, searchYouTube, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube } from './lib/services/tauri';
   import { searchMovies, searchShows } from './lib/services/catalog';
   import type { PluginHomeCard, PluginHomeCardFailure } from './lib/services/plugins';
-  import type { ActivityItem, AppId, ExecutableAppId, MediaItem } from './lib/types';
+  import type { ActivityItem, AppId, ControllerAction, ExecutableAppId, MediaItem } from './lib/types';
   import { loadSportsListing, type SportsEvent } from './lib/services/sports';
   import type { GameScore } from './lib/services/sportsScores';
 
@@ -55,6 +60,7 @@
   const steamState = createSteam();
   const youtube = createYouTube();
   const layoutConfig = $derived(preferences.layout);
+  const hasPlayerWidgets = $derived(Object.values(layoutConfig.widgets).some(widget => widget.enabled && widget.presence.includes('music')));
   const layoutPreview = $derived(preferences.preview);
   const homeState = createHome({
     layout: () => layoutConfig,
@@ -78,7 +84,7 @@
   let tab = $state('Home');
   let searchReturn = $state('Home');
   let panel = $state(false);
-  let settingsPanel = $state<{ consumeBack: () => boolean }>();
+  let settingsPanel = $state<{ consumeBack: () => boolean; cycleCategory: (direction: -1 | 1) => void }>();
   let remotePairing = $state(false);
   let exitRequested = $state(false);
   let settingsCategory = $state('Display');
@@ -125,6 +131,19 @@
   const featured = $derived(homeState.featured);
   const popularShows = $derived(homeState.popularShows);
   let playerOpen = $state(false);
+  const saver = $state(loadSaver());
+  let saverOpen = $state(false);
+  let topNav = $state<ReturnType<typeof TopNav>>();
+  $effect(() => { localStorage.setItem('luma.screensaver', JSON.stringify(saver)); });
+  let idle = $state(false);
+  let lastInput = Date.now();
+  function wake() {
+    lastInput = Date.now();
+    if (idle) idle = false;
+    const dismissed = saverOpen;
+    saverOpen = false;
+    return dismissed;
+  }
   let widgetHost = $state<WidgetHost>();
   let musicHome = $state<MusicHome>();
   let sportsHome = $state<SportsHome>();
@@ -252,10 +271,36 @@
     window.addEventListener('focus', restoreFocus);
     const cleanup: (() => void)[] = [];
     function track(stop: () => void) { if (disposed) stop(); else cleanup.push(stop); }
+    const idleCheck = setInterval(() => {
+      const elapsed = Date.now() - lastInput;
+      if (!playerOpen && elapsed > 120_000) idle = true;
+      if (!saver.enabled || saverOpen) return;
+      if (!document.hasFocus() || document.hidden || panel || details || remotePairing || stremioPairing || exitRequested || layoutPreview || document.querySelector('dialog[open]') || ((playerOpen || tab === 'Music') ? !saver.player : tab !== 'Home')) {
+        lastInput = Date.now();
+        return;
+      }
+      if (elapsed >= saver.minutes * 60_000) saverOpen = true;
+    }, 1000);
+    function wakeFromInput(event: Event) {
+      if (event instanceof KeyboardEvent && (event.key.startsWith('Media') || event.key.startsWith('AudioVolume'))) return;
+      if (!wake()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    const inputOptions = { passive: true } as AddEventListenerOptions;
+    window.addEventListener('pointermove', wake, inputOptions);
+    window.addEventListener('blur', wake);
+    for (const event of ['click', 'wheel', 'keydown']) window.addEventListener(event, wakeFromInput, { capture: true, passive: false });
+    track(() => {
+      clearInterval(idleCheck);
+      window.removeEventListener('pointermove', wake);
+      window.removeEventListener('blur', wake);
+      for (const event of ['click', 'wheel', 'keydown']) window.removeEventListener(event, wakeFromInput, true);
+    });
     const controller = createController({
       enabled: () => settings.controllerEnabled,
       binds: () => settings.controllerBinds,
-      oncommand: command => navigation.dispatch(command),
+      oncommand: action => runControllerAction(action),
       oncapture: buttonIndex => controllerCapture?.(buttonIndex) ?? false,
     });
     track(() => controller.destroy());
@@ -265,6 +310,7 @@
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
+        track(await listen<string>('luma:plugin-log', event => console.info('[Luma Plugin]', event.payload)));
         track(await listen<boolean>('window-visibility', event => {
           setAppVisible(event.payload);
           if (event.payload && !disposed) void steamState.refresh(true);
@@ -277,7 +323,7 @@
         }));
         track(await listen<string>('tv-setup-error', event => message = event.payload));
         track(await listen<string>('viewing-error', event => message = event.payload));
-        const stopNavigation = await onNavigation(navigation.dispatch);
+        const stopNavigation = await onNavigation(command => { if (!wake()) navigation.dispatch(command); });
         if (disposed) { stopNavigation(); return; }
         track(stopNavigation);
         track(await listen('remote-volume', () => { if (!disposed) void playSound('volume'); }));
@@ -345,6 +391,7 @@
   });
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
+    if (topNav?.closeMenu()) { void playSound('back'); return; }
     if (widgetHost?.cancelMove()) return;
     if (layoutPreview && !exitRequested && !remotePairing && !stremioPairing && !details && !playerOpen) { void cancelReview(); return; }
     if (exitRequested) { void playSound('back'); cancelExit(); return; }
@@ -374,14 +421,16 @@
     requestAnimationFrame(() => dialog.querySelector<HTMLButtonElement>('button')?.focus());
   }
   function leaveApp() { if (native) void closeLaunchedApp().catch(() => {}); }
-  function home() { leaveApp(); remotePairing = false; homeState.clearPreview(); playerOpen = false; panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function home() { topNav?.closeMenu(); leaveApp(); remotePairing = false; homeState.clearPreview(); playerOpen = false; wake(); panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
+    wake();
     requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('.now-playing-close') ?? undefined));
   }
   function closePlayer() {
     playerOpen = false;
+    wake();
     requestAnimationFrame(() => navigation.focus(playerPrevious ?? undefined));
   }
   function pointerSound(event: MouseEvent) {
@@ -439,6 +488,68 @@
     };
   }
   function navigate(value: string) { if (layoutPreview) { void cancelReview(false).then(cancelled => { if (cancelled) navigate(value); }); return; } if (value === 'Music') { void openMusic(); return; } if (value !== tab) void playSound('page'); if (value === 'Home') leaveApp(); homeState.clearPreview(); tab = value; requestAnimationFrame(() => window.scrollTo(0, 0)); }
+  function editingText() {
+    const element = document.activeElement;
+    return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
+      || (element instanceof HTMLElement && element.isContentEditable);
+  }
+  function switchTab(direction: -1 | 1) {
+    if (editingText()) return;
+    if (panel) {
+      if (!document.querySelector('dialog[open]')) settingsPanel?.cycleCategory(direction);
+      return;
+    }
+    if (document.querySelector('dialog[open]') || layoutPreview || remotePairing || stremioPairing || exitRequested || details || playerOpen) return;
+    if (tab === 'Search') {
+      navigate(searchReturn === 'Search' ? 'Home' : searchReturn);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.nav-pill [aria-current="page"]')?.focus({ preventScroll: true }));
+      return;
+    }
+    const index = tabOrder.indexOf(tab);
+    if (index < 0) return;
+    navigate(tabOrder[(index + direction + tabOrder.length) % tabOrder.length]);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.nav-pill [aria-current="page"]')?.focus({ preventScroll: true }));
+  }
+  function focusSearch() {
+    if (editingText() || document.querySelector('dialog[open]')) return;
+    const search = document.querySelector<HTMLInputElement>('#movie-search');
+    if (!search) return;
+    void playSound('press');
+    search.focus({ preventScroll: true });
+    search.select();
+  }
+  function toggleSettings() {
+    if (editingText() || document.querySelector('dialog[open]')) return;
+    if (panel) {
+      void playSound('back');
+      panel = false;
+      void refreshStremio();
+      requestAnimationFrame(() => navigation.focus(document.querySelector<HTMLElement>('.nav-pill [aria-current="page"]') ?? undefined));
+      return;
+    }
+    void playSound('press');
+    openSettings();
+  }
+  function mediaAction(action: 'toggle' | 'previous' | 'next') {
+    if (spotify.busy) return;
+    if (action === 'toggle' ? !spotify.playback.canToggle : action === 'previous' ? !spotify.playback.canSkipPrevious : !spotify.playback.canSkipNext) return;
+    void playSound('volume');
+    void spotify.action(action);
+  }
+  function runControllerAction(action: ControllerAction) {
+    if (!['playpause', 'trackprev', 'tracknext'].includes(action) && wake()) return;
+    switch (action) {
+      case 'tabprev': switchTab(-1); return;
+      case 'tabnext': switchTab(1); return;
+      case 'search': focusSearch(); return;
+      case 'settings': toggleSettings(); return;
+      case 'playpause': mediaAction('toggle'); return;
+      case 'trackprev': mediaAction('previous'); return;
+      case 'tracknext': mediaAction('next'); return;
+      case 'scores': if (tab === 'Sports') { void playSound('press'); sportsHome?.toggleScores(); } return;
+      default: navigation.dispatch(action);
+    }
+  }
   async function openMusic() {
     if (layoutPreview && !await cancelReview(false)) return;
     if (tab !== 'Music') void playSound('page');
@@ -639,17 +750,20 @@
   }
 </script>
 
+{#if saverOpen}<Screensaver config={saver} playback={spotify.playback} movies={popular} reducedMotion={settings.reducedMotion} />{/if}
+
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
+  {#if panel}<SettingsPanel {saver} onsaverpreview={() => { saverOpen = true; }} bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
   {:else}
-  <TopNav viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} bind:searchQuery={movieQuery} onsearch={submitSearch} />
+  <TopNav bind:this={topNav} startScreensaver={() => { saverOpen = true; }} viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} bind:searchQuery={movieQuery} onsearch={submitSearch} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if (showHome || tab === 'Search') && homeState.error}
     <section class="content-row" aria-label="Catalog status">
-      <p role="status">{homeState.error}</p>
-      <button class="text-link" disabled={homeState.loading} onclick={retryCatalog}>{homeState.loading ? 'Retrying catalog...' : 'Retry catalog'}</button>
+      <EmptyState title="Some sources did not load" description={homeState.error} role="status">
+        {#snippet actions()}<button class="text-link" disabled={homeState.loading} onclick={retryCatalog}>{homeState.loading ? 'Retrying catalog...' : 'Retry catalog'}</button>{/snippet}
+      </EmptyState>
     </section>
   {/if}
   {#if showHome}
@@ -660,16 +774,13 @@
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} {sports} ondetailclose={returnFromSportsDetail} />{/if}
   {#if tab === 'Apps'}
-    <header class="page-head">
-      <div><span class="eyebrow">ON THIS PC</span><h1>Apps</h1><p>Open your streaming apps and keep the ones you use most in reach.</p></div>
-      <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
-    </header>
+    <PageHeader eyebrow="ON THIS PC" title="Apps" description="Open your streaming apps and keep the ones you use most in reach">
+      {#snippet actions()}<button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>{/snippet}
+    </PageHeader>
     <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} smoothHover={settings.smoothAppHover} />
   {/if}
   {#if tab === 'Search'}
-    <header class="page-head">
-      <div><span class="eyebrow">FIND YOUR NEXT WATCH</span><h1>{submittedQuery ? 'Results' : 'Browse'}</h1><p>{submittedQuery ? `Results for “${submittedQuery}”. Open a result to watch.` : 'Search titles, teams, or leagues from the bar above, or browse what is popular.'}</p></div>
-    </header>
+    <PageHeader eyebrow="FIND YOUR NEXT WATCH" title={submittedQuery ? 'Results' : 'Browse'} description={submittedQuery ? `Results for “${submittedQuery}”. Open a result to watch.` : 'Search titles, teams, or leagues from the bar above, or browse what is popular.'} />
     <section class="content-row" aria-label="Search status">
       <p class="movie-search-status" role="status">{searching ? 'Searching sources…' : searchStatus}</p>
     </section>
@@ -720,8 +831,12 @@
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
     <UpdateNotice {native} />
   </div>
-  {#if !playerOpen}<WidgetHost bind:this={widgetHost} widgets={layoutConfig.widgets} onposition={(id, position) => settings.widgets[id].position = position} onopen={openPlayer} />{/if}
-  {#if playerOpen}<NowPlaying bind:this={player} onclose={closePlayer} />{/if}
+  {#if !playerOpen}<WidgetHost bind:this={widgetHost} widgets={layoutConfig.widgets} context={idle ? 'idle' : 'home'} onposition={(id, position) => { if (settings.widgets[id]) settings.widgets[id].position = position; }} onopen={openPlayer} />{/if}
+  {#if playerOpen}
+    <NowPlaying bind:this={player} onclose={closePlayer} hasHud={hasPlayerWidgets}>
+      {#snippet hud()}<WidgetHud widgets={layoutConfig.widgets} onopen={openPlayer} />{/snippet}
+    </NowPlaying>
+  {/if}
   {/if}
 </main>
 {#if layoutPreview}<LayoutReview busy={preferences.reviewBusy} error={preferences.reviewError} editing={preferences.previewFromEditor} plugin={layoutPreview.plugin ?? null} detached={layoutPreview.detached ?? []} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
@@ -729,7 +844,7 @@
 
 {#if stremioPairing}
   <dialog {@attach mountStremioDialog} class="details-dialog" aria-label="Connect Stremio" oncancel={(event) => { event.preventDefault(); closeStremioPairing(); }}>
-    <button class="close-btn float-right mb-4" onclick={closeStremioPairing} aria-label="Close Stremio connection">?</button>
+    <button class="close-btn float-right mb-4" onclick={closeStremioPairing} aria-label="Close Stremio connection">&times;</button>
     <StremioIntegration {native} autoConnect onconnected={closeStremioPairing} />
   </dialog>
 {/if}

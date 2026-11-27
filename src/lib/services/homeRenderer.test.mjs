@@ -145,7 +145,7 @@ test('hidden sections and unavailable hero content do not leave interactive copi
 test('the editor and preview resolve renamed instances through component metadata', () => {
   const props = fixture();
   const rows = props.rows.map(row => ({ ...row, id: `custom-${row.id}` }));
-  const preview = { rows, popular: [], featured: [], activityItems: [], apps: [], widget: { enabled: false, placement: 'bar' }, highlight: 'custom-apps' };
+  const preview = { rows, popular: [], featured: [], activityItems: [], apps: [], widgets: {}, highlight: 'custom-apps' };
   assert.match(render(HomePreview, { props: preview }).body, /Your apps/);
   const editor = render(HomeLayoutSettings, { props: { ...preview, onmove() {}, onmoveto() {}, ontoggle() {}, onreset() {} } }).body;
   assert.match(editor, /data-row="custom-apps"/);
@@ -162,7 +162,7 @@ test('two-column rendering and miniature preview preserve section widths and the
   assert.match(html, /data-home-instance="apps" data-span="1"/);
   assert.match(html, /data-home-instance="popular" data-span="2"/);
   assert.ok(html.indexOf('data-home-instance="hero"') < html.indexOf('resizing-content'));
-  const preview = render(HomePreview, { props: { rows: props.rows, columns: 2, popular: [], featured: [], activityItems: [], apps: [], widget: { enabled: false, placement: 'bar' } } }).body;
+  const preview = render(HomePreview, { props: { rows: props.rows, columns: 2, popular: [], featured: [], activityItems: [], apps: [], widgets: {} } }).body;
   assert.match(preview, /grid-column: span 1;/);
   assert.match(preview, /columns/);
 });

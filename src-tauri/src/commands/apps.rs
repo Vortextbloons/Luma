@@ -99,6 +99,13 @@ pub(crate) fn video_sources() -> Vec<&'static str> {
     std::iter::once("YouTube").chain(SERVICES.iter().filter(|service| !matches!(service.id, "Spotify" | "Steam")).map(|service| service.id)).chain(super::sports::shortcuts().into_iter().map(|entry| entry.name)).collect()
 }
 
+pub(crate) fn web_service_ids() -> impl Iterator<Item = &'static str> {
+    SERVICES
+        .iter()
+        .filter(|service| service.url.is_some())
+        .map(|service| service.id)
+}
+
 pub(crate) struct CatalogEntry {
     pub command: String,
     pub name: &'static str,

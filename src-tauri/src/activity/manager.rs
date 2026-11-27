@@ -47,8 +47,10 @@ impl Activity {
             .app_data_dir()
             .map_err(|error| error.to_string())?;
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        let storage = Storage::open(&directory.join("activity.sqlite3"))?;
+        let _ = storage.prune();
         Ok(Self {
-            storage: Storage::open(&directory.join("activity.sqlite3"))?,
+            storage,
             refresh_revision: Mutex::new(RefreshState::default()),
         })
     }

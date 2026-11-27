@@ -87,12 +87,16 @@ const APP_IDS: [&str; 16] = [
     "Peacock",
     "Custom",
 ];
-const PLACEMENTS: [&str; 5] = [
+const PLACEMENTS: [&str; 9] = [
     "bar",
     "top-left",
+    "top-center",
     "top-right",
-    "bottom-right",
     "bottom-left",
+    "bottom-center",
+    "bottom-right",
+    "rail-left",
+    "rail-right",
 ];
 
 type BackendFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
@@ -2411,21 +2415,29 @@ fn candidate_schema() -> Value {
             },
             "widgets": {
                 "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "spotify": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                            "enabled": { "type": "boolean" },
-                            "placement": { "type": "string", "enum": PLACEMENTS },
-                            "visibility": { "type": "string", "enum": ["always", "available", "playing"] },
-                            "position": { "anyOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "properties": { "x": { "type": "integer", "minimum": 0, "maximum": 1000 }, "y": { "type": "integer", "minimum": 0, "maximum": 1000 } }, "required": ["x", "y"] }] }
+                "maxProperties": 32,
+                "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "pattern": "^[A-Za-z0-9_.-]+$"
                         },
-                        "required": ["enabled", "placement"]
-                    }
-                },
-                "required": ["spotify"]
+                        "enabled": { "type": "boolean" },
+                        "placement": { "type": "string", "enum": PLACEMENTS },
+                        "visibility": { "type": "string", "enum": ["always", "available", "playing"] },
+                        "position": { "anyOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "properties": { "x": { "type": "integer", "minimum": 0, "maximum": 1000 }, "y": { "type": "integer", "minimum": 0, "maximum": 1000 } }, "required": ["x", "y"] }] },
+                        "size": { "type": "string", "enum": ["small", "medium", "large"] },
+                        "variant": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_-]+$" },
+                        "presence": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "type": "string", "enum": ["home", "music", "idle"] } },
+                        "order": { "type": "integer", "minimum": 0, "maximum": 1000 },
+                        "settings": { "type": "object", "maxProperties": 32 }
+                    },
+                    "required": ["enabled", "placement"]
+                }
             },
             "order": {
                 "type": "array",
@@ -2607,11 +2619,18 @@ fn capabilities() -> Value {
                 "rule": "Exactly one row for every component; instance ids must be unique."
             },
             "widgets": {
-                "spotify": {
+                "instances": "keyed by instance id; max 32",
+                "instance": {
+                    "type": "string (built-in widget type or plugin type)",
                     "enabled": "boolean",
                     "placement": PLACEMENTS,
                     "visibility": ["always", "available", "playing"],
-                    "position": "null for preset, or x/y integers from 0 through 1000"
+                    "position": "null for preset, or x/y integers from 0 through 1000",
+                    "size": ["small", "medium", "large"],
+                    "variant": "style variant such as glass, cinematic, ticker, or minimal",
+                    "presence": ["home", "music", "idle"],
+                    "order": "integer from 0 through 1000",
+                    "settings": "widget-specific settings, max 32 keys"
                 }
             },
             "apps": {
@@ -4380,7 +4399,7 @@ mod tests {
         }
         for placement in PLACEMENTS {
             let mut config = Config::default();
-            config.widgets.spotify.placement = placement.into();
+            config.widgets.get_mut("spotify").unwrap().placement = placement.into();
             assert_eq!(document::validate(&config), Ok(()));
         }
         for span in [1, 2] {

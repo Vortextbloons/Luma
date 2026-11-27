@@ -2,6 +2,9 @@ use super::models::{app_id, app_provider, ActivityItem, ActivityType, ProgressSo
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::{path::Path, sync::Mutex, time::Duration};
 
+const MAX_ACTIVITY_ITEMS: i64 = 500;
+const ACTIVITY_RETENTION_DAYS: i64 = 90;
+
 pub struct Storage {
     connection: Mutex<Connection>,
 }
@@ -266,7 +269,38 @@ impl Storage {
             None => connection.execute("DELETE FROM activity_items", []),
         }
         .map_err(|error| error.to_string())?;
+        let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
         Ok(())
+    }
+
+    pub fn prune(&self) -> Result<usize, String> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(ACTIVITY_RETENTION_DAYS))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        self.prune_before(&cutoff, MAX_ACTIVITY_ITEMS)
+    }
+
+    fn prune_before(&self, cutoff: &str, max_items: i64) -> Result<usize, String> {
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let deleted = connection
+            .execute(
+                "DELETE FROM activity_items
+                 WHERE item_type != 'application'
+                   AND (
+                     last_activity_at < ?1
+                     OR id NOT IN (
+                       SELECT id FROM activity_items
+                       WHERE item_type != 'application'
+                       ORDER BY last_activity_at DESC
+                       LIMIT ?2
+                     )
+                   )",
+                params![cutoff, max_items],
+            )
+            .map_err(|error| error.to_string())?;
+        if deleted > 0 {
+            let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+        Ok(deleted)
     }
 
     pub fn count_playback(&self, provider: &str) -> Result<u32, String> {
@@ -493,5 +527,33 @@ mod tests {
             .preference(&super::super::models::provider_success_key("plex"))
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn prune_enforces_age_and_count_limits_while_keeping_apps() {
+        let storage = Storage::memory().unwrap();
+        let mut old_movie = item("plex:old", "2025-01-01T00:00:00.000Z", 10.0);
+        old_movie.item_type = ActivityType::Movie;
+        storage.upsert(&old_movie).unwrap();
+
+        let mut newer_a = item("plex:a", "2026-11-20T00:00:00.000Z", 10.0);
+        newer_a.item_type = ActivityType::Movie;
+        storage.upsert(&newer_a).unwrap();
+
+        let mut newer_b = item("plex:b", "2026-11-25T00:00:00.000Z", 10.0);
+        newer_b.item_type = ActivityType::Movie;
+        storage.upsert(&newer_b).unwrap();
+
+        let mut app = item("app:netflix", "2020-01-01T00:00:00.000Z", 0.0);
+        app.provider = "app".into();
+        app.item_type = ActivityType::Application;
+        storage.upsert(&app).unwrap();
+
+        let deleted = storage.prune_before("2026-09-01T00:00:00.000Z", 1).unwrap();
+        assert_eq!(deleted, 2);
+        assert!(storage.get("plex:old").unwrap().is_none());
+        assert!(storage.get("plex:a").unwrap().is_none());
+        assert!(storage.get("plex:b").unwrap().is_some());
+        assert!(storage.get("app:netflix").unwrap().is_some());
     }
 }

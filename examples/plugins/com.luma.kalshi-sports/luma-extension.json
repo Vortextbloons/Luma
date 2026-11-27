@@ -1,0 +1,58 @@
+{
+  "id": "com.luma.kalshi-sports",
+  "name": "Kalshi Sports Odds",
+  "version": "1.0.5",
+  "apiVersion": 3,
+  "minHostVersion": "0.8.0",
+  "description": "Shows live Kalshi prediction market win probabilities on Sports cards and while watching a game.",
+  "author": "Luma",
+  "runtime": {
+    "kind": "background",
+    "entry": "index.html"
+  },
+  "contributes": {
+    "sportsEnrich": true
+  },
+  "permissions": [
+    "settings.read",
+    "network.get",
+    "sports.read"
+  ],
+  "network": {
+    "allow": [
+      "https://api.elections.kalshi.com",
+      "https://external-api.kalshi.com"
+    ]
+  },
+  "settings": [
+    {
+      "key": "showCardOdds",
+      "label": "Show odds on Sports cards",
+      "description": "Display Kalshi win probabilities next to matchups on the Sports page.",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "showPlayerWidget",
+      "label": "Show odds widget while watching",
+      "description": "Show a compact live Kalshi win-probability widget in the Sports player.",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "refreshSeconds",
+      "label": "Refresh interval",
+      "description": "How often to pull the latest Kalshi market odds.",
+      "type": "enum",
+      "default": "45",
+      "options": [
+        { "value": "30", "label": "Every 30 seconds" },
+        { "value": "45", "label": "Every 45 seconds" },
+        { "value": "60", "label": "Every 60 seconds" }
+      ]
+    }
+  ],
+  "assets": [
+    "main.js"
+  ]
+}

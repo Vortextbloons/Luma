@@ -1,5 +1,6 @@
 <script lang="ts">
   import MusicIcon from './MusicIcon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import { onDestroy, untrack, tick } from 'svelte';
   import CollectionDialog from './CollectionDialog.svelte';
   import DevicePicker from './DevicePicker.svelte';
@@ -122,13 +123,10 @@
     </aside>
 
     <div class="music-content">
-      <header class="music-page-header">
-        <div>
-          <span class="panel-kicker">{section === 'Listen now' ? 'YOUR LIBRARY' : section.toUpperCase()}</span>
-          <h1 id="music-title">{section === 'Listen now' ? 'Listen now' : section}</h1>
-          <p>{section === 'Listen now' ? 'Pick up where you left off.' : section === 'Search' ? 'Find songs, albums, and playlists on Spotify.' : section === 'Library' ? 'Everything saved to your Spotify library.' : 'Send playback to another speaker or device.'}</p>
-        </div>
-      </header>
+      <PageHeader flush divided titleId="music-title"
+        eyebrow={section === 'Listen now' ? 'YOUR LIBRARY' : section.toUpperCase()}
+        title={section === 'Listen now' ? 'Listen now' : section}
+        description={section === 'Listen now' ? 'Pick up where you left off.' : section === 'Search' ? 'Find songs, albums, and playlists on Spotify.' : section === 'Library' ? 'Everything saved to your Spotify library.' : 'Send playback to another speaker or device.'} />
 
       <div class="music-section-body" {@attach animateSection(section)}>
       {#if !native}
@@ -160,7 +158,7 @@
         </div>
         <div class="music-now-copy">
           <div class="music-now-head">
-            <span class="panel-kicker">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
+            <span class="eyebrow is-flush">{playback.playing ? 'NOW PLAYING' : playback.title ? 'PAUSED' : 'READY WHEN YOU ARE'}</span>
             <button class="btn btn-glass" onclick={onopen}>Open player</button>
           </div>
           <h2>{playback.title ?? 'Find your next favorite'}</h2>
@@ -203,7 +201,7 @@
       {:else}
         <section class="music-account">
           <div>
-            <span class="panel-kicker">MADE FOR YOU</span>
+            <span class="eyebrow is-flush">MADE FOR YOU</span>
             <h2>Connect your Spotify account</h2>
             <p>Bring your playlists, favorite albums, and liked songs together.</p>
           </div>
@@ -227,7 +225,6 @@
   .music-home { --music-ink: var(--text); --music-muted: var(--muted); color: var(--music-ink); }
   .music-home .btn { min-height: 44px; font-size: clamp(13px,.88vw,16px); padding: 0 20px; }
   .music-home .btn { width: auto; min-width: 0; }
-  .music-page-header { border-bottom: 1px solid #ffffff14; }
   .music-menu { position: relative; flex: none; z-index: 2; margin-top: auto; }
   .music-menu summary { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border: 1px solid #ffffff14; border-radius: 12px; cursor: pointer; list-style: none; background: #ffffff06; }
   .music-menu summary::-webkit-details-marker { display: none; }
@@ -246,5 +243,5 @@
   .music-home :global(.music-inline-error),.music-home :global(.music-empty-line) { font-size: clamp(12px,.85vw,15px); }
   .music-account p,.music-starting p { font-size: clamp(13px,.9vw,16px); }
   @media(max-width:1080px) { .music-shell { grid-template-columns: minmax(0,1fr); } .music-rail { position: static; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 14px; } .music-sections { flex-direction: row; flex-wrap: wrap; } .music-sections button { width: auto; padding: 0 14px; border: 1px solid #ffffff14; border-radius: 99px; } .music-group { flex-direction: row; gap: 6px; align-items: center; } .music-group-label { display: none; } .music-menu { margin: 0; } .music-menu-panel { left: auto; right: 0; bottom: auto; top: calc(100% + 8px); } }
-  @media(max-width:720px) { .music-page-header { align-items: flex-start; flex-direction: column; } .music-rail-brand small { display: none; } }
+  @media(max-width:720px) { .music-rail-brand small { display: none; } }
 </style>

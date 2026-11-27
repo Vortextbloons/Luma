@@ -3,8 +3,8 @@ use std::{future::Future, net::IpAddr, time::Duration};
 use serde::Serialize;
 use serde_json::Value;
 
-const MAX_BODY: usize = 64 * 1024;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_BODY: usize = 2 * 1024 * 1024;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct Error {

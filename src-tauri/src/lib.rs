@@ -86,6 +86,8 @@ pub fn run() {
         .manage(remote::pointer::Pointer::default())
         .manage(frame::Frame::default())
         .manage(controller::ControllerHome::default())
+        .manage(sports::SportsActiveState::default())
+        .manage(sports::SportsBadgesState::default())
         .manage(youtube::Bridge::default())
         .manage(stremio::Stremio::default())
         .manage(spotify::player::Player::default())
@@ -109,6 +111,12 @@ pub fn run() {
             );
             apps::load(app.handle()).map_err(std::io::Error::other)?;
             stremio::load(app.handle());
+            {
+                let services_handle = app.handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    services::prune_orphaned_profiles(&services_handle);
+                });
+            }
             if developer::active(app.handle()) {
                 developer::initialize(app.handle()).map_err(std::io::Error::other)?;
             } else {
@@ -257,6 +265,8 @@ pub fn run() {
             server::update_appearance,
             sports::sports_listing,
             sports::sports_streameast_listing,
+            sports::plugin_sports_badges,
+            sports::plugin_sports_logs,
             sports::sports_open,
             sports::sports_scoreboard,
             sports::sports_teams,

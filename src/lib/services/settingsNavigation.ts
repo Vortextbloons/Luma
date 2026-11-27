@@ -8,7 +8,8 @@ export const settingsCategories: SettingsCategory[] = [
     sections: [
       { id: 'theme', name: 'Theme', description: 'Backgrounds, surfaces, and accent together.' },
       { id: 'layout', name: 'Home layout', description: 'Density, tile shape, text size, motion, and the order of Home rows.' },
-      { id: 'widgets', name: 'Widgets', description: 'Now playing and future widgets.' },
+      { id: 'screensaver', name: 'Screensaver', description: 'Choose what plays when Luma is idle.' },
+      { id: 'widgets', name: 'Widgets', description: 'Place, style, and show widgets in different moments.' },
     ],
   },
   {

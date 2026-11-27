@@ -17,7 +17,7 @@ test('legacy appearance entries open the built-in appearance category', () => {
 
 test('appearance stays its own category and Plugins only lists installed plugins', () => {
   assert.equal(settingsCategories[0].name, 'Appearance & Home');
-  assert.deepEqual(settingsCategories[0].sections.map(section => section.id), ['theme', 'layout', 'widgets']);
+  assert.deepEqual(settingsCategories[0].sections.map(section => section.id), ['theme', 'layout', 'screensaver', 'widgets']);
   const plugins = settingsCategories.find(category => category.name === 'Plugins');
   assert.deepEqual(plugins?.sections.map(section => section.id), ['installed']);
 });

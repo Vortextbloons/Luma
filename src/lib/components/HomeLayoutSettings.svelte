@@ -1,17 +1,17 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { ActivityItem, AppId, HomeRow, MediaItem, WidgetConfig } from '../types';
+  import type { ActivityItem, AppId, HomeRow, MediaItem, Settings } from '../types';
   import { homeRowMeta } from '../services/home';
   import HomePreview from './HomePreview.svelte';
 
-  let { rows, columns = 1, popular, featured, activityItems, apps, widget, onmove, onmoveto, ontoggle, onreset, oncolumns, onspan, onpreview, onreload, onrestore, busy = false }: {
+  let { rows, columns = 1, popular, featured, activityItems, apps, widgets, onmove, onmoveto, ontoggle, onreset, oncolumns, onspan, onpreview, onreload, onrestore, busy = false }: {
     rows: HomeRow[];
     columns?: 1 | 2;
     popular: MediaItem[];
     featured: MediaItem[];
     activityItems: ActivityItem[];
     apps: AppId[];
-    widget: WidgetConfig;
+    widgets: Settings['widgets'];
     onmove: (id: string, direction: -1 | 1) => void;
     onmoveto: (id: string, index: number) => void;
     ontoggle: (id: string) => void;
@@ -155,7 +155,7 @@
   <div class="layout-grid">
     <div class="layout-preview">
       <div class="preview-label"><span>Live preview</span><small>{visibleCount} of {rows.length} rows</small></div>
-      <HomePreview {rows} {columns} {popular} {featured} {activityItems} {apps} {widget} {highlight} />
+      <HomePreview {rows} {columns} {popular} {featured} {activityItems} {apps} {widgets} {highlight} />
       <p class="preview-note">Focus or hover a row to find it in the preview.{#if columns === 2} Full width rows take both columns. The first hero stays full width. Narrow windows stack rows.{/if}</p>
     </div>
     <div class="layout-editor">

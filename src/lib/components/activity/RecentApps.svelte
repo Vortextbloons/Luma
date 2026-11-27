@@ -2,6 +2,7 @@
   import type { ActivityItem } from '../../types';
   import { isApplication, sortRecent } from '../../services/activity';
   import ActivityCard from './ActivityCard.svelte';
+  import EmptyState from '../EmptyState.svelte';
 
   let { items, trackingEnabled, onopen, onremove, onpreview }: {
     items: ActivityItem[];
@@ -19,9 +20,9 @@
     <div><h2>Recently used apps</h2><p>Launches through Luma only. This never reveals what you watched.</p></div>
   </div>
   {#if !trackingEnabled}
-    <div class="activity-empty"><strong>Launch history is off</strong><span>Turn on local activity tracking in Settings to record app launches.</span></div>
+    <EmptyState title="Launch history is off" description="Turn on local activity tracking in Settings to record app launches." />
   {:else if apps.length === 0}
-    <div class="activity-empty"><strong>No app launches yet</strong><span>Open Steam, Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, Spotify, YouTube, or Stremio from Luma.</span></div>
+    <EmptyState title="No app launches yet" description="Open Steam, Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, Spotify, YouTube, or Stremio from Luma." />
   {:else}
     <div class="activity-track app-activity-track">
       {#each apps as item (item.id)}

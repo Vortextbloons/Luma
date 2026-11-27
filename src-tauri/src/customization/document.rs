@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 const THEMES: [&str; 6] = [
     "violet-night",
@@ -41,9 +43,24 @@ const APP_IDS: [&str; 16] = [
     "Custom",
 ];
 const CUSTOM_APP: &str = "Custom";
-const PLACEMENTS: [&str; 5] = ["bar", "top-left", "top-right", "bottom-right", "bottom-left"];
+const PLACEMENTS: [&str; 9] = [
+    "bar",
+    "top-left",
+    "top-center",
+    "top-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+    "rail-left",
+    "rail-right",
+];
+const WIDGET_SIZES: [&str; 3] = ["small", "medium", "large"];
+const WIDGET_PRESENCES: [&str; 3] = ["home", "music", "idle"];
+const WIDGET_VISIBILITIES: [&str; 3] = ["always", "available", "playing"];
+const MAX_WIDGETS: usize = 32;
+const MAX_WIDGET_SETTINGS: usize = 32;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Document {
     pub version: u32,
@@ -51,7 +68,7 @@ pub struct Document {
     pub config: Config,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
     pub theme: String,
@@ -100,25 +117,49 @@ fn default_sound_level() -> String {
     "standard".into()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Widgets {
-    pub spotify: Widget,
-}
+pub type Widgets = BTreeMap<String, Widget>;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Widget {
+    #[serde(rename = "type", default = "default_widget_type")]
+    pub kind: String,
     pub enabled: bool,
     pub placement: String,
     #[serde(default = "default_widget_visibility")]
     pub visibility: String,
     #[serde(default)]
     pub position: Option<WidgetPosition>,
+    #[serde(default = "default_widget_size")]
+    pub size: String,
+    #[serde(default = "default_widget_variant")]
+    pub variant: String,
+    #[serde(default = "default_widget_presence")]
+    pub presence: Vec<String>,
+    #[serde(default)]
+    pub order: u32,
+    #[serde(default)]
+    pub settings: BTreeMap<String, Value>,
+}
+
+fn default_widget_type() -> String {
+    "spotify".into()
 }
 
 fn default_widget_visibility() -> String {
     "available".into()
+}
+
+fn default_widget_size() -> String {
+    "medium".into()
+}
+
+fn default_widget_variant() -> String {
+    "glass".into()
+}
+
+fn default_widget_presence() -> Vec<String> {
+    vec!["home".into(), "idle".into()]
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -201,14 +242,21 @@ impl Default for Config {
                     span: default_span(),
                 })
                 .collect(),
-            widgets: Widgets {
-                spotify: Widget {
+            widgets: BTreeMap::from([(
+                "spotify".into(),
+                Widget {
+                    kind: "spotify".into(),
                     enabled: true,
                     placement: "bar".into(),
                     visibility: default_widget_visibility(),
                     position: None,
+                    size: default_widget_size(),
+                    variant: default_widget_variant(),
+                    presence: default_widget_presence(),
+                    order: 0,
+                    settings: BTreeMap::new(),
                 },
-            },
+            )]),
             order: APP_IDS.iter().map(|id| (*id).into()).collect(),
         }
     }
@@ -245,17 +293,64 @@ pub fn validate(config: &Config) -> Result<(), String> {
             config.home_columns
         ));
     }
-    if !PLACEMENTS.contains(&config.widgets.spotify.placement.as_str()) {
+    if config.widgets.len() > MAX_WIDGETS {
         return Err(format!(
-            "Unknown Spotify placement: {}.",
-            config.widgets.spotify.placement
+            "At most {MAX_WIDGETS} widgets are supported, got {}.",
+            config.widgets.len()
         ));
     }
-    if !["always", "playing", "available"].contains(&config.widgets.spotify.visibility.as_str()) {
-        return Err("Unknown widget visibility.".into());
-    }
-    if config.widgets.spotify.position.as_ref().is_some_and(|position| position.x > 1000 || position.y > 1000) {
-        return Err("Widget position must be between 0 and 1000.".into());
+    for (id, widget) in &config.widgets {
+        validate_widget_id(id)?;
+        validate_widget_type(&widget.kind)?;
+        if !PLACEMENTS.contains(&widget.placement.as_str()) {
+            return Err(format!(
+                "Unknown widget placement for {id}: {}.",
+                widget.placement
+            ));
+        }
+        if !WIDGET_VISIBILITIES.contains(&widget.visibility.as_str()) {
+            return Err(format!("Unknown widget visibility for {id}."));
+        }
+        if !WIDGET_SIZES.contains(&widget.size.as_str()) {
+            return Err(format!("Unknown widget size for {id}: {}.", widget.size));
+        }
+        if widget.variant.is_empty()
+            || widget.variant.len() > 32
+            || !widget
+                .variant
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        {
+            return Err(format!("Invalid widget variant for {id}."));
+        }
+        if widget.presence.is_empty() {
+            return Err(format!("Widget {id} needs at least one presence context."));
+        }
+        let mut presence = Vec::with_capacity(widget.presence.len());
+        for value in &widget.presence {
+            if !WIDGET_PRESENCES.contains(&value.as_str()) {
+                return Err(format!("Unknown widget presence for {id}: {value}."));
+            }
+            if presence.contains(&value.as_str()) {
+                return Err(format!("Duplicate widget presence for {id}: {value}."));
+            }
+            presence.push(value.as_str());
+        }
+        if widget
+            .position
+            .as_ref()
+            .is_some_and(|position| position.x > 1000 || position.y > 1000)
+        {
+            return Err("Widget position must be between 0 and 1000.".into());
+        }
+        if widget.order > 1000 {
+            return Err(format!("Widget order for {id} must be between 0 and 1000."));
+        }
+        if widget.settings.len() > MAX_WIDGET_SETTINGS {
+            return Err(format!(
+                "Widget {id} has too many settings; at most {MAX_WIDGET_SETTINGS} are supported."
+            ));
+        }
     }
     validate_home(&config.home)?;
     validate_order(&config.order)
@@ -309,6 +404,38 @@ fn validate_home_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_widget_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("Widget id cannot be empty.".into());
+    }
+    if id.len() > 64 {
+        return Err("Widget id must be at most 64 characters.".into());
+    }
+    if !id
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return Err(format!("Invalid widget id: {id}."));
+    }
+    Ok(())
+}
+
+fn validate_widget_type(kind: &str) -> Result<(), String> {
+    if kind.is_empty() {
+        return Err("Widget type cannot be empty.".into());
+    }
+    if kind.len() > 64 {
+        return Err("Widget type must be at most 64 characters.".into());
+    }
+    if !kind
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b'.')
+    {
+        return Err(format!("Invalid widget type: {kind}."));
+    }
+    Ok(())
+}
+
 fn validate_order(order: &[String]) -> Result<(), String> {
     let mut seen: Vec<&str> = Vec::with_capacity(order.len());
     for app in order {
@@ -331,19 +458,32 @@ fn validate_order(order: &[String]) -> Result<(), String> {
 
 pub fn migrate_app_order(order: &mut Vec<String>) {
     let leagues = ["NBA", "NFL", "MLB", "NHL"];
-    let mut previous: Vec<String> = APP_IDS.iter().filter(|id| !leagues.contains(id) && **id != CUSTOM_APP).map(|id| (*id).into()).collect();
+    let mut previous: Vec<String> = APP_IDS
+        .iter()
+        .filter(|id| !leagues.contains(id) && **id != CUSTOM_APP)
+        .map(|id| (*id).into())
+        .collect();
     previous.extend(leagues.iter().map(|id| (*id).to_string()));
     previous.push(CUSTOM_APP.into());
     if *order == previous {
         *order = APP_IDS.iter().map(|id| (*id).into()).collect();
         return;
     }
-    let old: Vec<&str> = APP_IDS.iter().copied().filter(|id| !leagues.contains(id)).collect();
+    let old: Vec<&str> = APP_IDS
+        .iter()
+        .copied()
+        .filter(|id| !leagues.contains(id))
+        .collect();
     if order.iter().map(String::as_str).eq(old.iter().copied()) {
         *order = APP_IDS.iter().map(|id| (*id).into()).collect();
         return;
     }
-    if order.len() == old.len() && old.iter().all(|id| order.iter().filter(|app| app.as_str() == *id).count() == 1) && order.last().map(String::as_str) == Some(CUSTOM_APP) {
+    if order.len() == old.len()
+        && old
+            .iter()
+            .all(|id| order.iter().filter(|app| app.as_str() == *id).count() == 1)
+        && order.last().map(String::as_str) == Some(CUSTOM_APP)
+    {
         let index = order.len() - 1;
         order.splice(index..index, leagues.into_iter().map(String::from));
     }
@@ -441,6 +581,25 @@ mod tests {
         items.insert(to, item);
     }
 
+    fn spotify(config: &mut Config) -> &mut Widget {
+        config.widgets.get_mut("spotify").unwrap()
+    }
+
+    fn widget(enabled: bool, placement: &str) -> Widget {
+        Widget {
+            kind: "spotify".into(),
+            enabled,
+            placement: placement.into(),
+            visibility: "available".into(),
+            position: None,
+            size: "medium".into(),
+            variant: "glass".into(),
+            presence: vec!["home".into(), "idle".into()],
+            order: 0,
+            settings: BTreeMap::new(),
+        }
+    }
+
     fn legacy_document(config: &Config, revision: u64) -> Value {
         let mut config = serde_json::to_value(config).unwrap();
         let config = config.as_object_mut().unwrap();
@@ -483,7 +642,10 @@ mod tests {
     fn default_leagues_follow_steam_and_previous_defaults_migrate() {
         let expected = Config::default().order;
         let steam = expected.iter().position(|id| id == "Steam").unwrap();
-        assert_eq!(&expected[steam + 1..steam + 5], &["NBA", "NFL", "MLB", "NHL"]);
+        assert_eq!(
+            &expected[steam + 1..steam + 5],
+            &["NBA", "NFL", "MLB", "NHL"]
+        );
         let mut previous = expected.clone();
         previous.retain(|id| !["NBA", "NFL", "MLB", "NHL"].contains(&id.as_str()));
         migrate_app_order(&mut previous);
@@ -559,22 +721,22 @@ mod tests {
         assert!(json.contains(
             "\"home\":[{\"id\":\"hero\",\"component\":\"hero\",\"visible\":true,\"span\":2}"
         ));
-        assert!(!json.contains("\"type\""));
+        assert!(json.contains("\"type\":\"spotify\""));
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), document);
     }
 
     #[test]
     fn widget_positions_and_visibility_round_trip_and_validate() {
         let mut config = Config::default();
-        config.widgets.spotify.visibility = "playing".into();
-        config.widgets.spotify.position = Some(WidgetPosition { x: 125, y: 1000 });
+        spotify(&mut config).visibility = "playing".into();
+        spotify(&mut config).position = Some(WidgetPosition { x: 125, y: 1000 });
         assert!(validate(&config).is_ok());
         let raw = serde_json::to_string(&config).unwrap();
         assert_eq!(serde_json::from_str::<Config>(&raw).unwrap(), config);
-        config.widgets.spotify.position.as_mut().unwrap().x = 1001;
+        spotify(&mut config).position.as_mut().unwrap().x = 1001;
         assert!(validate(&config).is_err());
-        config.widgets.spotify.position = None;
-        config.widgets.spotify.visibility = "sometimes".into();
+        spotify(&mut config).position = None;
+        spotify(&mut config).visibility = "sometimes".into();
         assert!(validate(&config).is_err());
     }
 
@@ -582,7 +744,74 @@ mod tests {
     fn old_widget_settings_keep_the_available_visibility_default() {
         let mut raw = serde_json::to_value(Config::default()).unwrap();
         raw["widgets"]["spotify"] = serde_json::json!({ "enabled": true, "placement": "bar" });
-        assert_eq!(serde_json::from_value::<Config>(raw).unwrap(), Config::default());
+        assert_eq!(
+            serde_json::from_value::<Config>(raw).unwrap(),
+            Config::default()
+        );
+    }
+
+    #[test]
+    fn multiple_widget_instances_round_trip_and_validate() {
+        let mut config = Config::default();
+        config.widgets.insert(
+            "clock".into(),
+            Widget {
+                kind: "clock".into(),
+                enabled: true,
+                placement: "top-right".into(),
+                visibility: "always".into(),
+                position: None,
+                size: "small".into(),
+                variant: "minimal".into(),
+                presence: vec!["home".into(), "music".into(), "idle".into()],
+                order: 1,
+                settings: BTreeMap::from([("hour12".into(), Value::Bool(true))]),
+            },
+        );
+        assert_eq!(validate(&config), Ok(()));
+        let raw = serde_json::to_string(&config).unwrap();
+        assert!(raw.contains("\"clock\":{\"type\":\"clock\""));
+        assert_eq!(serde_json::from_str::<Config>(&raw).unwrap(), config);
+    }
+
+    #[test]
+    fn invalid_widget_fields_are_rejected() {
+        let mut config = Config::default();
+        spotify(&mut config).size = "huge".into();
+        assert_eq!(
+            validate(&config),
+            Err("Unknown widget size for spotify: huge.".into())
+        );
+
+        let mut config = Config::default();
+        spotify(&mut config).presence = vec!["sometimes".into()];
+        assert_eq!(
+            validate(&config),
+            Err("Unknown widget presence for spotify: sometimes.".into())
+        );
+
+        let mut config = Config::default();
+        spotify(&mut config).variant = "not a variant".into();
+        assert_eq!(
+            validate(&config),
+            Err("Invalid widget variant for spotify.".into())
+        );
+
+        let mut config = Config::default();
+        config
+            .widgets
+            .insert("clock.primary".into(), widget(true, "top-right"));
+        assert_eq!(
+            validate(&config),
+            Err("Invalid widget id: clock.primary.".into())
+        );
+    }
+
+    #[test]
+    fn widgets_can_be_removed_entirely() {
+        let mut config = Config::default();
+        config.widgets.clear();
+        assert_eq!(validate(&config), Ok(()));
     }
 
     #[test]
@@ -597,7 +826,7 @@ mod tests {
         config.theme = "sapphire".into();
         config.density = "compact".into();
         config.app_tile_shape = "square".into();
-        config.widgets.spotify.placement = "bottom-left".into();
+        spotify(&mut config).placement = "bottom-left".into();
         assert_eq!(config.order.last().map(String::as_str), Some(CUSTOM_APP));
         assert_eq!(validate(&config), Ok(()));
     }
@@ -762,10 +991,10 @@ mod tests {
         );
 
         let mut config = Config::default();
-        config.widgets.spotify.placement = "center".into();
+        spotify(&mut config).placement = "center".into();
         assert_eq!(
             validate(&config),
-            Err("Unknown Spotify placement: center.".into())
+            Err("Unknown widget placement for spotify: center.".into())
         );
     }
 
@@ -787,12 +1016,9 @@ mod tests {
         config.theme = "ember".into();
         config.density = "compact".into();
         config.app_tile_shape = "square".into();
-        config.widgets.spotify = Widget {
-            enabled: false,
-            placement: "bottom-right".into(),
-            visibility: "available".into(),
-            position: None,
-        };
+        config
+            .widgets
+            .insert("spotify".into(), widget(false, "bottom-right"));
 
         let raw = legacy_document(&config, 12).to_string();
         assert_eq!(
@@ -817,12 +1043,9 @@ mod tests {
         config.theme = "ember".into();
         config.density = "compact".into();
         config.app_tile_shape = "square".into();
-        config.widgets.spotify = Widget {
-            enabled: false,
-            placement: "bottom-right".into(),
-            visibility: "available".into(),
-            position: None,
-        };
+        config
+            .widgets
+            .insert("spotify".into(), widget(false, "bottom-right"));
 
         let mut expected = config.clone();
         expected.home_columns = 1;

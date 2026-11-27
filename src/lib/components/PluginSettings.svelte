@@ -42,6 +42,7 @@
   }
 
   function sourceLabel(source: string) {
+    if (source === 'builtin') return 'Built-in';
     return source === 'mcp' ? 'Added by AI' : 'Imported';
   }
 
@@ -310,7 +311,7 @@
     <h3>Installed plugins</h3>
     {#if native && list.length}<span class="settings-badge is-muted">{enabledCount} of {list.length} on</span>{/if}
   </div>
-  <p class="panel-description">Plugins add appearance and Home layout and can declare their own settings. Plugins that run code stay disabled until you review their exact permissions and network origins. Luma's own theme, Home layout, and widgets stay in Appearance & Home. Imported plugins start disabled; preview a declarative plugin and press Keep, or review access for one that runs code.</p>
+  <p class="panel-description">Add optional features and layouts to Luma. Imported plugins stay off until you turn them on.</p>
   {#if !native}
     <p class="panel-description">Available in the desktop application.</p>
   {:else}
@@ -326,7 +327,7 @@
     {#if loading && !plugins}
       <p class="panel-description" role="status">Checking installed plugins…</p>
     {:else if !list.length}
-      <p class="panel-description">No plugins yet. Import a .luma-extension.zip, or ask an AI to stage one through Luma MCP. Declarative plugins never run scripts or HTML; plugins that run code start disabled until you review their access.</p>
+      <p class="panel-description">No plugins installed. Import a .luma-extension.zip file to get started.</p>
     {:else}
       <div class="plugin-list">
         {#each list as record (record.id)}
@@ -345,15 +346,13 @@
               <span class="plugin-origin">{sourceLabel(record.source)}</span>
             </header>
             {#if record.description}<p class="plugin-description">{record.description}</p>{/if}
-            <p class="plugin-status">{pluginControlSummary(record)}</p>
-            {#if record.executable && (record.runtimeStatus || record.enabled)}
+            {#if record.controls.length}<p class="plugin-status">{pluginControlSummary(record)}</p>{/if}
+            {#if record.executable && (record.runtimeStatus?.state === 'failed' || (record.runtimeStatus?.restarts ?? 0) > 0)}
               <p class="plugin-runtime" role="status">
                 {#if record.runtimeStatus}
                   <span class={['settings-badge', pluginRuntimeTone(record.runtimeStatus.state)]}>{pluginRuntimeStateLabel(record.runtimeStatus.state)}</span>
                 {/if}
-                {#if record.enabled}
-                  <span>{pluginTriggerSummary(pluginDefaultTrigger(record))}</span>
-                {:else if record.runtimeStatus?.state === 'failed'}
+                {#if record.runtimeStatus?.state === 'failed' && !record.enabled}
                   <span>Stopped after repeated failures</span>
                 {/if}
                 {#if record.runtimeStatus && record.runtimeStatus.restarts > 0}
@@ -364,7 +363,7 @@
                 <p class="plugin-warning" role="status">{record.runtimeStatus.reason}</p>
               {/if}
               {#if !record.enabled && record.runtimeStatus?.state === 'failed' && record.canEnable}
-                <p class="plugin-warning" role="status">Review and enable it again to retry. Its runtime access was revoked when it was disabled.</p>
+                <p class="plugin-warning" role="status">Turn it back on to try again.</p>
               {/if}
             {/if}
             {#if record.executionReason}<p class="plugin-warning" role="status">{record.executionReason}</p>{/if}
@@ -378,17 +377,17 @@
                   {#if record.surfaceOpenable}
                     <button class="panel-secondary is-primary" data-plugin-open={record.id} disabled={!!busy} onclick={() => openSurface(record)}>{busy === record.id ? 'Opening…' : 'Open'}</button>
                   {/if}
-                  <button class="panel-secondary" disabled={!!busy} onclick={() => disablePlugin(record)}>{busy === record.id ? 'Working…' : 'Disable and revoke'}</button>
+                  <button class="panel-secondary" disabled={!!busy} onclick={() => disablePlugin(record)}>{busy === record.id ? 'Working…' : 'Turn off'}</button>
                 {:else}
                   {#if record.detachedFields.length}
-                    <button class="panel-secondary is-primary" disabled={!!busy} onclick={() => previewPlugin(record)}>{busy === record.id ? 'Opening…' : 'Preview and restore controls'}</button>
+                    <button class="panel-secondary is-primary" disabled={!!busy} onclick={() => previewPlugin(record)}>{busy === record.id ? 'Opening…' : 'Restore controls'}</button>
                   {/if}
-                  <button class="panel-secondary" disabled={!!busy} onclick={() => disablePlugin(record)}>{busy === record.id ? 'Working…' : 'Disable'}</button>
+                  <button class="panel-secondary" disabled={!!busy} onclick={() => disablePlugin(record)}>{busy === record.id ? 'Working…' : 'Turn off'}</button>
                 {/if}
               {:else if record.executable}
-                <button class="panel-secondary is-primary" data-plugin-review={record.id} disabled={!!busy || !record.canEnable || consentRecord?.id === record.id} onclick={() => reviewRuntime(record)}>{busy === record.id ? 'Enabling…' : 'Review and enable'}</button>
+                <button class="panel-secondary is-primary" data-plugin-review={record.id} disabled={!!busy || !record.canEnable || consentRecord?.id === record.id} onclick={() => reviewRuntime(record)}>{busy === record.id ? 'Turning on…' : 'Turn on'}</button>
               {:else}
-                <button class="panel-secondary is-primary" disabled={!!busy || !record.canEnable} onclick={() => previewPlugin(record)}>{busy === record.id ? 'Opening…' : 'Preview and enable'}</button>
+                <button class="panel-secondary is-primary" disabled={!!busy || !record.canEnable} onclick={() => previewPlugin(record)}>{busy === record.id ? 'Opening…' : 'Preview & turn on'}</button>
               {/if}
               <button class="panel-secondary" disabled={!!busy} onclick={() => exportPlugin(record)}>Export</button>
               <button class="text-link is-danger" data-plugin-remove={record.id} disabled={!!busy} onclick={() => askRemove(record)}>Remove</button>
@@ -490,8 +489,8 @@
               </div>
             {/if}
             <details class="plugin-details">
-              <summary>Package details</summary>
-              <p>{record.id} · API {record.apiVersion} · {bytesLabel(record.sizeBytes)} · {record.assets.length + record.sourceFiles.length} declared files</p>
+              <summary>Details</summary>
+              <p>{record.id} · API {record.apiVersion} · {bytesLabel(record.sizeBytes)} · {record.assets.length + record.sourceFiles.length} files{#if record.executable && record.enabled} · {pluginTriggerSummary(pluginDefaultTrigger(record))}{/if}</p>
               {#if record.executable}
                 <p>Runtime: {pluginRuntimeLabel(record)} · Entry: {record.entry ?? 'Not declared'}</p>
                 <p>Declared permissions: {record.permissions.length ? record.permissions.join(', ') : 'None'}</p>
@@ -557,7 +556,12 @@
   .plugin-setting label { display: grid; gap: 3px; color: var(--text); font-size: clamp(13px, .9vw, 16px); }
   .plugin-setting label span { color: var(--muted); font-size: clamp(12px, .8vw, 14px); line-height: 1.45; }
   .plugin-setting input[type="text"], .plugin-setting input[type="number"], .plugin-setting select { min-height: 42px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; }
-  .plugin-setting input[type="checkbox"] { justify-self: start; width: 24px; height: 24px; accent-color: var(--accent); }
+  .plugin-setting input[type="checkbox"] { appearance: none; -webkit-appearance: none; justify-self: end; flex: none; width: 56px; height: 30px; margin: 0; border: 1px solid #ffffff2b; border-radius: 99px; background: #333947; position: relative; cursor: pointer; transition: background .18s, border-color .18s; }
+  .plugin-setting input[type="checkbox"]::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #f7f8fc; box-shadow: 0 2px 6px #0006; transition: transform .18s; }
+  .plugin-setting input[type="checkbox"]:checked { background: var(--accent); border-color: transparent; }
+  .plugin-setting input[type="checkbox"]:checked::after { transform: translateX(26px); }
+  .plugin-setting input[type="checkbox"]:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .plugin-setting input[type="checkbox"]:disabled { cursor: default; opacity: .45; }
   .plugin-setting .plugin-warning { grid-column: 1 / -1; }
   .plugin-details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: clamp(12px, .8vw, 14px); }
   .plugin-details summary { cursor: pointer; color: var(--text-dim); font-weight: 600; }

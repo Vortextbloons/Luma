@@ -117,12 +117,14 @@ impl Store {
             }
         }
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-        Self::from_connection_with_root(
+        let store = Self::from_connection_with_root(
             Connection::open(directory.join("customization.sqlite3"))
                 .map_err(|error| error.to_string())?,
             Some(plugins),
         )
-        .map_err(|error| error.message)
+        .map_err(|error| error.message)?;
+        let _ = plugin::seed_bundled(&store);
+        Ok(store)
     }
 
     #[cfg(test)]
@@ -1436,12 +1438,12 @@ mod tests {
         config.home.reverse();
         config.home[0].visible = false;
         config.home[1].span = 1;
-        config.widgets.spotify = document::Widget {
-            enabled: false,
-            placement: "bottom-left".into(),
-            visibility: "available".into(),
-            position: None,
-        };
+        if let Some(widget) = config.widgets.get_mut("spotify") {
+            widget.enabled = false;
+            widget.placement = "bottom-left".into();
+            widget.visibility = "available".into();
+            widget.position = None;
+        }
         config.order.swap(0, 1);
         let customized = store
             .commit(Commit {
@@ -1708,7 +1710,7 @@ mod tests {
             first = store.initialize(Config::default()).unwrap();
             let mut config = first.config.clone();
             config.home.reverse();
-            config.widgets.spotify.placement = "bottom-left".into();
+            config.widgets.get_mut("spotify").unwrap().placement = "bottom-left".into();
             store
                 .commit(Commit {
                     expected_revision: 1,
@@ -1720,7 +1722,10 @@ mod tests {
             let store = Store::from_connection(Connection::open(&path).unwrap()).unwrap();
             let saved = store.read().unwrap().unwrap();
             assert_eq!(saved.revision, 2);
-            assert_eq!(saved.config.widgets.spotify.placement, "bottom-left");
+            assert_eq!(
+                saved.config.widgets.get("spotify").unwrap().placement,
+                "bottom-left"
+            );
             assert_eq!(store.restore(2).unwrap().config, first.config);
         }
         std::fs::remove_file(path).unwrap();

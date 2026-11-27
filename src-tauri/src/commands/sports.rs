@@ -1,7 +1,130 @@
-use std::sync::OnceLock;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 use tauri::{
-    webview::NewWindowResponse, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
+    webview::NewWindowResponse, AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SportsActive {
+    pub watching: bool,
+    pub title: Option<String>,
+    pub league: Option<String>,
+}
+
+#[derive(Default)]
+pub struct SportsActiveState(Mutex<SportsActive>);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SportsBadgeSide {
+    pub team: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pct: Option<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SportsBadge {
+    #[serde(default)]
+    pub plugin_id: String,
+    pub league: String,
+    pub teams: Vec<String>,
+    pub label: String,
+    #[serde(default)]
+    pub sides: Vec<SportsBadgeSide>,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default = "default_true")]
+    pub show_on_cards: bool,
+    #[serde(default = "default_true")]
+    pub show_in_player: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Default)]
+pub struct SportsBadgesState {
+    badges: Mutex<BTreeMap<String, Vec<SportsBadge>>>,
+    logs: Mutex<Vec<String>>,
+}
+
+pub(crate) fn push_log(app: &AppHandle, message: String) {
+    if let Ok(mut guard) = app.state::<SportsBadgesState>().logs.lock() {
+        if guard.len() >= 30 {
+            guard.remove(0);
+        }
+        guard.push(message);
+    }
+}
+
+#[tauri::command]
+pub fn plugin_sports_logs(state: State<'_, SportsBadgesState>) -> Vec<String> {
+    state.logs.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+pub(crate) fn active_snapshot(app: &AppHandle) -> SportsActive {
+    app.state::<SportsActiveState>()
+        .0
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+fn all_badges(app: &AppHandle) -> Vec<SportsBadge> {
+    app.state::<SportsBadgesState>()
+        .badges
+        .lock()
+        .map(|guard| guard.values().flatten().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn notify_badges(app: &AppHandle) {
+    let badges = all_badges(app);
+    let _ = app.emit_to("main", "luma:sports-badges", &badges);
+    if let Some(window) = app.get_webview_window("sports") {
+        let player_badges: Vec<_> = badges.into_iter().filter(|b| b.show_in_player).collect();
+        if let Ok(json) = serde_json::to_string(&player_badges) {
+            let _ = window.eval(format!("window.__lumaSportsBadges?.({json});"));
+        }
+    }
+}
+
+pub(crate) fn set_plugin_badges(app: &AppHandle, plugin_id: &str, badges: Vec<SportsBadge>) {
+    if let Ok(mut guard) = app.state::<SportsBadgesState>().badges.lock() {
+        if badges.is_empty() {
+            guard.remove(plugin_id);
+        } else {
+            guard.insert(plugin_id.to_string(), badges);
+        }
+    }
+    notify_badges(app);
+}
+
+pub(crate) fn clear_plugin_badges(app: &AppHandle, plugin_id: &str) {
+    let removed = app
+        .state::<SportsBadgesState>()
+        .badges
+        .lock()
+        .map(|mut guard| guard.remove(plugin_id).is_some())
+        .unwrap_or(false);
+    if removed {
+        notify_badges(app);
+    }
+}
+
+#[tauri::command]
+pub fn plugin_sports_badges(state: State<'_, SportsBadgesState>) -> Vec<SportsBadge> {
+    state
+        .badges
+        .lock()
+        .map(|guard| guard.values().flatten().cloned().collect())
+        .unwrap_or_default()
+}
 
 pub(crate) fn shortcut_league(command: &str) -> Option<&'static str> {
     match command {
@@ -144,7 +267,20 @@ pub async fn sports_open(
     let position = main.outer_position().map_err(|error| error.to_string())?;
     let scale = main.scale_factor().map_err(|error| error.to_string())?;
     let navigation = app.clone();
-    let script = format!("window.__lumaSportsSource = {source_index}; window.__lumaSportsTitle = {}; window.__lumaSportsScore = {};\n{}", serde_json::to_string(&title).map_err(|error| error.to_string())?, serde_json::to_string(&score).map_err(|error| error.to_string())?, include_str!("../../resources/sports.js"));
+    let active_league = ["NBA", "NFL", "MLB", "NHL", "NCAAB", "WNBA"]
+        .into_iter()
+        .find(|league| title.to_ascii_uppercase().contains(league))
+        .map(str::to_string);
+    if let Ok(mut guard) = app.state::<SportsActiveState>().0.lock() {
+        *guard = SportsActive {
+            watching: true,
+            title: Some(title.clone()),
+            league: active_league,
+        };
+    }
+    let player_badges: Vec<_> = all_badges(&app).into_iter().filter(|b| b.show_in_player).collect();
+    let badges_json = serde_json::to_string(&player_badges).unwrap_or_else(|_| "[]".into());
+    let script = format!("window.__lumaSportsSource = {source_index}; window.__lumaSportsTitle = {}; window.__lumaSportsScore = {}; window.__lumaSportsInitialBadges = {badges_json};\n{}", serde_json::to_string(&title).map_err(|error| error.to_string())?, serde_json::to_string(&score).map_err(|error| error.to_string())?, include_str!("../../resources/sports.js"));
     let script = format!("window.__lumaSportsUrls = {};\n{script}", serde_json::to_string(&sources).map_err(|error| error.to_string())?);
     let window = WebviewWindowBuilder::new(&app, "sports", WebviewUrl::External(url))
         .title("Luma Sports")
@@ -185,6 +321,9 @@ pub async fn sports_open(
 }
 
 pub fn close(app: &AppHandle) {
+    if let Ok(mut guard) = app.state::<SportsActiveState>().0.lock() {
+        *guard = SportsActive::default();
+    }
     crate::background::unload(app, "sports");
     crate::background::show(app);
     let _ = app.emit_to("main", "sports-closed", ());
@@ -273,10 +412,13 @@ async fn data_request(path: &str) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub async fn sports_scoreboard(league: String) -> Result<serde_json::Value, String> {
+    let today = chrono::Local::now();
+    let end = today + chrono::Duration::days(7);
     data_request(&format!(
-        "{}/scoreboard?dates={}",
+        "{}/scoreboard?dates={}-{}",
         league_path(&league)?,
-        chrono::Local::now().format("%Y%m%d")
+        today.format("%Y%m%d"),
+        end.format("%Y%m%d"),
     ))
     .await
 }

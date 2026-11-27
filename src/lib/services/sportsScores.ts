@@ -1,3 +1,5 @@
+import type { SportsBadge } from '../types';
+
 export interface GameTeam {
   name: string;
   abbreviation: string;
@@ -69,4 +71,19 @@ export function scoreSummary(game: GameScore | undefined, hideScores: boolean): 
   if (!game) return '';
   if (hideScores || game.state === 'pre') return game.state === 'pre' ? game.status : 'Scores hidden';
   return `${game.teams.map(team => `${team.abbreviation || team.name} ${team.score}`).join('  ·  ')}  —  ${game.status}`;
+}
+
+function teamMatches(a: string, b: string) {
+  const left = normalize(a);
+  const right = normalize(b);
+  return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
+}
+
+export function matchSportsBadge(event: { league: string; teams: { name: string }[] }, badges: SportsBadge[]): SportsBadge | undefined {
+  if (event.teams.length !== 2) return;
+  const league = event.league.toLowerCase();
+  return badges.find(badge => badge.showOnCards
+    && badge.league.toLowerCase() === league
+    && badge.teams.length >= 2
+    && event.teams.every(team => badge.teams.some(candidate => teamMatches(team.name, candidate))));
 }

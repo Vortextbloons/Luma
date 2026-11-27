@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, AppId, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, SteamShortcutInfo, StremioStatus, YouTubeFeedItem } from '../types';
+import type { ActivitySnapshot, AppId, ExecutableAppId, NavigationCommand, OpenOutcome, SportsBadge, SteamGame, SteamShortcutInfo, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
@@ -36,4 +36,6 @@ export const stremioOpen = (id: string) => invoke<void>('stremio_open', { id });
 export const stremioOpenDetail = (kind: string, id: string) => invoke<void>('stremio_open', { kind, id });
 export const onActivity = (callback: (snapshot: ActivitySnapshot) => void) => listen<ActivitySnapshot>('activity-updated', event => callback(event.payload));
 export const onNavigation = (callback: (command: NavigationCommand) => void) => listen<NavigationCommand>('remote-navigation', event => callback(event.payload));
+export const pluginSportsBadges = () => invoke<SportsBadge[]>('plugin_sports_badges');
+export const onSportsBadges = (callback: (badges: SportsBadge[]) => void) => listen<SportsBadge[]>('luma:sports-badges', event => callback(event.payload));
 export const onOpenMusic = (callback: () => void) => listen('open-music', callback);

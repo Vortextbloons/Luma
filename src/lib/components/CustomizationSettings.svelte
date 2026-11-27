@@ -85,8 +85,9 @@ Rules:
     const config = entry.effective ?? entry.config;
     const theme = themeById(config.theme);
     const rows = config.home.filter(row => row.visible).length;
+    const widgets = Object.values(config.widgets).filter(widget => widget.enabled).length;
     const plugins = entry.plugins?.plugins.filter(plugin => plugin.enabled).length ?? 0;
-    return `${theme.name} · ${config.homeColumns === 2 ? 'two columns' : 'one column'} · ${rows} ${rows === 1 ? 'row' : 'rows'} · ${config.widgets.spotify.enabled ? 'Spotify widget on' : 'Spotify widget off'}${plugins ? ` · ${plugins} ${plugins === 1 ? 'plugin' : 'plugins'} on` : ''}`;
+    return `${theme.name} · ${config.homeColumns === 2 ? 'two columns' : 'one column'} · ${rows} ${rows === 1 ? 'row' : 'rows'} · ${widgets ? `${widgets} ${widgets === 1 ? 'widget' : 'widgets'} on` : 'no widgets'}${plugins ? ` · ${plugins} ${plugins === 1 ? 'plugin' : 'plugins'} on` : ''}`;
   }
 
   function focusActiveSectionTab() {

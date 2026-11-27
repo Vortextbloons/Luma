@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ScreensaverSettings from './ScreensaverSettings.svelte';
+  import type { SaverSettings } from '../services/screensaver';
   import { untrack } from 'svelte';
   import { homeShortcut } from '../services/navigation';
   import { previewSounds, setSoundSettings } from '../services/sound';
@@ -30,11 +32,12 @@
   import type { SteamState } from '../state/steam.svelte';
   import type { ExecutableAppId, MediaItem, Settings } from '../types';
 
-  let { settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, steam, oncontrollercapture, startCategory = 'Display', popular = [], featured = [], plugins = null, pluginsLoading = false, pluginsError = '', onpluginsreload = async () => {} }: {
+  let { saver, onsaverpreview, settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, steam, oncontrollercapture, startCategory = 'Display', popular = [], featured = [], plugins = null, pluginsLoading = false, pluginsError = '', onpluginsreload = async () => {} }: {
     homeDraft?: HomeDraft | null;
     revision?: number;
     onlayoutpreview?: (draft: HomeDraft) => Promise<void>;
     onlayoutrestore?: () => Promise<void>;
+    saver: SaverSettings; onsaverpreview: () => void;
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
     activity: ActivityState;
@@ -67,6 +70,11 @@
 
   export function consumeBack() {
     return pluginPanel?.consumeBack() ?? false;
+  }
+  export function cycleCategory(direction: -1 | 1) {
+    const index = settingsCategories.findIndex(item => item.name === category);
+    if (index < 0) return;
+    selectCategory(settingsCategories[(index + direction + settingsCategories.length) % settingsCategories.length].name);
   }
   const activeSection = $derived(activeCategory.sections.find(item => item.id === section) ?? activeCategory.sections[0]);
   const theme = $derived(themeById(settings.theme));
@@ -201,7 +209,7 @@
     <div class="settings-brand">
       <img class="settings-brand-logo" src={logo} alt="Luma TV" />
       <h1 id="settings-title">Settings</h1>
-      <p>Appearance, display, apps, remotes, history, system, plugins, and customization. Most changes save automatically; Home layout previews before saving.</p>
+      <p>Customize Luma, manage apps and devices, and tune playback.</p>
     </div>
     <div class="settings-header-actions">
       <span class="settings-theme-chip"><i style:--chip-bg={theme.tokens['--bg']} style:--chip-accent={theme.tokens['--accent']}></i>{theme.name}</span>
@@ -240,7 +248,7 @@
           <PluginOwnershipNotice {plugins} fields={['density', 'appTileShape', 'textSize', 'reducedMotion', 'homeColumns', 'home']} onmanage={() => selectCategory('Plugins')} />
           <section class="settings-group">
             <h3>Layout size</h3>
-            <p class="panel-description">Choose how much room cards get and how large text appears on this screen. These changes save automatically.</p>
+            <p class="panel-description">Adjust card spacing, text size, and motion. Changes save automatically.</p>
             <SettingsChoices {settings} section="layout" />
             <div class="settings-actions"><button class="panel-secondary" onclick={resetLayout}>Reset size and motion</button></div>
             {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
@@ -255,7 +263,7 @@
               {featured}
               activityItems={activity.items}
               apps={settings.order}
-              widget={settings.widgets.spotify}
+              widgets={settings.widgets}
               onmove={(id, direction) => homeDraft && (homeDraft.home = moveHomeRow(homeDraft.home, id, direction))}
               onmoveto={(id, index) => homeDraft && (homeDraft.home = moveHomeRowTo(homeDraft.home, id, index))}
               ontoggle={id => homeDraft && (homeDraft.home = toggleHomeRow(homeDraft.home, id))}
@@ -267,6 +275,8 @@
               onrestore={native ? restoreHome : undefined}
             />
           {/if}
+        {:else if activeSection.id === 'screensaver'}
+          <ScreensaverSettings config={saver} onpreview={onsaverpreview} />
         {:else if activeSection.id === 'widgets'}
           <PluginOwnershipNotice {plugins} fields={['widgets']} onmanage={() => selectCategory('Plugins')} />
           <WidgetSettings {settings} />

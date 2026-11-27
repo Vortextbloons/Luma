@@ -9,7 +9,7 @@ use serde::Serialize;
 
 const LIMIT: i64 = 10;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub revision: u64,

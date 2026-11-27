@@ -237,6 +237,24 @@
       };
       document.addEventListener('pointermove', reveal, { passive: true });
       selectSource();
+
+      const badgePill = document.createElement('div');
+      badgePill.setAttribute('data-luma-video', '');
+      badgePill.style.cssText = 'position:fixed;top:24px;right:24px;z-index:2147483646;display:none;align-items:center;gap:10px;padding:8px 14px;border-radius:99px;background:rgba(12,14,22,0.82);border:1px solid rgba(255,255,255,0.16);backdrop-filter:blur(12px);color:#f3f5f8;font:600 13px/1.2 system-ui,sans-serif;pointer-events:none;box-shadow:0 10px 28px rgba(0,0,0,0.45)';
+      document.documentElement.append(badgePill);
+      const normTeam = v => String(v || '').toLowerCase().replace(/\blos angeles\b/g, 'la').replace(/\bsaint\b/g, 'st').replace(/[^a-z0-9]/g, '');
+      const renderBadges = list => {
+        const titleKey = normTeam(window.__lumaSportsTitle || '');
+        const match = Array.isArray(list) ? list.find(b => Array.isArray(b.teams) && b.teams.length >= 2 && b.teams.every(t => { const k = normTeam(t); return k && titleKey.includes(k); })) : null;
+        if (!match || !Array.isArray(match.sides) || !match.sides.length) {
+          badgePill.style.display = 'none';
+          return;
+        }
+        badgePill.textContent = `${match.label}: ${match.sides.map(s => `${s.team} ${s.value}`).join(' · ')}`;
+        badgePill.style.display = 'inline-flex';
+      };
+      window.__lumaSportsBadges = renderBadges;
+      if (Array.isArray(window.__lumaSportsInitialBadges)) renderBadges(window.__lumaSportsInitialBadges);
     }
     const seen = new WeakSet();
     const initialized = new WeakSet();
