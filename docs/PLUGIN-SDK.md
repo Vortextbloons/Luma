@@ -17,6 +17,10 @@ The runtime package is plain ES module JavaScript with TypeScript declarations. 
 | `togglePlayback()` | `playback.toggle` | `playback.control` |
 | `nextTrack()` | `playback.next` | `playback.control` |
 | `previousTrack()` | `playback.previous` | `playback.control` |
+| `readActiveSports()` | `sports.active.read` | `sports.read` |
+| `readSportsScores(league)` | `sports.scores.read` | `sports.read` |
+| `publishSportsBadges(args)` | `sports.badges.publish` | `sports.read` |
+| `publishWidgets(args)` | `widgets.publish` | none |
 | `ready()` | `surface.ready` | none |
 | `close()` | `surface.close` | none |
 | `pendingCommand()` | `commands.pending` | none, API v3 only |
@@ -149,6 +153,7 @@ try {
 
 - Required fields, supported API versions, runtime kinds, and unknown-field rejection.
 - Setting defaults, option limits, and bound contribution values.
+- Appearance packs: supported palette tokens, color syntax, and bounded design tokens.
 - Executable permissions, network origins, and v1/v2/v3 cross-field rules.
 - API v3 `minHostVersion`, Home cards, command declarations, and paired-phone command panels.
 

@@ -1,0 +1,46 @@
+{
+  "id": "com.luma.apple-tv-look",
+  "name": "Apple TV Look",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "A cinematic, frosted Apple TV-inspired look with sidebar navigation.",
+  "author": "Luma",
+  "contributes": {
+    "appearance": {
+      "id": "apple-tv-look",
+      "name": "Apple TV Look",
+      "tokens": {
+        "--bg": "#000000",
+        "--bg-soft": "#0a0a0a",
+        "--ambient": "#1c1c1e",
+        "--surface": "#1c1c1ee8",
+        "--surface-2": "#141416e8",
+        "--surface-3": "#2c2c2ee8",
+        "--line": "#ffffff14",
+        "--line-strong": "#ffffff26",
+        "--text": "#f5f5f7",
+        "--text-dim": "#d2d2d7",
+        "--muted": "#8e8e93",
+        "--dim": "#6e6e73",
+        "--accent": "#f5f5f7",
+        "--accent-strong": "#ffffff",
+        "--accent-ink": "#000000",
+        "--accent-soft": "#ffffff1a",
+        "--good": "#30d158",
+        "--warn": "#ffd60a",
+        "--danger": "#ff453a",
+        "--rating": "#ffd60a"
+      },
+      "design": {
+        "font": "apple",
+        "nav": "sidebar",
+        "surface": "frosted",
+        "radius": "generous",
+        "background": "plain",
+        "heroTitle": "spaced",
+        "tiles": "neutral"
+      }
+    }
+  },
+  "runtime": { "kind": "declarative" }
+}

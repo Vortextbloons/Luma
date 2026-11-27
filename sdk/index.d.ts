@@ -23,7 +23,9 @@ export type BridgeOperation =
   | "playback.next"
   | "playback.previous"
   | "sports.active.read"
+  | "sports.scores.read"
   | "sports.badges.publish"
+  | "widgets.publish"
   | "surface.ready"
   | "surface.close"
   | "commands.pending"
@@ -35,6 +37,7 @@ export const OPERATION_PERMISSIONS: Readonly<Record<BridgeOperation, Permission 
 
 export type HostBridgeErrorCode =
   | "invalid"
+  | "invalid_args"
   | "denied"
   | "busy"
   | "stale"
@@ -43,6 +46,7 @@ export type HostBridgeErrorCode =
   | "timeout"
   | "too_large"
   | "malformed"
+  | "sports_error"
   | "unavailable";
 
 export type BridgeErrorCode = HostBridgeErrorCode | "unknown";
@@ -130,6 +134,7 @@ export interface LumaBridge {
   nextTrack(): Promise<PlaybackCommandResult>;
   previousTrack(): Promise<PlaybackCommandResult>;
   readActiveSports(): Promise<{ watching: boolean; league: string | null; title: string | null; home: string | null; away: string | null }>;
+  readSportsScores(league: string): Promise<JsonValue>;
   publishSportsBadges(args: {
     badges: Array<{
       eventId?: string;
@@ -140,6 +145,22 @@ export interface LumaBridge {
       awayProb: number;
       label?: string;
       marketUrl?: string;
+    }>;
+  }): Promise<{ published: number }>;
+  publishWidgets(args: {
+    widgets: Array<{
+      id: string;
+      available?: boolean;
+      title: string;
+      subtitle?: string;
+      primary?: string;
+      badge?: string;
+      tone?: "live" | "accent" | "muted";
+      progress?: number;
+      progressLabel?: string;
+      rows?: Array<{ label: string; value: string; sub?: string }>;
+      meta?: string[];
+      updatedAt?: number;
     }>;
   }): Promise<{ published: number }>;
   ready(): Promise<SurfaceReadyResult>;

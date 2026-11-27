@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AppId, Settings } from '../types';
+import type { AppId, Settings, WidgetPlacement, WidgetPresence, WidgetSize } from '../types';
 import { defaultHomeRows, legacyHomeRows, sanitizeHomeRows } from '../services/home';
-import { defaultWidgets, sanitizeWidgets } from '../services/widgetModel';
-import { resolveThemeId, themeById, applyTheme, appearanceFor } from '../services/theme';
+import { defaultWidgets, sanitizeWidgets, setPluginWidgets } from '../services/widgetModel';
+import { resolveThemeId, themeById, applyTheme, applyAppearance, appearanceFor } from '../services/theme';
 import { setSoundSettings } from '../services/sound';
 import { defaultControllerBinds, sanitizeControllerBinds } from '../services/controller';
 import { native, setControllerHome, setFastAppSwitch, setKeepLauncherReady } from '../services/tauri';
@@ -33,6 +33,7 @@ function defaultSettings(): Settings {
     soundLevel: 'standard',
     textSize: 'standard',
     reducedMotion: false,
+    appearance: null,
     smoothAppHover: true,
     controllerEnabled: true,
     controllerBinds: defaultControllerBinds(),
@@ -104,6 +105,25 @@ class SettingsStore {
       document: document => this.applyDocument(document),
       preview: candidate => this.applyPreview(candidate),
       plugins: state => {
+        setPluginWidgets((state?.widgets ?? []).map(w => ({
+          type: w.type,
+          name: w.name,
+          description: w.description,
+          glyph: w.glyph,
+          placements: w.placements as WidgetPlacement[],
+          sizes: w.sizes as WidgetSize[],
+          variants: w.variants,
+          contexts: w.contexts as WidgetPresence[],
+          conditions: [{ value: 'always', label: 'Always' }, { value: 'available', label: 'When active' }],
+          defaultPlacement: w.defaultPlacement as WidgetPlacement,
+          defaultSize: w.defaultSize as WidgetSize,
+          defaultVariant: w.defaultVariant,
+          defaultPresence: w.defaultPresence as WidgetPresence[],
+          defaultVisibility: 'available',
+          defaultSettings: w.defaultSettings ?? {},
+          settings: w.settings ?? [],
+          maxInstances: w.maxInstances ?? 1,
+        })));
         this.plugins = state;
         this.pluginsLoading = false;
         this.pluginsError = '';
@@ -140,6 +160,7 @@ class SettingsStore {
       $effect(() => {
         const layout = this.layout;
         applyTheme(themeById(layout.theme).tokens);
+        applyAppearance(layout.appearance);
         document.documentElement.dataset.theme = layout.theme;
         document.documentElement.dataset.density = layout.density;
         document.documentElement.dataset.appTileShape = layout.appTileShape;
@@ -162,7 +183,7 @@ class SettingsStore {
       });
       $effect(() => {
         if (!native) return;
-        invoke('update_appearance', { appearance: appearanceFor(themeById(this.value.theme)) }).catch(() => {});
+        invoke('update_appearance', { appearance: appearanceFor(themeById(this.value.theme), this.value.appearance) }).catch(() => {});
       });
     });
     if (native) await this.sync.start();

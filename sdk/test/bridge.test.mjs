@@ -100,6 +100,7 @@ test("plain JavaScript can import the runtime package", () => {
     "network.get",
     "playback.read",
     "playback.control",
+    "sports.read",
   ]);
   assert.equal(OPERATION_PERMISSIONS["net.get"], "network.get");
   assert.equal(OPERATION_PERMISSIONS["surface.close"], null);
@@ -218,6 +219,7 @@ test("unknown host failures keep the message and use the unknown code", () => {
 test("every bridge error code is exposed to package authors", () => {
   assert.deepEqual(BRIDGE_ERROR_CODES, [
     "invalid",
+    "invalid_args",
     "denied",
     "busy",
     "stale",
@@ -226,6 +228,7 @@ test("every bridge error code is exposed to package authors", () => {
     "timeout",
     "too_large",
     "malformed",
+    "sports_error",
     "unavailable",
   ]);
 });

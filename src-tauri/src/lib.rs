@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod activity;
 mod background;
 mod commands;
@@ -90,6 +92,7 @@ pub fn run() {
         .manage(controller::ControllerHome::default())
         .manage(sports::SportsActiveState::default())
         .manage(sports::SportsBadgesState::default())
+        .manage(extension_spike::PluginWidgetsState::default())
         .manage(youtube::Bridge::default())
         .manage(stremio::Stremio::default())
         .manage(spotify::player::Player::default())
@@ -199,6 +202,7 @@ pub fn run() {
             customization::customization_plugin_export,
             customization::customization_plugin_preview,
             customization::customization_plugin_disable,
+            customization::customization_plugin_toggle,
             customization::customization_plugin_remove,
             customization::customization_plugin_settings_save,
             customization::mcp::customization_mcp_status,
@@ -270,6 +274,7 @@ pub fn run() {
             sports::sports_listing,
             sports::sports_streameast_listing,
             sports::plugin_sports_badges,
+            extension_spike::plugin_widgets_data,
             extension_spike::plugin_logs,
             sports::sports_open,
             sports::sports_scoreboard,

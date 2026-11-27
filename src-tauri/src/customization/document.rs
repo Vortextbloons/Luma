@@ -62,6 +62,35 @@ const WIDGET_PRESENCES: [&str; 3] = ["home", "music", "idle"];
 const WIDGET_VISIBILITIES: [&str; 3] = ["always", "available", "playing"];
 const MAX_WIDGETS: usize = 32;
 const MAX_WIDGET_SETTINGS: usize = 32;
+pub const APPEARANCE_TOKENS: [&str; 20] = [
+    "--bg",
+    "--bg-soft",
+    "--ambient",
+    "--surface",
+    "--surface-2",
+    "--surface-3",
+    "--line",
+    "--line-strong",
+    "--text",
+    "--text-dim",
+    "--muted",
+    "--dim",
+    "--accent",
+    "--accent-strong",
+    "--accent-ink",
+    "--accent-soft",
+    "--good",
+    "--warn",
+    "--danger",
+    "--rating",
+];
+pub const APPEARANCE_FONTS: [&str; 3] = ["system", "apple", "rounded"];
+pub const APPEARANCE_NAVS: [&str; 2] = ["top", "sidebar"];
+pub const APPEARANCE_SURFACES: [&str; 2] = ["solid", "frosted"];
+pub const APPEARANCE_RADII: [&str; 2] = ["standard", "generous"];
+pub const APPEARANCE_BACKGROUNDS: [&str; 2] = ["ambient", "plain"];
+pub const APPEARANCE_HERO_TITLES: [&str; 2] = ["normal", "spaced"];
+pub const APPEARANCE_TILES: [&str; 2] = ["tinted", "neutral"];
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -85,10 +114,43 @@ pub struct Config {
     pub interface_sounds: String,
     #[serde(default = "default_sound_level")]
     pub sound_level: String,
+    #[serde(default)]
+    pub appearance: Option<Appearance>,
     pub home_columns: u8,
     pub home: Vec<HomeRow>,
     pub widgets: Widgets,
     pub order: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppearanceDesign {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hero_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tiles: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Appearance {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub tokens: BTreeMap<String, String>,
+    #[serde(default)]
+    pub design: AppearanceDesign,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -235,6 +297,7 @@ impl Default for Config {
             reduced_motion: false,
             interface_sounds: default_interface_sounds(),
             sound_level: default_sound_level(),
+            appearance: None,
             home_columns: default_home_columns(),
             home: COMPONENTS
                 .iter()
@@ -289,6 +352,9 @@ pub fn validate(config: &Config) -> Result<(), String> {
     }
     if !SOUND_LEVELS.contains(&config.sound_level.as_str()) {
         return Err(format!("Unknown sound level: {}.", config.sound_level));
+    }
+    if let Some(appearance) = &config.appearance {
+        validate_appearance(appearance)?;
     }
     if !matches!(config.home_columns, 1 | 2) {
         return Err(format!(
@@ -357,6 +423,67 @@ pub fn validate(config: &Config) -> Result<(), String> {
     }
     validate_home(&config.home)?;
     validate_order(&config.order)
+}
+
+pub fn validate_appearance(appearance: &Appearance) -> Result<(), String> {
+    if appearance.id.is_empty()
+        || appearance.id.len() > 32
+        || !appearance
+            .id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(format!("Invalid appearance id: {}.", appearance.id));
+    }
+    if appearance.name.trim().is_empty()
+        || appearance.name.chars().count() > 48
+        || appearance.name.chars().any(char::is_control)
+    {
+        return Err(format!("Invalid appearance name: {}.", appearance.name));
+    }
+    for (name, value) in &appearance.tokens {
+        if !APPEARANCE_TOKENS.contains(&name.as_str()) {
+            return Err(format!("Unsupported appearance token: {name}."));
+        }
+        if !valid_appearance_color(value) {
+            return Err(format!("{name} must be a #rrggbb or #rrggbbaa color."));
+        }
+    }
+    validate_appearance_option("font", &appearance.design.font, &APPEARANCE_FONTS)?;
+    validate_appearance_option("nav", &appearance.design.nav, &APPEARANCE_NAVS)?;
+    validate_appearance_option("surface", &appearance.design.surface, &APPEARANCE_SURFACES)?;
+    validate_appearance_option("radius", &appearance.design.radius, &APPEARANCE_RADII)?;
+    validate_appearance_option(
+        "background",
+        &appearance.design.background,
+        &APPEARANCE_BACKGROUNDS,
+    )?;
+    validate_appearance_option(
+        "heroTitle",
+        &appearance.design.hero_title,
+        &APPEARANCE_HERO_TITLES,
+    )?;
+    validate_appearance_option("tiles", &appearance.design.tiles, &APPEARANCE_TILES)?;
+    Ok(())
+}
+
+fn validate_appearance_option(
+    field: &str,
+    value: &Option<String>,
+    supported: &[&str],
+) -> Result<(), String> {
+    if let Some(value) = value {
+        if !supported.contains(&value.as_str()) {
+            return Err(format!("Unknown appearance {field}: {value}."));
+        }
+    }
+    Ok(())
+}
+
+fn valid_appearance_color(value: &str) -> bool {
+    matches!(value.len(), 7 | 9)
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn validate_home(home: &[HomeRow]) -> Result<(), String> {
@@ -509,6 +636,7 @@ pub fn migrate_legacy(raw: &str) -> Result<Document, String> {
         reduced_motion: false,
         interface_sounds: default_interface_sounds(),
         sound_level: default_sound_level(),
+        appearance: None,
         home_columns: default_home_columns(),
         home: legacy
             .config
@@ -550,6 +678,7 @@ pub fn migrate_v2(raw: &str) -> Result<Document, String> {
         reduced_motion: false,
         interface_sounds: default_interface_sounds(),
         sound_level: default_sound_level(),
+        appearance: None,
         home_columns: default_home_columns(),
         home: v2
             .config
@@ -612,6 +741,7 @@ mod tests {
             "reducedMotion",
             "interfaceSounds",
             "soundLevel",
+            "appearance",
         ] {
             config.remove(field);
         }
@@ -632,6 +762,7 @@ mod tests {
             "reducedMotion",
             "interfaceSounds",
             "soundLevel",
+            "appearance",
         ] {
             config.remove(field);
         }
@@ -1130,6 +1261,45 @@ mod tests {
         let mut document = legacy_document(&Config::default(), 3);
         document["config"]["home"][0]["span"] = json!(1);
         assert!(migrate_legacy(&document.to_string()).is_err());
+    }
+
+    #[test]
+    fn appearance_palettes_and_design_tokens_are_validated() {
+        let mut config = Config::default();
+        let mut tokens = BTreeMap::new();
+        tokens.insert("--bg".into(), "#000000".into());
+        tokens.insert("--accent-soft".into(), "#ffffff1a".into());
+        config.appearance = Some(Appearance {
+            id: "apple-tv-look".into(),
+            name: "Apple TV Look".into(),
+            tokens,
+            design: AppearanceDesign {
+                font: Some("apple".into()),
+                nav: Some("sidebar".into()),
+                surface: Some("frosted".into()),
+                radius: Some("generous".into()),
+                background: Some("plain".into()),
+                hero_title: Some("spaced".into()),
+                tiles: Some("neutral".into()),
+            },
+        });
+        assert!(validate(&config).is_ok());
+
+        config
+            .appearance
+            .as_mut()
+            .unwrap()
+            .tokens
+            .insert("--evil".into(), "#000000".into());
+        assert!(validate(&config).is_err());
+
+        config.appearance.as_mut().unwrap().tokens.remove("--evil");
+        config.appearance.as_mut().unwrap().tokens.insert("--bg".into(), "black".into());
+        assert!(validate(&config).is_err());
+
+        config.appearance.as_mut().unwrap().tokens.insert("--bg".into(), "#000000".into());
+        config.appearance.as_mut().unwrap().design.nav = Some("bottom".into());
+        assert!(validate(&config).is_err());
     }
 
     #[test]

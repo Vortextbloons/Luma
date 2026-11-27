@@ -3,13 +3,13 @@ import { listen } from '@tauri-apps/api/event';
 import type { Settings } from '../types';
 import type { PluginsState } from './plugins';
 
-export type CustomizationConfig = Pick<Settings, 'theme' | 'density' | 'appTileShape' | 'textSize' | 'reducedMotion' | 'interfaceSounds' | 'soundLevel' | 'home' | 'homeColumns' | 'widgets' | 'order'>;
+export type CustomizationConfig = Pick<Settings, 'theme' | 'density' | 'appTileShape' | 'textSize' | 'reducedMotion' | 'appearance' | 'interfaceSounds' | 'soundLevel' | 'home' | 'homeColumns' | 'widgets' | 'order'>;
 export interface CustomizationDocument { version: number; revision: number; config: CustomizationConfig }
 export interface CustomizationPreview { id: string; baseRevision: number; config: CustomizationConfig; plugin?: { id: string; name: string; action: string }; detached?: string[] }
 export interface HomeDraft { home: Settings['home']; homeColumns: 1 | 2; baseRevision: number }
 
 export function customizationConfig(settings: Settings): CustomizationConfig {
-  return JSON.parse(JSON.stringify({ theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, textSize: settings.textSize, reducedMotion: settings.reducedMotion, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, homeColumns: settings.homeColumns, widgets: settings.widgets, order: settings.order }));
+  return JSON.parse(JSON.stringify({ theme: settings.theme, density: settings.density, appTileShape: settings.appTileShape, textSize: settings.textSize, reducedMotion: settings.reducedMotion, appearance: settings.appearance, interfaceSounds: settings.interfaceSounds, soundLevel: settings.soundLevel, home: settings.home, homeColumns: settings.homeColumns, widgets: settings.widgets, order: settings.order }));
 }
 
 function errorMessage(error: unknown): string {

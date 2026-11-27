@@ -20,6 +20,7 @@ export interface PluginSetting {
   qualifiedKey: string;
   label: string;
   description: string;
+  tab?: string | null;
   kind: 'boolean' | 'enum' | 'number' | 'string';
   value: PluginSettingValue;
   default: PluginSettingValue;
@@ -40,6 +41,7 @@ export interface PluginRecord {
   description: string;
   author: string;
   enabled: boolean;
+  builtin: boolean;
   runtime: string;
   executable: boolean;
   executionReason: string | null;
@@ -61,6 +63,7 @@ export interface PluginRecord {
   contentHash: string;
   sourceFiles: string[];
   assets: string[];
+  iconUrl?: string | null;
   runtimeStatus?: PluginRuntimeStatus;
   grantedPermissions?: string[];
   grantedNetwork?: string[];
@@ -79,10 +82,68 @@ export interface PluginHomeCardFailure {
   message: string;
 }
 
+export interface PluginWidgetRow {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: string;
+}
+
+export interface PluginWidgetAction {
+  label: string;
+  command?: string;
+  url?: string;
+}
+
+export interface PluginWidgetData {
+  pluginId: string;
+  id: string;
+  type: string;
+  available: boolean;
+  title: string;
+  subtitle?: string;
+  primary?: string;
+  badge?: string;
+  tone?: string;
+  progress?: number;
+  progressLabel?: string;
+  meta?: string[];
+  rows?: PluginWidgetRow[];
+  action?: PluginWidgetAction;
+  updatedAt: number;
+}
+
+export interface PluginWidgetMeta {
+  type: string;
+  pluginId: string;
+  widgetId: string;
+  name: string;
+  description: string;
+  glyph: string;
+  placements: string[];
+  sizes: string[];
+  variants: string[];
+  contexts: string[];
+  defaultPlacement: string;
+  defaultSize: string;
+  defaultVariant: string;
+  defaultPresence: string[];
+  defaultSettings: Record<string, unknown>;
+  settings: {
+    key: string;
+    label: string;
+    description?: string;
+    type: 'boolean' | 'choice';
+    options?: { value: string; label: string }[];
+  }[];
+  maxInstances?: number;
+}
+
 export interface PluginsState {
   plugins: PluginRecord[];
   effective: CustomizationConfig;
   homeCards: PluginHomeCard[];
+  widgets?: PluginWidgetMeta[];
 }
 
 export const pluginFieldLabels: Record<string, string> = {
@@ -91,6 +152,7 @@ export const pluginFieldLabels: Record<string, string> = {
   appTileShape: 'app tile shape',
   textSize: 'text size',
   reducedMotion: 'reduced motion',
+  appearance: 'appearance',
   homeColumns: 'Home columns',
   home: 'Home layout',
   widgets: 'widgets',

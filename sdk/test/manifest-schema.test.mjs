@@ -19,6 +19,7 @@ const manifests = [
   join(root, "examples/plugins/com.example.weather-svelte/luma-extension.json"),
   join(root, "starters/typescript/luma-extension.json"),
   join(root, "starters/svelte/luma-extension.json"),
+  join(root, "examples/plugins/com.luma.apple-tv-look/luma-extension.json"),
 ];
 
 function read(path) {

@@ -15,6 +15,10 @@ Typed client for Luma's `extension_bridge` protocol. The package ships as plain 
 | `togglePlayback()` | `playback.control` |
 | `nextTrack()` | `playback.control` |
 | `previousTrack()` | `playback.control` |
+| `readActiveSports()` | `sports.read` |
+| `readSportsScores(league)` | `sports.read` |
+| `publishSportsBadges({ badges })` | `sports.read` |
+| `publishWidgets({ widgets })` | none |
 | `ready()` | none |
 | `close()` | none |
 | `pendingCommand()` | none, API v3 only |

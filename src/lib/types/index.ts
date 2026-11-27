@@ -24,6 +24,28 @@ export type ThemeId =
 export type SoundPreset = 'real' | 'google' | 'roku' | 'off';
 export type SoundLevel = 'soft' | 'standard' | 'loud';
 export type TextSize = 'standard' | 'large' | 'larger';
+export type AppearanceFont = 'system' | 'apple' | 'rounded';
+export type AppearanceNav = 'top' | 'sidebar';
+export type AppearanceSurface = 'solid' | 'frosted';
+export type AppearanceRadius = 'standard' | 'generous';
+export type AppearanceBackground = 'ambient' | 'plain';
+export type AppearanceHeroTitle = 'normal' | 'spaced';
+export type AppearanceTiles = 'tinted' | 'neutral';
+export interface AppearanceDesign {
+  font?: AppearanceFont;
+  nav?: AppearanceNav;
+  surface?: AppearanceSurface;
+  radius?: AppearanceRadius;
+  background?: AppearanceBackground;
+  heroTitle?: AppearanceHeroTitle;
+  tiles?: AppearanceTiles;
+}
+export interface AppearanceProfile {
+  id: string;
+  name: string;
+  tokens: Record<string, string>;
+  design: AppearanceDesign;
+}
 export type HomeRowId = 'hero' | 'continue' | 'apps' | 'popular' | 'featured' | 'recent' | 'recentApps';
 export type WidgetPlacement = 'bar' | 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'rail-left' | 'rail-right';
 export type WidgetVisibility = 'always' | 'playing' | 'available';
@@ -55,6 +77,7 @@ export interface Settings {
   soundLevel: SoundLevel;
   textSize: TextSize;
   reducedMotion: boolean;
+  appearance: AppearanceProfile | null;
   smoothAppHover: boolean;
   controllerEnabled: boolean;
   controllerBinds: ControllerBinds;

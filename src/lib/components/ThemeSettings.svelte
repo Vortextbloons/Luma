@@ -12,6 +12,9 @@
 <section class="settings-group">
   <h3>Theme</h3>
   <p class="panel-description">Choose a look for Luma.</p>
+  {#if settings.appearance}
+    <p class="panel-description" role="status">{settings.appearance.name} is controlling Luma's appearance. Turn it off in Add-ons → Plugins to use themes again.</p>
+  {/if}
   <div class="theme-grid" role="group" aria-label="Theme">
     {#each themes as theme (theme.id)}
       <button

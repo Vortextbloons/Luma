@@ -240,18 +240,71 @@
 
       const badgePill = document.createElement('div');
       badgePill.setAttribute('data-luma-video', '');
-      badgePill.style.cssText = 'position:fixed;top:24px;right:24px;z-index:2147483646;display:none;align-items:center;gap:10px;padding:8px 14px;border-radius:99px;background:rgba(12,14,22,0.82);border:1px solid rgba(255,255,255,0.16);backdrop-filter:blur(12px);color:#f3f5f8;font:600 13px/1.2 system-ui,sans-serif;pointer-events:none;box-shadow:0 10px 28px rgba(0,0,0,0.45)';
+      badgePill.style.cssText = 'position:fixed;top:24px;right:24px;z-index:2147483646;display:none;flex-direction:column;gap:8px;min-width:240px;max-width:340px;padding:12px 14px;border-radius:14px;background:rgba(12,14,22,0.84);border:1px solid rgba(255,255,255,0.16);backdrop-filter:blur(14px);color:#f3f5f8;font:600 13px/1.25 system-ui,sans-serif;pointer-events:none;box-shadow:0 12px 32px rgba(0,0,0,0.5)';
+
+      const pillHead = document.createElement('div');
+      pillHead.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#a5b4fc';
+      const pillLabelWrap = document.createElement('span');
+      pillLabelWrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px';
+      const pillDot = document.createElement('span');
+      pillDot.style.cssText = 'width:7px;height:7px;border-radius:99px;background:#34d399;box-shadow:0 0 8px #34d399';
+      const pillLabel = document.createElement('span');
+      pillLabelWrap.append(pillDot, pillLabel);
+      const pillShift = document.createElement('span');
+      pillShift.style.cssText = 'font-variant-numeric:tabular-nums;color:#94a3b8';
+      pillHead.append(pillLabelWrap, pillShift);
+
+      const pillTeams = document.createElement('div');
+      pillTeams.style.cssText = 'display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:13px;font-variant-numeric:tabular-nums';
+      const pillLeft = document.createElement('span');
+      pillLeft.style.cssText = 'font-weight:700;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      const pillRight = document.createElement('span');
+      pillRight.style.cssText = 'font-weight:700;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right';
+      pillTeams.append(pillLeft, pillRight);
+
+      const pillBar = document.createElement('div');
+      pillBar.style.cssText = 'height:6px;border-radius:99px;background:rgba(148,163,184,0.28);overflow:hidden;display:flex';
+      const pillFill = document.createElement('div');
+      pillFill.style.cssText = 'height:100%;background:linear-gradient(90deg,#34d399,#38bdf8);transition:width .35s ease';
+      pillBar.append(pillFill);
+
+      badgePill.append(pillHead, pillTeams, pillBar);
       document.documentElement.append(badgePill);
+
+      let lastPct = null;
+      let lastKey = '';
       const normTeam = v => String(v || '').toLowerCase().replace(/\blos angeles\b/g, 'la').replace(/\bsaint\b/g, 'st').replace(/[^a-z0-9]/g, '');
       const renderBadges = list => {
         const titleKey = normTeam(window.__lumaSportsTitle || '');
         const match = Array.isArray(list) ? list.find(b => Array.isArray(b.teams) && b.teams.length >= 2 && b.teams.every(t => { const k = normTeam(t); return k && titleKey.includes(k); })) : null;
-        if (!match || !Array.isArray(match.sides) || !match.sides.length) {
+        if (!match || !Array.isArray(match.sides) || match.sides.length < 2) {
           badgePill.style.display = 'none';
           return;
         }
-        badgePill.textContent = `${match.label}: ${match.sides.map(s => `${s.team} ${s.value}`).join(' · ')}`;
-        badgePill.style.display = 'inline-flex';
+        const first = match.sides[0];
+        const second = match.sides[1];
+        const key = `${match.league}:${first.team}:${second.team}`;
+        const pct = typeof first.pct === 'number' ? Math.max(1, Math.min(99, first.pct)) : null;
+        if (key !== lastKey) {
+          lastKey = key;
+          lastPct = pct;
+          pillShift.textContent = match.league || '';
+        } else if (pct !== null && lastPct !== null && pct !== lastPct) {
+          const delta = pct - lastPct;
+          lastPct = pct;
+          pillShift.textContent = `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)}%`;
+          pillShift.style.color = delta > 0 ? '#34d399' : '#f87171';
+        }
+        pillLabel.textContent = `${match.label || 'Odds'}`;
+        pillLeft.textContent = `${first.team} ${first.value}`;
+        pillRight.textContent = `${second.value} ${second.team}`;
+        if (pct !== null) {
+          pillBar.style.display = 'flex';
+          pillFill.style.width = `${pct}%`;
+        } else {
+          pillBar.style.display = 'none';
+        }
+        badgePill.style.display = 'flex';
       };
       window.__lumaSportsBadges = renderBadges;
       if (Array.isArray(window.__lumaSportsInitialBadges)) renderBadges(window.__lumaSportsInitialBadges);

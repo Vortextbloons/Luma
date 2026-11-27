@@ -25,6 +25,7 @@
   import NowPlaying from './lib/components/spotify/NowPlaying.svelte';
   import SportsHome from './lib/components/SportsHome.svelte';
   import { spotify } from './lib/state/spotify.svelte';
+  import { pluginWidgets } from './lib/state/pluginWidgets.svelte';
   import DetailsDialog from './lib/components/DetailsDialog.svelte';
   import StremioLibrary from './lib/components/StremioLibrary.svelte';
   import StremioIntegration from './lib/components/StremioIntegration.svelte';
@@ -354,17 +355,19 @@
           previous = document.activeElement as HTMLElement;
           exitRequested = true;
         }));
-        const [stopActivity, stopSports, stopStremio, stopYouTube] = await Promise.all([
+        const [stopActivity, stopSports, stopStremio, stopYouTube, stopPluginWidgets] = await Promise.all([
           activity.start(),
           sports.start(),
           stremioState.start(),
           youtube.start(),
+          pluginWidgets.start(),
           invoke<Record<ExecutableAppId, string>>('app_paths').then(paths => { if (!disposed) settings.paths = paths; }).catch(error => { if (!disposed) message = String(error); }),
         ]);
         track(stopActivity);
         track(stopSports);
         track(stopStremio);
         track(stopYouTube);
+        track(stopPluginWidgets);
         if (disposed) return;
         if (stremioState.error) message = stremioState.error;
         await getCurrentWindow().setFullscreen(settings.fullscreen);
@@ -801,7 +804,7 @@
 {#if saverOpen}<Screensaver config={saver} playback={spotify.playback} movies={popular} reducedMotion={settings.reducedMotion} />{/if}
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
-<main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
+<main class="app-shell" class:is-home={showHome} class:is-settings={!!panel} {@attach horizontalWheel}>
   {#if panel}<SettingsPanel bind:saver onsaverpreview={() => { saverOpen = true; }} bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} onupdatenotes={showUpdate} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
   {:else}
   <TopNav bind:this={topNav} {native} controllerEnabled={settings.controllerEnabled} binds={settings.controllerBinds}

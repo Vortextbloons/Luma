@@ -216,6 +216,7 @@
               "appTileShape": false,
               "textSize": false,
               "reducedMotion": false,
+              "appearance": false,
               "homeColumns": false,
               "home": false,
               "widgets": false,
@@ -579,6 +580,9 @@
         "order": {
           "$ref": "#/$defs/homeOrder"
         },
+        "appearance": {
+          "$ref": "#/$defs/appearance"
+        },
         "cards": {
           "type": "array",
           "maxItems": 8,
@@ -716,6 +720,72 @@
         }
       }
     },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "\\S"
+        },
+        "tokens": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 20,
+          "propertyNames": {
+            "enum": [
+              "--bg", "--bg-soft", "--ambient", "--surface", "--surface-2", "--surface-3",
+              "--line", "--line-strong", "--text", "--text-dim", "--muted", "--dim",
+              "--accent", "--accent-strong", "--accent-ink", "--accent-soft",
+              "--good", "--warn", "--danger", "--rating"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/appearanceColor"
+          }
+        },
+        "design": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "font": {
+              "enum": ["system", "apple", "rounded"]
+            },
+            "nav": {
+              "enum": ["top", "sidebar"]
+            },
+            "surface": {
+              "enum": ["solid", "frosted"]
+            },
+            "radius": {
+              "enum": ["standard", "generous"]
+            },
+            "background": {
+              "enum": ["ambient", "plain"]
+            },
+            "heroTitle": {
+              "enum": ["normal", "spaced"]
+            },
+            "tiles": {
+              "enum": ["tinted", "neutral"]
+            }
+          }
+        }
+      }
+    },
+    "appearanceColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+    },
     "widgets": {
       "type": "object",
       "additionalProperties": false,
@@ -726,7 +796,7 @@
         "spotifyPlacement": {
           "oneOf": [
             {
-              "enum": ["bar", "top-left", "top-right", "bottom-right", "bottom-left"]
+              "enum": ["bar", "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right", "rail-left", "rail-right"]
             },
             {
               "$ref": "#/$defs/settingBinding"

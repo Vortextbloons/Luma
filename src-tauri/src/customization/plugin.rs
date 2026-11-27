@@ -80,12 +80,13 @@ const PLACEMENTS: [&str; 9] = [
     "rail-left",
     "rail-right",
 ];
-pub const FIELDS: [&str; 9] = [
+pub const FIELDS: [&str; 10] = [
     "theme",
     "density",
     "appTileShape",
     "textSize",
     "reducedMotion",
+    "appearance",
     "homeColumns",
     "home",
     "widgets",
@@ -105,6 +106,8 @@ pub struct Manifest {
     pub description: String,
     #[serde(default)]
     pub author: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     #[serde(default)]
     pub settings: Vec<SettingDefinition>,
     #[serde(default)]
@@ -302,6 +305,8 @@ pub struct Contributions {
     #[serde(default)]
     pub reduced_motion: Option<Bound<bool>>,
     #[serde(default)]
+    pub appearance: Option<document::Appearance>,
+    #[serde(default)]
     pub home_columns: Option<Bound<u8>>,
     #[serde(default)]
     pub home: Option<HomeContribution>,
@@ -324,9 +329,12 @@ impl Contributions {
             || self.app_tile_shape.is_some()
             || self.text_size.is_some()
             || self.reduced_motion.is_some()
+            || self.appearance.is_some()
             || self.home_columns.is_some()
             || self.home.is_some()
-            || self.widgets.is_some()
+            || self.widgets.as_ref().is_some_and(|widgets| {
+                widgets.spotify_enabled.is_some() || widgets.spotify_placement.is_some()
+            })
             || self.order.is_some()
     }
 
@@ -350,6 +358,9 @@ impl Contributions {
         }
         if self.reduced_motion.is_some() {
             fields.insert("reducedMotion");
+        }
+        if self.appearance.is_some() {
+            fields.insert("appearance");
         }
         if self.home_columns.is_some() {
             fields.insert("homeColumns");
@@ -412,6 +423,58 @@ pub struct WidgetContribution {
     pub spotify_enabled: Option<Bound<bool>>,
     #[serde(default)]
     pub spotify_placement: Option<Bound<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<PluginWidgetDefinition>,
+}
+
+fn default_widget_glyph() -> String {
+    "◈".to_string()
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginWidgetSettingField {
+    pub key: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub options: Vec<SettingOption>,
+    #[serde(default)]
+    pub default: Option<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginWidgetDefinition {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default = "default_widget_glyph")]
+    pub glyph: String,
+    #[serde(default)]
+    pub placements: Vec<String>,
+    #[serde(default)]
+    pub sizes: Vec<String>,
+    #[serde(default)]
+    pub variants: Vec<String>,
+    #[serde(default)]
+    pub contexts: Vec<String>,
+    #[serde(default)]
+    pub default_placement: Option<String>,
+    #[serde(default)]
+    pub default_size: Option<String>,
+    #[serde(default)]
+    pub default_variant: Option<String>,
+    #[serde(default)]
+    pub default_presence: Vec<String>,
+    #[serde(default)]
+    pub max_instances: Option<u8>,
+    #[serde(default)]
+    pub settings: Vec<PluginWidgetSettingField>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -470,6 +533,8 @@ pub struct SettingDefinition {
     pub label: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
     #[serde(rename = "type")]
     pub kind: SettingKind,
     pub default: Value,
@@ -514,6 +579,8 @@ pub struct PluginSetting {
     pub qualified_key: String,
     pub label: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
     pub kind: SettingKind,
     pub value: Value,
     pub default: Value,
@@ -536,6 +603,7 @@ pub struct PluginRecord {
     pub description: String,
     pub author: String,
     pub enabled: bool,
+    pub builtin: bool,
     pub runtime: String,
     pub executable: bool,
     pub execution_reason: Option<String>,
@@ -562,6 +630,31 @@ pub struct PluginRecord {
     pub content_hash: String,
     pub source_files: Vec<String>,
     pub assets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWidgetMeta {
+    #[serde(rename = "type")]
+    pub widget_type: String,
+    pub plugin_id: String,
+    pub widget_id: String,
+    pub name: String,
+    pub description: String,
+    pub glyph: String,
+    pub placements: Vec<String>,
+    pub sizes: Vec<String>,
+    pub variants: Vec<String>,
+    pub contexts: Vec<String>,
+    pub default_placement: String,
+    pub default_size: String,
+    pub default_variant: String,
+    pub default_presence: Vec<String>,
+    pub default_settings: BTreeMap<String, Value>,
+    pub settings: Vec<PluginWidgetSettingField>,
+    pub max_instances: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -579,6 +672,8 @@ pub struct PluginsState {
     pub plugins: Vec<PluginRecord>,
     pub effective: Config,
     pub home_cards: Vec<HomeCard>,
+    #[serde(default)]
+    pub widgets: Vec<PluginWidgetMeta>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -664,10 +759,9 @@ impl StoredPlugin {
             RuntimeKind::Declarative => None,
             RuntimeKind::IsolatedUi | RuntimeKind::Background => {
                 if self.manifest.api_version == HOME_API_VERSION {
-                    let background_sports = self.manifest.runtime.kind == RuntimeKind::Background
-                        && self.manifest.contributes.sports_enrich
+                    let allowed_background = self.manifest.runtime.kind == RuntimeKind::Background
                         && !self.manifest.contributes.has_cards();
-                    if self.manifest.runtime.kind != RuntimeKind::IsolatedUi && !background_sports {
+                    if self.manifest.runtime.kind != RuntimeKind::IsolatedUi && !allowed_background {
                         return Some(
                             "API version 3 Home cards require the isolated-ui runtime. Background runtimes are not supported with commands yet."
                                 .to_string(),
@@ -715,6 +809,7 @@ impl StoredPlugin {
                     qualified_key: format!("{}.{}", self.manifest.id, definition.key),
                     label: definition.label.clone(),
                     description: definition.description.clone(),
+                    tab: definition.tab.clone(),
                     kind: definition.kind,
                     value,
                     default: definition.default.clone(),
@@ -769,6 +864,7 @@ pub(crate) struct RuntimePackage {
     pub permissions: BTreeSet<Permission>,
     pub network: Vec<String>,
     pub settings: BTreeMap<String, Value>,
+    pub widgets: Vec<String>,
     root: PathBuf,
 }
 
@@ -927,6 +1023,13 @@ pub(crate) fn runtime_package(store: &Store, plugin_id: &str) -> Result<RuntimeP
             .iter()
             .map(|definition| (definition.key.clone(), plugin.setting_value(definition)))
             .collect(),
+        widgets: plugin
+            .manifest
+            .contributes
+            .widgets
+            .as_ref()
+            .map(|w| w.items.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default(),
         root,
     })
 }
@@ -1282,6 +1385,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
     }
     let mut records = Vec::new();
     let mut home_cards = Vec::new();
+    let mut plugin_widgets = Vec::new();
     for (id, plugin) in plugins {
         let declared = plugin.declared_fields();
         let active = plugin.active_fields();
@@ -1312,6 +1416,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
         };
         let grant = load_grant(connection, &id)?;
         home_cards.extend(project_home_cards(&plugin, grant.as_ref()));
+        plugin_widgets.extend(project_plugin_widgets(&plugin, grant.as_ref()));
         let executable = plugin.manifest.runtime.kind.is_executable();
         records.push(PluginRecord {
             id,
@@ -1321,6 +1426,7 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             description: plugin.manifest.description.clone(),
             author: plugin.manifest.author.clone(),
             enabled: plugin.enabled,
+            builtin: plugin.source == "builtin",
             runtime: plugin.manifest.runtime.kind.label().into(),
             executable,
             execution_reason,
@@ -1375,14 +1481,145 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
             content_hash: plugin.content_hash.clone(),
             source_files: plugin.manifest.source.clone(),
             assets: plugin.manifest.assets.clone(),
+            icon_url: None,
         });
     }
     home_cards.sort_by(|a, b| a.id.cmp(&b.id));
+    plugin_widgets.sort_by(|a, b| a.widget_type.cmp(&b.widget_type));
     Ok(PluginsState {
         plugins: records,
         effective,
         home_cards,
+        widgets: plugin_widgets,
     })
+}
+
+pub(super) fn populate_icons(store: &Store, state: &mut PluginsState) {
+    let Ok(root) = install_root(store) else {
+        return;
+    };
+    let Ok(connection) = store.connection() else {
+        return;
+    };
+    let Ok(plugins) = load_plugins(&connection) else {
+        return;
+    };
+    let icons: BTreeMap<String, String> = plugins
+        .into_iter()
+        .filter_map(|(id, plugin)| {
+            let icon = plugin.manifest.icon?;
+            let url = read_icon_data_url(&root.join(&id).join(&icon))?;
+            Some((id, url))
+        })
+        .collect();
+    for record in &mut state.plugins {
+        if let Some(url) = icons.get(&record.id) {
+            record.icon_url = Some(url.clone());
+        }
+    }
+}
+
+fn read_icon_data_url(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.len() > 256 * 1024 {
+        return None;
+    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        _ => return None,
+    };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{mime};base64,{encoded}"))
+}
+
+fn project_plugin_widgets(plugin: &StoredPlugin, grant: Option<&Grant>) -> Vec<PluginWidgetMeta> {
+    if !plugin.enabled {
+        return Vec::new();
+    }
+    if plugin.manifest.runtime.kind.is_executable()
+        && !grant.is_some_and(|grant| plugin.accepts_grant(grant))
+    {
+        return Vec::new();
+    }
+    let Some(widgets) = &plugin.manifest.contributes.widgets else {
+        return Vec::new();
+    };
+    widgets
+        .items
+        .iter()
+        .map(|item| {
+            let placements = if item.placements.is_empty() {
+                PLACEMENTS.iter().map(|s| (*s).to_string()).collect()
+            } else {
+                item.placements.clone()
+            };
+            let sizes = if item.sizes.is_empty() {
+                vec!["small".into(), "medium".into(), "large".into()]
+            } else {
+                item.sizes.clone()
+            };
+            let variants = if item.variants.is_empty() {
+                vec![
+                    "glass".into(),
+                    "cinematic".into(),
+                    "ticker".into(),
+                    "minimal".into(),
+                ]
+            } else {
+                item.variants.clone()
+            };
+            let contexts = if item.contexts.is_empty() {
+                vec!["home".into(), "music".into(), "idle".into()]
+            } else {
+                item.contexts.clone()
+            };
+            let default_placement = item
+                .default_placement
+                .clone()
+                .unwrap_or_else(|| placements[0].clone());
+            let default_size = item
+                .default_size
+                .clone()
+                .unwrap_or_else(|| sizes[0].clone());
+            let default_variant = item
+                .default_variant
+                .clone()
+                .unwrap_or_else(|| variants[0].clone());
+            let default_presence = if item.default_presence.is_empty() {
+                vec!["home".into(), "idle".into()]
+            } else {
+                item.default_presence.clone()
+            };
+            let default_settings = item
+                .settings
+                .iter()
+                .filter_map(|field| Some((field.key.clone(), field.default.clone()?)))
+                .collect();
+            PluginWidgetMeta {
+                widget_type: format!("{}.{}", plugin.manifest.id, item.id),
+                plugin_id: plugin.manifest.id.clone(),
+                widget_id: item.id.clone(),
+                name: item.name.clone(),
+                description: item.description.clone(),
+                glyph: item.glyph.clone(),
+                placements,
+                sizes,
+                variants,
+                contexts,
+                default_placement,
+                default_size,
+                default_variant,
+                default_presence,
+                default_settings,
+                settings: item.settings.clone(),
+                max_instances: item.max_instances.unwrap_or(1),
+            }
+        })
+        .collect()
 }
 
 fn project_home_cards(plugin: &StoredPlugin, grant: Option<&Grant>) -> Vec<HomeCard> {
@@ -1460,6 +1697,11 @@ fn apply_plugin(config: &mut Config, plugin: &StoredPlugin) -> Result<(), Error>
     if active.contains("reducedMotion") {
         if let Some(bound) = &contributes.reduced_motion {
             config.reduced_motion = resolve_bool(plugin, bound, "reducedMotion")?;
+        }
+    }
+    if active.contains("appearance") {
+        if let Some(appearance) = &contributes.appearance {
+            config.appearance = Some(appearance.clone());
         }
     }
     if active.contains("homeColumns") {
@@ -1646,6 +1888,7 @@ fn copy_field(config: Config, source: &Config, field: &str) -> Config {
         "appTileShape" => config.app_tile_shape = source.app_tile_shape.clone(),
         "textSize" => config.text_size = source.text_size.clone(),
         "reducedMotion" => config.reduced_motion = source.reduced_motion,
+        "appearance" => config.appearance = source.appearance.clone(),
         "homeColumns" => config.home_columns = source.home_columns,
         "home" => config.home = source.home.clone(),
         "widgets" => config.widgets = source.widgets.clone(),
@@ -1662,6 +1905,7 @@ fn field_changed(a: &Config, b: &Config, field: &str) -> bool {
         "appTileShape" => a.app_tile_shape != b.app_tile_shape,
         "textSize" => a.text_size != b.text_size,
         "reducedMotion" => a.reduced_motion != b.reduced_motion,
+        "appearance" => a.appearance != b.appearance,
         "homeColumns" => a.home_columns != b.home_columns,
         "home" => a.home != b.home,
         "widgets" => a.widgets != b.widgets,
@@ -2366,6 +2610,29 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             .field(format!("settings[{index}].key")));
         }
     }
+    if let Some(icon) = &manifest.icon {
+        validate_relative_path(icon).map_err(|error| error.field("icon"))?;
+        let lower = icon.to_ascii_lowercase();
+        if !lower.ends_with(".svg")
+            && !lower.ends_with(".png")
+            && !lower.ends_with(".jpg")
+            && !lower.ends_with(".jpeg")
+            && !lower.ends_with(".webp")
+        {
+            return Err(Error::new(
+                "validation",
+                "Plugin icon must be an .svg, .png, .jpg, .jpeg, or .webp asset.",
+            )
+            .field("icon"));
+        }
+        if !manifest.assets.contains(icon) {
+            return Err(Error::new(
+                "validation",
+                "Plugin icon must also be listed in assets.",
+            )
+            .field("icon"));
+        }
+    }
     if manifest.assets.len() > MAX_SOURCE_FILES || manifest.source.len() > MAX_SOURCE_FILES {
         return Err(Error::new(
             "validation",
@@ -2552,10 +2819,9 @@ fn validate_executable_manifest(manifest: &Manifest) -> Result<(), Error> {
 }
 
 fn validate_home_manifest(manifest: &Manifest) -> Result<(), Error> {
-    let background_sports = manifest.runtime.kind == RuntimeKind::Background
-        && manifest.contributes.sports_enrich
-        && !manifest.contributes.has_cards();
-    if manifest.runtime.kind != RuntimeKind::IsolatedUi && !background_sports {
+    let allowed_background =
+        manifest.runtime.kind == RuntimeKind::Background && !manifest.contributes.has_cards();
+    if manifest.runtime.kind != RuntimeKind::IsolatedUi && !allowed_background {
         return Err(Error::new(
             "incompatible",
             "API version 3 Home cards require the isolated-ui runtime.",
@@ -2980,6 +3246,11 @@ fn validate_contributions(manifest: &Manifest) -> Result<(), Error> {
     if let Some(bound) = &contributes.reduced_motion {
         validate_bool_bound(manifest, bound, "reducedMotion")?;
     }
+    if let Some(appearance) = &contributes.appearance {
+        document::validate_appearance(appearance).map_err(|message| {
+            Error::new("validation", message).field("contributes.appearance")
+        })?;
+    }
     if let Some(bound) = &contributes.home_columns {
         validate_u8_bound(manifest, bound, "homeColumns", 1, 2)?;
     }
@@ -3008,6 +3279,52 @@ fn validate_contributions(manifest: &Manifest) -> Result<(), Error> {
         }
         if let Some(bound) = &widgets.spotify_placement {
             validate_string_bound(manifest, bound, "widgets", &PLACEMENTS)?;
+        }
+        if widgets.items.len() > 8 {
+            return Err(Error::new(
+                "validation",
+                "A plugin can declare at most 8 widgets.",
+            )
+            .field("contributes.widgets.items"));
+        }
+        let mut seen_ids = HashSet::new();
+        for (idx, item) in widgets.items.iter().enumerate() {
+            if item.id.trim().is_empty()
+                || item.id.len() > MAX_LOCAL_ID
+                || !item
+                    .id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                return Err(Error::new(
+                    "validation",
+                    "Plugin widget id must be 1-32 alphanumeric, '-' or '_' characters.",
+                )
+                .field(format!("contributes.widgets.items[{idx}].id")));
+            }
+            if !seen_ids.insert(item.id.clone()) {
+                return Err(Error::new(
+                    "validation",
+                    format!("Duplicate plugin widget id: {}.", item.id),
+                )
+                .field(format!("contributes.widgets.items[{idx}].id")));
+            }
+            if item.name.trim().is_empty() || item.name.len() > 48 {
+                return Err(Error::new(
+                    "validation",
+                    "Plugin widget name must be 1-48 characters.",
+                )
+                .field(format!("contributes.widgets.items[{idx}].name")));
+            }
+            for placement in &item.placements {
+                if !PLACEMENTS.contains(&placement.as_str()) {
+                    return Err(Error::new(
+                        "validation",
+                        format!("Unsupported widget placement: {placement}."),
+                    )
+                    .field(format!("contributes.widgets.items[{idx}].placements")));
+                }
+            }
         }
     }
     if let Some(order) = &contributes.order {
@@ -3358,51 +3675,101 @@ pub(super) fn stage_submission(
     install(store, package, source, InstallMode::Normal, None).map(|change| change.outcome)
 }
 
+struct BundledPackage {
+    marker: &'static str,
+    manifest: &'static str,
+    files: &'static [(&'static str, &'static str)],
+    enable: Option<BundledEnable>,
+}
+
+struct BundledEnable {
+    permissions: &'static [&'static str],
+    network: &'static [&'static str],
+    trigger: Trigger,
+}
+
+const BUNDLED_PACKAGES: [BundledPackage; 2] = [
+    BundledPackage {
+        marker: ".bundled-sports-hub-v2",
+        manifest: include_str!(
+            "../../../examples/plugins/com.luma.kalshi-sports/luma-extension.json"
+        ),
+        files: &[
+            (
+                "index.html",
+                include_str!("../../../examples/plugins/com.luma.kalshi-sports/index.html"),
+            ),
+            (
+                "icon.svg",
+                include_str!("../../../examples/plugins/com.luma.kalshi-sports/icon.svg"),
+            ),
+            (
+                "main.js",
+                include_str!("../../../examples/plugins/com.luma.kalshi-sports/main.js"),
+            ),
+        ],
+        enable: Some(BundledEnable {
+            permissions: &["settings.read", "network.get", "sports.read"],
+            network: &[
+                "https://api.elections.kalshi.com",
+                "https://external-api.kalshi.com",
+            ],
+            trigger: Trigger::Always,
+        }),
+    },
+    BundledPackage {
+        marker: ".bundled-apple-tv-look-v1",
+        manifest: include_str!(
+            "../../../examples/plugins/com.luma.apple-tv-look/luma-extension.json"
+        ),
+        files: &[],
+        enable: None,
+    },
+];
+
 pub(super) fn seed_bundled(store: &Store) -> Result<(), Error> {
     let root = install_root(store)?;
-    let marker = root.join(".bundled-kalshi-v7");
-    if marker.exists() {
-        return Ok(());
-    }
-    let Some(doc) = store.read()? else {
-        return Ok(());
-    };
-    let manifest: Value = serde_json::from_str(include_str!(
-        "../../../examples/plugins/com.luma.kalshi-sports/luma-extension.json"
-    ))
-    .map_err(|error| Error::new("plugin_storage", error))?;
-    let submission = serde_json::json!({
-        "manifest": manifest,
-        "files": [
-            {
-                "path": "index.html",
-                "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/index.html"),
-            },
-            {
-                "path": "main.js",
-                "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/main.js"),
+    for bundled in &BUNDLED_PACKAGES {
+        let marker = root.join(bundled.marker);
+        if marker.exists() {
+            continue;
+        }
+        let Some(_) = store.read()? else {
+            return Ok(());
+        };
+        let manifest: Value = serde_json::from_str(bundled.manifest)
+            .map_err(|error| Error::new("plugin_storage", error))?;
+        let files = bundled
+            .files
+            .iter()
+            .map(|(path, text)| serde_json::json!({ "path": path, "text": text }))
+            .collect::<Vec<_>>();
+        let submission = serde_json::json!({
+            "manifest": manifest,
+            "files": files
+        });
+        let outcome = stage_submission(store, &submission, "builtin")?;
+        if let Some(enable) = &bundled.enable {
+            if !outcome.plugin.enabled {
+                let document = store.read()?.ok_or_else(|| {
+                    Error::new("not_initialized", "Customization is not initialized.")
+                })?;
+                command_enable_runtime(
+                    store,
+                    &outcome.plugin.id,
+                    document.revision,
+                    enable
+                        .permissions
+                        .iter()
+                        .map(|value| (*value).into())
+                        .collect(),
+                    enable.network.iter().map(|value| (*value).into()).collect(),
+                    enable.trigger,
+                )?;
             }
-        ]
-    });
-    let outcome = stage_submission(store, &submission, "builtin")?;
-    if !outcome.plugin.enabled {
-        command_enable_runtime(
-            store,
-            &outcome.plugin.id,
-            doc.revision,
-            vec![
-                "settings.read".into(),
-                "network.get".into(),
-                "sports.read".into(),
-            ],
-            vec![
-                "https://api.elections.kalshi.com".into(),
-                "https://external-api.kalshi.com".into(),
-            ],
-            Trigger::Always,
-        )?;
+        }
+        let _ = std::fs::write(&marker, b"1");
     }
-    let _ = std::fs::write(&marker, b"1");
     Ok(())
 }
 
@@ -4126,6 +4493,7 @@ pub(crate) fn notify_plugins(app: &tauri::AppHandle) {
 
 pub fn schema_document() -> Value {
     let example = example_manifest();
+    let bridge = bridge_schema();
     serde_json::json!({
         "schemaVersion": 1,
         "manifestFile": "luma-extension.json",
@@ -4139,8 +4507,14 @@ pub fn schema_document() -> Value {
             "maxLength": 96
         },
         "version": "major.minor.patch",
+        "icon": {
+            "field": "icon",
+            "description": "Optional relative path to an .svg, .png, .jpg, .jpeg, or .webp icon asset. Must also be listed in assets.",
+            "maxBytes": 262144
+        },
         "fields": FIELDS,
         "settingTypes": ["boolean", "enum", "number", "string"],
+        "settingTabs": "Optional `tab` string on each setting definition to group settings into tabs inside the Luma plugin Settings modal (defaults to 'General').",
         "binding": {
             "static": "Use the value directly.",
             "setting": { "setting": "settingKey" },
@@ -4156,6 +4530,20 @@ pub fn schema_document() -> Value {
             "appTileShape": "static tile shape or enum setting",
             "textSize": "static text size or enum setting",
             "reducedMotion": "static boolean or boolean setting",
+            "appearance": {
+                "id": "stable lowercase id used by connected surfaces",
+                "name": "1-48 character display name",
+                "tokens": document::APPEARANCE_TOKENS,
+                "design": {
+                    "font": ["system", "apple", "rounded"],
+                    "nav": ["top", "sidebar"],
+                    "surface": ["solid", "frosted"],
+                    "radius": ["standard", "generous"],
+                    "background": ["ambient", "plain"],
+                    "heroTitle": ["normal", "spaced"],
+                    "tiles": ["tinted", "neutral"]
+                }
+            },
             "homeColumns": "static 1 or 2, or integer setting 1 through 2",
             "home": {
                 "order": "all seven components once",
@@ -4168,7 +4556,22 @@ pub fn schema_document() -> Value {
             },
             "widgets": {
                 "spotifyEnabled": "static boolean or boolean setting",
-                "spotifyPlacement": "static placement or enum setting"
+                "spotifyPlacement": "static placement or enum setting",
+                "items": [{
+                    "id": "1-32 char local widget id (qualified as <pluginId>.<id>)",
+                    "name": "1-48 char display name",
+                    "description": "optional description",
+                    "glyph": "optional icon glyph",
+                    "placements": PLACEMENTS,
+                    "sizes": ["small", "medium", "large"],
+                    "variants": ["glass", "cinematic", "ticker", "minimal"],
+                    "contexts": ["home", "music", "idle"],
+                    "defaultPlacement": "optional default placement",
+                    "defaultSize": "optional default size",
+                    "defaultVariant": "optional default variant",
+                    "defaultPresence": ["home", "idle"],
+                    "maxInstances": "optional max instances (default 1)"
+                }]
             },
             "order": "all twelve app ids exactly once, Custom last"
         },
@@ -4205,13 +4608,47 @@ pub fn schema_document() -> Value {
                     "isolated-ui": ["launcher-open", "on-demand"],
                     "background": ["launcher-open", "startup", "always"]
                 },
-                "homeCommands": "API version 3 packages use the on-demand trigger and run only for a selected Home card or paired-phone panel command.",
+                "homeCommands": "API version 3 isolated-ui packages use the on-demand trigger and run commands for a selected Home card or paired-phone panel. API version 3 background packages (without Home cards) run headless and can publish custom widgets via widgets.publish.",
+                "bridge": bridge,
                 "behavior": "Executable packages install disabled. The user reviews the exact declared permissions, network origins, and trigger in Settings > Add-ons > Plugins; that consent is required before the runtime starts. Isolated-ui packages open in a host-owned window with a package-specific origin and a fixed bridge. Background packages run headless in the same isolated runtime. Disable, removal, and exit stop the runtime."
             },
             "unsupportedBehavior": "The main-page runtime installs disabled and can never be enabled. It is never executed inside the main window."
         },
         "limits": limits(),
         "example": example
+    })
+}
+
+fn bridge_schema() -> Value {
+    serde_json::json!({
+        "invoke": "window.__TAURI_INTERNALS__.invoke('extension_bridge', { op, args })",
+        "events": {
+            "luma:settings": "Dispatched on window when settings change after settings.subscribe ({ detail: { values } }).",
+            "luma:playback": "Dispatched on window when playback changes after playback.subscribe.",
+            "luma:command": "Dispatched on window when a Home card or phone command is invoked ({ detail: { command, source } })."
+        },
+        "ops": {
+            "identity": { "permission": null, "args": "none", "returns": "{ id, name, version, apiVersion, kind }" },
+            "settings.read": { "permission": "settings.read", "args": "none", "returns": "{ values }" },
+            "settings.subscribe": { "permission": "settings.read", "args": "none", "returns": "{ values } + emits luma:settings" },
+            "net.get": { "permission": "network.get", "args": "{ origin, path, query?: [[k, v]] }", "returns": "parsed JSON or text from allowed public HTTPS origin" },
+            "playback.read": { "permission": "playback.read", "args": "none", "returns": "current playback snapshot" },
+            "playback.subscribe": { "permission": "playback.read", "args": "none", "returns": "playback snapshot + emits luma:playback" },
+            "playback.toggle": { "permission": "playback.control", "args": "none", "returns": "{ accepted: true }" },
+            "playback.next": { "permission": "playback.control", "args": "none", "returns": "{ accepted: true }" },
+            "playback.previous": { "permission": "playback.control", "args": "none", "returns": "{ accepted: true }" },
+            "surface.ready": { "permission": null, "args": "none", "returns": "{ ready: true }" },
+            "surface.close": { "permission": null, "args": "none", "returns": "{ closed: true }" },
+            "commands.pending": { "permission": null, "args": "none", "returns": "pending command or null" },
+            "widgets.publish": {
+                "permission": null,
+                "args": "{ widgets: [{ id, available?, title, subtitle?, primary?, badge?, tone?: 'live'|'accent'|'muted', progress?: 0..100, progressLabel?, rows?: [{ label, value, sub? }], meta?: string[], updatedAt? }] }",
+                "returns": "{ published: number }"
+            },
+            "sports.active.read": { "permission": "sports.read", "args": "none", "returns": "{ watching, title, league }" },
+            "sports.scores.read": { "permission": "sports.read", "args": "{ league }", "returns": "ESPN scoreboard JSON for league" },
+            "sports.badges.publish": { "permission": "sports.read", "args": "{ badges, showOnCards?, showInPlayer? }", "returns": "{ published: number }" }
+        }
     })
 }
 
@@ -4520,6 +4957,52 @@ pub(crate) fn command_disable(
     Ok(())
 }
 
+pub(crate) fn command_toggle_builtin(
+    store: &Store,
+    plugin_id: &str,
+    expected_revision: u64,
+    enabled: bool,
+) -> Result<(), Error> {
+    let mut connection = store.connection()?;
+    let transaction = connection.transaction()?;
+    let current = Store::current(&transaction)?
+        .ok_or_else(|| Error::new("not_initialized", "Customization is not initialized."))?;
+    if current.revision != expected_revision {
+        return Err(Error::new("conflict", "Customization changed elsewhere."));
+    }
+    let plugins = load_plugins(&transaction)?;
+    let (_, plugin) = plugins
+        .iter()
+        .find(|(id, _)| id == plugin_id)
+        .ok_or_else(|| Error::new("plugin_missing", "That plugin is not installed."))?;
+    if plugin.source != "builtin" {
+        return Err(Error::new(
+            "plugin_denied",
+            "Only built-in plugins can be switched directly.",
+        ));
+    }
+    if plugin.manifest.runtime.kind.is_executable() {
+        return Err(Error::new(
+            "plugin_runtime",
+            "Executable built-in plugins need an access review.",
+        ));
+    }
+    if plugin.enabled != enabled {
+        if enabled {
+            let action = PluginAction::Enable {
+                plugin_id: plugin_id.into(),
+                reattach: false,
+            };
+            apply_action(&transaction, &current, &action)?;
+        } else {
+            disable(&transaction, plugin_id)?;
+        }
+    }
+    Store::write(&transaction, &current, current.config.clone(), true)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub(super) fn command_remove(
     store: &Store,
     plugin_id: &str,
@@ -4533,19 +5016,25 @@ pub(super) fn command_remove(
     if current.revision != expected_revision {
         return Err(Error::new("conflict", "Customization changed elsewhere."));
     }
-    let row: Option<(String, i64)> = transaction
+    let row: Option<(String, i64, String)> = transaction
         .query_row(
-            "SELECT manifest, enabled FROM plugins WHERE id = ?1",
+            "SELECT manifest, enabled, source FROM plugins WHERE id = ?1",
             [plugin_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let Some((raw, _enabled)) = row else {
+    let Some((raw, _enabled, source)) = row else {
         return Err(Error::new(
             "plugin_missing",
             "That plugin is not installed.",
         ));
     };
+    if source == "builtin" {
+        return Err(Error::new(
+            "plugin_builtin",
+            "Built-in plugins can be turned off but not removed.",
+        ));
+    }
     let manifest: Manifest =
         serde_json::from_str(&raw).map_err(|error| Error::new("plugin_storage", error))?;
     remove_row(&transaction, plugin_id, delete_data)?;
@@ -6791,7 +7280,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_kalshi_plugin_seeds_and_enables_by_default() {
+    fn bundled_plugins_seed_kalshi_enabled_and_apple_tv_disabled() {
         let (store, _root) = store();
         seed_bundled(&store).unwrap();
         let state = state_for_store(&store);
@@ -6801,8 +7290,73 @@ mod tests {
             .find(|p| p.id == "com.luma.kalshi-sports")
             .expect("bundled kalshi plugin must be installed");
         assert!(kalshi.enabled);
+        assert!(kalshi.builtin);
         let granted = granted_plugins(&store).unwrap();
         assert!(granted.iter().any(|(id, _)| id == "com.luma.kalshi-sports"));
         assert!(runtime_package(&store, "com.luma.kalshi-sports").is_ok());
+
+        let apple = state
+            .plugins
+            .iter()
+            .find(|p| p.id == "com.luma.apple-tv-look")
+            .expect("bundled Apple TV Look must be installed");
+        assert!(!apple.enabled);
+        assert!(apple.builtin);
+        assert!(apple.controls.contains(&"appearance".into()));
+    }
+
+    #[test]
+    fn appearance_contribution_applies_and_builtin_pack_toggles() {
+        let (store, _root) = store();
+        let mut value = manifest("com.example.look", "1.0.0");
+        value["settings"] = serde_json::json!([]);
+        value["contributes"] = serde_json::json!({
+            "appearance": {
+                "id": "custom-look",
+                "name": "Custom Look",
+                "tokens": { "--bg": "#000000", "--accent": "#ffffff" },
+                "design": { "nav": "sidebar", "font": "apple" }
+            }
+        });
+        stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": value, "files": [] }),
+            "import",
+        )
+        .unwrap();
+        enable(&store, "com.example.look");
+        let effective = store.read_effective().unwrap().unwrap();
+        let appearance = effective
+            .config
+            .appearance
+            .as_ref()
+            .expect("appearance contribution must apply");
+        assert_eq!(appearance.id, "custom-look");
+        assert_eq!(appearance.design.nav.as_deref(), Some("sidebar"));
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_disable(&store, "com.example.look", revision).unwrap();
+        seed_bundled(&store).unwrap();
+        let revision = store.read().unwrap().unwrap().revision;
+        command_toggle_builtin(&store, "com.luma.apple-tv-look", revision, true).unwrap();
+        let effective = store.read_effective().unwrap().unwrap();
+        let appearance = effective
+            .config
+            .appearance
+            .as_ref()
+            .expect("built-in appearance pack must apply");
+        assert_eq!(appearance.id, "apple-tv-look");
+
+        let revision = store.read().unwrap().unwrap().revision;
+        command_toggle_builtin(&store, "com.luma.apple-tv-look", revision, false).unwrap();
+        assert!(
+            store
+                .read_effective()
+                .unwrap()
+                .unwrap()
+                .config
+                .appearance
+                .is_none()
+        );
     }
 }

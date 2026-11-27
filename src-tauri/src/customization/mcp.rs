@@ -32,6 +32,7 @@ const NAME_HEADER: &str = "mcp-name";
 const DECLARATIVE_TEMPLATE: &str = "luma://plugins/templates/declarative";
 const WEATHER_TEMPLATE: &str = "luma://plugins/templates/weather";
 const PHONE_COMMAND_TEMPLATE: &str = "luma://plugins/templates/phone-command";
+const WIDGET_TEMPLATE: &str = "luma://plugins/templates/widget";
 const SVELTE_TEMPLATE: &str = "luma://plugins/templates/svelte";
 const WEATHER_MANIFEST: &str =
     include_str!("../../../examples/plugins/com.example.weather/luma-extension.json");
@@ -2346,6 +2347,18 @@ fn candidate_tool_schema() -> Value {
 
 fn candidate_schema() -> Value {
     let defaults = serde_json::to_value(Config::default()).unwrap_or_else(|_| json!({}));
+    let appearance_tokens: serde_json::Map<String, Value> = document::APPEARANCE_TOKENS
+        .iter()
+        .map(|name| {
+            (
+                (*name).to_string(),
+                json!({
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+                }),
+            )
+        })
+        .collect();
     json!({
         "type": "object",
         "additionalProperties": false,
@@ -2375,6 +2388,43 @@ fn candidate_schema() -> Value {
             "reducedMotion": {
                 "type": "boolean",
                 "default": defaults["reducedMotion"]
+            },
+            "appearance": {
+                "type": ["object", "null"],
+                "default": null,
+                "additionalProperties": false,
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9-]{1,32}$"
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 48
+                    },
+                    "tokens": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "maxProperties": document::APPEARANCE_TOKENS.len(),
+                        "properties": appearance_tokens,
+                        "additionalProperties": false
+                    },
+                    "design": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "font": { "enum": document::APPEARANCE_FONTS },
+                            "nav": { "enum": document::APPEARANCE_NAVS },
+                            "surface": { "enum": document::APPEARANCE_SURFACES },
+                            "radius": { "enum": document::APPEARANCE_RADII },
+                            "background": { "enum": document::APPEARANCE_BACKGROUNDS },
+                            "heroTitle": { "enum": document::APPEARANCE_HERO_TITLES },
+                            "tiles": { "enum": document::APPEARANCE_TILES }
+                        }
+                    }
+                }
             },
             "interfaceSounds": {
                 "type": "string",
@@ -2502,6 +2552,7 @@ fn capabilities() -> Value {
                     "appTileShape",
                     "textSize",
                     "reducedMotion",
+                    "appearance",
                     "interfaceSounds",
                     "soundLevel"
                 ]
@@ -2585,6 +2636,12 @@ fn capabilities() -> Value {
                             "runtime": "isolated-ui",
                             "description": "Complete editable paired-phone command panel with host-rendered playback controls and remote.commands labels. Use luma_plugin_dev_start."
                         },
+                        "widget": {
+                            "uri": WIDGET_TEMPLATE,
+                            "apiVersion": plugin::HOME_API_VERSION,
+                            "runtime": "background",
+                            "description": "Complete editable API v3 background plugin with icon.svg, tabbed settings, a custom contributes.widgets.items widget, and widgets.publish. Use luma_plugin_dev_start."
+                        },
                         "svelte": {
                             "uri": SVELTE_TEMPLATE,
                             "kind": "source-project",
@@ -2663,6 +2720,7 @@ fn capabilities() -> Value {
             DECLARATIVE_TEMPLATE,
             WEATHER_TEMPLATE,
             PHONE_COMMAND_TEMPLATE,
+            WIDGET_TEMPLATE,
             SVELTE_TEMPLATE
         ],
         "review": {
@@ -2739,6 +2797,13 @@ fn resource_list() -> Value {
                 "mimeType": "application/json"
             },
             {
+                "uri": WIDGET_TEMPLATE,
+                "name": "Luma custom widget plugin template",
+                "title": "Custom widget plugin template",
+                "description": "A complete editable API v3 background plugin with an icon asset, tabbed settings, a custom widget in contributes.widgets.items, and widgets.publish bridge calls. Run it through luma_plugin_dev_start.",
+                "mimeType": "application/json"
+            },
+            {
                 "uri": SVELTE_TEMPLATE,
                 "name": "Luma Svelte plugin source template",
                 "title": "Svelte plugin source template",
@@ -2766,7 +2831,7 @@ fn read_resource(uri: &str) -> Result<(&'static str, String), String> {
             serde_json::to_string_pretty(&plugin::example_manifest())
                 .unwrap_or_else(|_| "{}".into()),
         )),
-        DECLARATIVE_TEMPLATE | WEATHER_TEMPLATE | PHONE_COMMAND_TEMPLATE | SVELTE_TEMPLATE => Ok((
+        DECLARATIVE_TEMPLATE | WEATHER_TEMPLATE | PHONE_COMMAND_TEMPLATE | WIDGET_TEMPLATE | SVELTE_TEMPLATE => Ok((
             "application/json",
             serde_json::to_string_pretty(&template_bundle(uri)?).unwrap_or_else(|_| "{}".into()),
         )),
@@ -2871,6 +2936,30 @@ fn template_bundle(uri: &str) -> Result<Value, String> {
                 "Call luma_plugin_stage with the final submission for the user's production review."
             ]
         })),
+        WIDGET_TEMPLATE => Ok(json!({
+            "kind": "executable",
+            "name": "Custom widget background plugin",
+            "description": "A complete editable API v3 background plugin with an SVG icon, tabbed settings, and a custom widget published via extension_bridge('widgets.publish').",
+            "source": "examples/plugins/com.luma.kalshi-sports",
+            "requiresUserReview": true,
+            "mcpCanApproveAccess": false,
+            "submission": {
+                "manifest": template_manifest(include_str!("../../../examples/plugins/com.luma.kalshi-sports/luma-extension.json")),
+                "files": [
+                    { "path": "index.html", "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/index.html") },
+                    { "path": "icon.svg", "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/icon.svg") },
+                    { "path": "main.js", "text": include_str!("../../../examples/plugins/com.luma.kalshi-sports/main.js") }
+                ]
+            },
+            "next": [
+                "Edit the manifest id, name, icon, tabbed settings, and contributes.widgets.items in your workspace.",
+                "Call luma_plugin_validate with submission.",
+                "Call luma_plugin_dev_start with the same submission.",
+                "Ask the user to review access in the development window and choose Allow and enable.",
+                "Edit, call luma_plugin_dev_reload, and call luma_plugin_dev_stop when finished.",
+                "Call luma_plugin_stage with the final submission for the user's production review."
+            ]
+        })),
         _ => Err(format!("Template not found: {uri}.")),
     }
 }
@@ -2892,6 +2981,7 @@ Luma is a Windows TV launcher. This MCP server is the agent-first authoring cont
    - `luma://plugins/templates/declarative` for appearance and Home.
    - `luma://plugins/templates/weather` for an API v3 Home card with network access.
    - `luma://plugins/templates/phone-command` for API v3 paired-phone command controls.
+   - `luma://plugins/templates/widget` for an API v3 background plugin with an icon, tabbed settings, and a custom Home/Idle/Player widget.
    - `luma://plugins/templates/svelte` for a Svelte, Tailwind, and TypeScript source project. Build it locally and submit only the package in `dist`.
 4. Each bundle returns a `submission` object in the exact shape used by `luma_plugin_validate`, `luma_plugin_stage`, and `luma_plugin_dev_start`. Edit it in your workspace, then validate the complete package.
 
@@ -3214,6 +3304,7 @@ mod tests {
                     plugins: Vec::new(),
                     effective: config,
                     home_cards: Vec::new(),
+                    widgets: Vec::new(),
                 })
             })
         }

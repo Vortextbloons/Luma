@@ -1,4 +1,4 @@
-import type { ThemeId } from '../types';
+import type { AppearanceProfile, ThemeId } from '../types';
 
 export const tokenNames = [
   '--bg', '--bg-soft', '--ambient', '--surface', '--surface-2', '--surface-3',
@@ -24,7 +24,7 @@ export interface ThemeOption {
 }
 
 export interface Appearance {
-  theme: ThemeId;
+  theme: string;
   tokens: ThemeTokens;
   themes: ThemeOption[];
 }
@@ -255,10 +255,36 @@ export function applyTheme(tokens: ThemeTokens, root: HTMLElement = document.doc
   for (const name of tokenNames) root.style.setProperty(name, tokens[name]);
 }
 
-export function appearanceFor(theme: ThemeDefinition): Appearance {
+export function applyAppearance(appearance: AppearanceProfile | null | undefined, root: HTMLElement = document.documentElement) {
+  if (appearance) {
+    for (const name of tokenNames) {
+      const value = appearance.tokens[name];
+      if (typeof value === 'string') root.style.setProperty(name, value);
+    }
+  }
+  root.dataset.designFont = appearance?.design.font ?? 'system';
+  root.dataset.designNav = appearance?.design.nav ?? 'top';
+  root.dataset.designSurface = appearance?.design.surface ?? 'solid';
+  root.dataset.designRadius = appearance?.design.radius ?? 'standard';
+  root.dataset.designBackground = appearance?.design.background ?? 'ambient';
+  root.dataset.designHeroTitle = appearance?.design.heroTitle ?? 'normal';
+  root.dataset.designTiles = appearance?.design.tiles ?? 'tinted';
+}
+
+export function appearanceTokens(theme: ThemeDefinition, appearance: AppearanceProfile | null | undefined): ThemeTokens {
+  if (!appearance) return theme.tokens;
+  const tokens: ThemeTokens = { ...theme.tokens };
+  for (const name of tokenNames) {
+    const value = appearance.tokens[name];
+    if (typeof value === 'string') tokens[name] = value;
+  }
+  return tokens;
+}
+
+export function appearanceFor(theme: ThemeDefinition, appearance?: AppearanceProfile | null): Appearance {
   return {
-    theme: theme.id,
-    tokens: theme.tokens,
+    theme: appearance?.id ?? theme.id,
+    tokens: appearanceTokens(theme, appearance),
     themes: themes.map(({ id, name, tokens }) => ({ id, name, tokens })),
   };
 }

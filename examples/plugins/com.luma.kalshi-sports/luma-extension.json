@@ -1,17 +1,46 @@
 {
   "id": "com.luma.kalshi-sports",
-  "name": "Kalshi Sports Odds",
-  "version": "1.0.6",
+  "name": "Sports Hub",
+  "version": "1.2.0",
   "apiVersion": 3,
   "minHostVersion": "0.8.0",
-  "description": "Shows live Kalshi prediction market win probabilities on Sports cards and while watching a game.",
+  "description": "Live game scoreboard tracker, Kalshi win probabilities, and sports alerts across major leagues.",
   "author": "Luma",
+  "icon": "icon.svg",
   "runtime": {
     "kind": "background",
     "entry": "index.html"
   },
   "contributes": {
-    "sportsEnrich": true
+    "sportsEnrich": true,
+    "widgets": {
+      "items": [
+        {
+          "id": "live-scoreboard",
+          "name": "Live Scoreboard",
+          "description": "Track an ongoing game with live score, clock, and Kalshi win probability.",
+          "glyph": "⚡",
+          "placements": [
+            "top-left",
+            "top-center",
+            "top-right",
+            "bottom-left",
+            "bottom-center",
+            "bottom-right",
+            "rail-left",
+            "rail-right"
+          ],
+          "sizes": ["small", "medium", "large"],
+          "variants": ["glass", "cinematic", "ticker", "minimal"],
+          "contexts": ["home", "music", "idle"],
+          "defaultPlacement": "top-right",
+          "defaultSize": "medium",
+          "defaultVariant": "glass",
+          "defaultPresence": ["home", "idle"],
+          "maxInstances": 1
+        }
+      ]
+    }
   },
   "permissions": [
     "settings.read",
@@ -26,9 +55,54 @@
   },
   "settings": [
     {
+      "key": "trackedLeague",
+      "label": "Tracked league",
+      "description": "League to follow in the Live Scoreboard widget, or Auto to pick the closest live game across major leagues.",
+      "tab": "Scoreboard",
+      "type": "enum",
+      "default": "Auto",
+      "options": [
+        { "value": "Auto", "label": "Auto (closest live game)" },
+        { "value": "NBA", "label": "NBA" },
+        { "value": "NFL", "label": "NFL" },
+        { "value": "MLB", "label": "MLB" },
+        { "value": "NHL", "label": "NHL" },
+        { "value": "CFB", "label": "College Football" },
+        { "value": "NCAA Men", "label": "NCAA Men's Basketball" },
+        { "value": "NCAA Women", "label": "NCAA Women's Basketball" },
+        { "value": "WNBA", "label": "WNBA" }
+      ]
+    },
+    {
+      "key": "trackedTeam",
+      "label": "Pin team (optional)",
+      "description": "Team name or abbreviation to follow (e.g. Lakers, BOS). Leave blank to auto-pick the closest live game.",
+      "tab": "Scoreboard",
+      "type": "string",
+      "default": "",
+      "maxLength": 48
+    },
+    {
+      "key": "spoilerFree",
+      "label": "Spoiler-free mode",
+      "description": "Hide live scores on the widget while still showing the game clock and status.",
+      "tab": "Scoreboard",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "showWidgetOdds",
+      "label": "Show win probability on widget",
+      "description": "Include live Kalshi win-probability bar inside the Live Scoreboard widget.",
+      "tab": "Odds & Markets",
+      "type": "boolean",
+      "default": true
+    },
+    {
       "key": "showCardOdds",
       "label": "Show odds on Sports cards",
       "description": "Display Kalshi win probabilities next to matchups on the Sports page.",
+      "tab": "Odds & Markets",
       "type": "boolean",
       "default": true
     },
@@ -36,13 +110,15 @@
       "key": "showPlayerWidget",
       "label": "Show odds widget while watching",
       "description": "Show a compact live Kalshi win-probability widget in the Sports player.",
+      "tab": "Odds & Markets",
       "type": "boolean",
       "default": true
     },
     {
       "key": "refreshSeconds",
       "label": "Refresh interval",
-      "description": "How often to pull the latest Kalshi market odds.",
+      "description": "How often to pull the latest live scores and market odds.",
+      "tab": "Odds & Markets",
       "type": "enum",
       "default": "45",
       "options": [
@@ -53,6 +129,7 @@
     }
   ],
   "assets": [
+    "icon.svg",
     "main.js"
   ]
 }

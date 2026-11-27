@@ -12,6 +12,8 @@ Luma's own Theme, Home layout, and widgets are built into the app under **Settin
 
 **Settings → Add-ons → Plugins** imports, previews, enables, disables, exports, and removes packages. AI access is a separate page under Add-ons. Saved versions and reset are under Appearance.
 
+Luma also ships built-in packages. They use the same manifest, contribution, ownership, preview, and disable path, but are installed from Luma's own code and can be switched on or off directly. Built-in packages cannot be removed. `com.luma.apple-tv-look` is an off-by-default declarative appearance pack.
+
 ## Package format
 
 A package is an ordinary ZIP named `<id>-<version>.luma-extension.zip`. `luma-extension.json` must be at the archive root or inside one top-level folder. The archive may contain readable source, assets, and a manifest-declared runtime entry. Do not include credentials, machine paths, user history, caches, or runtime storage.
@@ -154,6 +156,7 @@ A contribution is either a static value or `{ "setting": "key" }`. Bindings are 
 | Field | Value | Setting binding |
 | --- | --- | --- |
 | `theme` | built-in theme id | enum whose options are all built-in themes |
+| `appearance` | validated palette and design tokens | static only |
 | `density` | `comfortable` or `compact` | enum with supported options |
 | `appTileShape` | `wide` or `square` | enum with supported options |
 | `textSize` | `standard`, `large`, or `larger` | enum with supported options |
@@ -165,6 +168,8 @@ A contribution is either a static value or `{ "setting": "key" }`. Bindings are 
 | `widgets.spotifyEnabled` | boolean | boolean |
 | `widgets.spotifyPlacement` | `bar`, `top-left`, `top-right`, `bottom-right`, or `bottom-left` | enum with supported options |
 | `order` | all twelve app ids once, `Custom` last | static only |
+
+An `appearance` contribution supplies a complete or partial palette over the host's 20 semantic color tokens plus bounded design tokens: `font` (`system`, `apple`, `rounded`), `nav` (`top`, `sidebar`), `surface` (`solid`, `frosted`), `radius` (`standard`, `generous`), `background` (`ambient`, `plain`), `heroTitle` (`normal`, `spaced`), and `tiles` (`tinted`, `neutral`). Tokens are validated colors; arbitrary CSS and scripts are not accepted. The host applies the same tokens and shell styling used by built-in themes, so disabled packs restore the previous appearance without restarting.
 
 A plugin owns every field it contributes. Two enabled plugins cannot own the same field. Enabling the second one fails with an explicit conflict naming the field and current owner. Disabled plugins may be installed with overlapping contributions; the conflict only blocks enabling.
 

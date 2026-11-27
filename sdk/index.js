@@ -21,12 +21,14 @@ export const BRIDGE_OPERATIONS = Object.freeze([
   "playback.toggle",
   "playback.next",
   "playback.previous",
-  "sports.active.read",
-  "sports.badges.publish",
   "surface.ready",
   "surface.close",
   "commands.pending",
   "development.report",
+  "sports.active.read",
+  "sports.badges.publish",
+  "sports.scores.read",
+  "widgets.publish",
 ]);
 
 export const OPERATION_PERMISSIONS = Object.freeze({
@@ -40,7 +42,9 @@ export const OPERATION_PERMISSIONS = Object.freeze({
   "playback.next": "playback.control",
   "playback.previous": "playback.control",
   "sports.active.read": "sports.read",
-  "sports.badges.publish": null,
+  "sports.scores.read": "sports.read",
+  "sports.badges.publish": "sports.read",
+  "widgets.publish": null,
   "surface.ready": null,
   "surface.close": null,
   "commands.pending": null,
@@ -49,6 +53,7 @@ export const OPERATION_PERMISSIONS = Object.freeze({
 
 export const BRIDGE_ERROR_CODES = Object.freeze([
   "invalid",
+  "invalid_args",
   "denied",
   "busy",
   "stale",
@@ -57,6 +62,7 @@ export const BRIDGE_ERROR_CODES = Object.freeze([
   "timeout",
   "too_large",
   "malformed",
+  "sports_error",
   "unavailable",
 ]);
 
@@ -168,7 +174,9 @@ export function createBridge(invoke = hostInvoke) {
     nextTrack: () => request("playback.next"),
     previousTrack: () => request("playback.previous"),
     readActiveSports: () => request("sports.active.read"),
+    readSportsScores: league => request("sports.scores.read", { league }),
     publishSportsBadges: args => request("sports.badges.publish", args),
+    publishWidgets: args => request("widgets.publish", args),
     ready: () => request("surface.ready"),
     close: () => request("surface.close"),
     pendingCommand: () => request("commands.pending"),

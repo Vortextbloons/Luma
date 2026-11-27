@@ -17,12 +17,13 @@ use crate::{
     integrations::spotify::{auth::Auth, player},
     remote::server::{MusicState, Remote},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{
     http::{header, Response, StatusCode},
     ipc::{Invoke, InvokeBody},
+    Emitter,
     utils::config::BackgroundThrottlingPolicy,
     webview::NewWindowResponse,
     AppHandle, Manager, WebviewUrl, WebviewWindowBuilder,
@@ -508,6 +509,7 @@ fn take_runtime(app: &AppHandle, plugin_id: &str) -> Option<Runtime> {
 
 fn stop_runtime(app: &AppHandle, plugin_id: &str) {
     crate::commands::sports::clear_plugin_badges(app, plugin_id);
+    clear_plugin_widgets(app, plugin_id);
     if let Some(runtime) = take_runtime(app, plugin_id) {
         destroy_window(app, runtime.session.label);
     }
@@ -1700,6 +1702,10 @@ enum Op {
     SportsActiveRead,
     #[serde(rename = "sports.badges.publish")]
     SportsBadgesPublish,
+    #[serde(rename = "sports.scores.read")]
+    SportsScoresRead,
+    #[serde(rename = "widgets.publish")]
+    WidgetsPublish,
 }
 
 impl Op {
@@ -1720,6 +1726,8 @@ impl Op {
             Self::DevelopmentReport => "development.report",
             Self::SportsActiveRead => "sports.active.read",
             Self::SportsBadgesPublish => "sports.badges.publish",
+            Self::SportsScoresRead => "sports.scores.read",
+            Self::WidgetsPublish => "widgets.publish",
         }
     }
 
@@ -1731,9 +1739,15 @@ impl Op {
             Self::PlaybackToggle | Self::PlaybackNext | Self::PlaybackPrevious => {
                 Some(Permission::PlaybackControl)
             }
-            Self::SportsActiveRead | Self::SportsBadgesPublish => Some(Permission::SportsRead),
-            Self::Identity | Self::SurfaceReady | Self::SurfaceClose | Self::CommandPending
-            | Self::DevelopmentReport => None,
+            Self::SportsActiveRead | Self::SportsBadgesPublish | Self::SportsScoresRead => {
+                Some(Permission::SportsRead)
+            }
+            Self::Identity
+            | Self::SurfaceReady
+            | Self::SurfaceClose
+            | Self::CommandPending
+            | Self::DevelopmentReport
+            | Self::WidgetsPublish => None,
         }
     }
 
@@ -1745,6 +1759,161 @@ impl Op {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWidgetRow {
+    pub label: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWidgetAction {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWidgetData {
+    #[serde(default)]
+    pub plugin_id: String,
+    pub id: String,
+    #[serde(default, rename = "type")]
+    pub widget_type: String,
+    #[serde(default = "default_true")]
+    pub available: bool,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub meta: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<PluginWidgetRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<PluginWidgetAction>,
+    #[serde(default)]
+    pub updated_at: u64,
+}
+
+#[derive(Default)]
+pub struct PluginWidgetsState(std::sync::Mutex<std::collections::BTreeMap<String, Vec<PluginWidgetData>>>);
+
+#[tauri::command]
+pub fn plugin_widgets_data(state: tauri::State<'_, PluginWidgetsState>) -> Vec<PluginWidgetData> {
+    state
+        .0
+        .lock()
+        .map(|guard| guard.values().flatten().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn notify_plugin_widgets(app: &AppHandle) {
+    let data = app
+        .state::<PluginWidgetsState>()
+        .0
+        .lock()
+        .map(|guard| guard.values().flatten().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let _ = app.emit_to("main", "luma:plugin-widgets", &data);
+}
+
+fn set_plugin_widgets(app: &AppHandle, plugin_id: &str, items: Vec<PluginWidgetData>) {
+    if let Ok(mut guard) = app.state::<PluginWidgetsState>().0.lock() {
+        if items.is_empty() {
+            guard.remove(plugin_id);
+        } else {
+            guard.insert(plugin_id.to_string(), items);
+        }
+    }
+    notify_plugin_widgets(app);
+}
+
+fn clear_plugin_widgets(app: &AppHandle, plugin_id: &str) {
+    let removed = app
+        .state::<PluginWidgetsState>()
+        .0
+        .lock()
+        .map(|mut guard| guard.remove(plugin_id).is_some())
+        .unwrap_or(false);
+    if removed {
+        notify_plugin_widgets(app);
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WidgetsPublishArgs {
+    widgets: Vec<PluginWidgetData>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SportsScoresArgs {
+    league: String,
+}
+
+fn sanitize_plugin_widgets(
+    plugin_id: &str,
+    declared: &[String],
+    args: Value,
+) -> Result<Vec<PluginWidgetData>, Value> {
+    let parsed: WidgetsPublishArgs = serde_json::from_value(args)
+        .map_err(|_| failure("invalid_args", "widgets.publish expects { widgets: [...] }."))?;
+    if parsed.widgets.len() > 8 {
+        return Err(failure("invalid_args", "At most 8 widgets can be published."));
+    }
+    let allowed: std::collections::HashSet<&str> =
+        declared.iter().map(String::as_str).collect();
+    let mut out = Vec::with_capacity(parsed.widgets.len());
+    for mut item in parsed.widgets {
+        if !allowed.contains(item.id.as_str()) {
+            return Err(failure(
+                "invalid_args",
+                format!("Widget '{}' is not declared in this plugin's manifest.", item.id),
+            ));
+        }
+        item.plugin_id = plugin_id.to_string();
+        item.widget_type = format!("{plugin_id}.{}", item.id);
+        item.title = item.title.trim().chars().take(80).collect();
+        item.subtitle = item
+            .subtitle
+            .map(|s| s.trim().chars().take(80).collect())
+            .filter(|s: &String| !s.is_empty());
+        item.primary = item
+            .primary
+            .map(|s| s.trim().chars().take(48).collect())
+            .filter(|s: &String| !s.is_empty());
+        item.badge = item
+            .badge
+            .map(|s| s.trim().chars().take(48).collect())
+            .filter(|s: &String| !s.is_empty());
+        item.progress = item.progress.map(|p| p.clamp(0.0, 100.0));
+        item.meta.truncate(4);
+        item.rows.truncate(4);
+        out.push(item);
+    }
+    Ok(out)
 }
 
 #[derive(Deserialize)]
@@ -2345,6 +2514,52 @@ where
                     Err(error) => {
                         log_bridge(&app, &session.plugin_id, operation, &error);
                         resolver.reject(error)
+                    }
+                }
+            }
+            Op::SportsScoresRead => {
+                let args: SportsScoresArgs =
+                    match serde_json::from_value(request.args.unwrap_or(Value::Null)) {
+                        Ok(args) => args,
+                        Err(_) => {
+                            let error =
+                                failure("invalid_args", "sports.scores.read expects { league }.");
+                            log_bridge(&app, &session.plugin_id, operation, &error);
+                            resolver.reject(error);
+                            return true;
+                        }
+                    };
+                let session = session.clone();
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let result = crate::commands::sports::sports_scoreboard(args.league).await;
+                    if !is_current(&app, &session) {
+                        resolver.reject(failure(
+                            "stale",
+                            "The package runtime changed before the request finished.",
+                        ));
+                        return;
+                    }
+                    match result {
+                        Ok(value) => resolver.resolve(value),
+                        Err(msg) => resolver.reject(failure("sports_error", msg)),
+                    }
+                });
+            }
+            Op::WidgetsPublish => {
+                match sanitize_plugin_widgets(
+                    &session.plugin_id,
+                    &package.widgets,
+                    request.args.unwrap_or(Value::Null),
+                ) {
+                    Ok(items) => {
+                        let count = items.len();
+                        set_plugin_widgets(&app, &session.plugin_id, items);
+                        resolver.resolve(json!({ "published": count }))
+                    }
+                    Err(error) => {
+                        log_bridge(&app, &session.plugin_id, operation, &error);
+                        resolver.reject(error);
                     }
                 }
             }

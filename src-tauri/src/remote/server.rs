@@ -414,7 +414,9 @@ pub(crate) fn sync_customization(
     state.app_order = config.order.clone();
     remote.app_order.send_replace(config.order.clone());
     if let Some(appearance) = &mut state.appearance {
-        if let Some(theme) = appearance
+        if let Some(custom) = &config.appearance {
+            appearance.theme = custom.id.clone();
+        } else if let Some(theme) = appearance
             .themes
             .iter()
             .find(|theme| theme.id == config.theme)

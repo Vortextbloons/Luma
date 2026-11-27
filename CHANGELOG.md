@@ -35,6 +35,7 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 - **Expanded sports & prediction markets**: Live scores, game cards, and streaming shortcuts for College Football (CFB), NCAA Men's Basketball, NCAA Women's Basketball, and the WNBA, alongside live game badge contributions from plugins like Kalshi sports prediction markets.
 - **Live sports prediction odds**: Event cards, the featured hero matchup, and game detail dialogs display live probability odds and visual comparison bars contributed by plugin badges (such as Kalshi prediction markets) alongside live scores and stream links.
 - **Plugin runtime log inspection**: View real-time plugin stdout, stderr, and lifecycle diagnostic logs directly within Settings to troubleshoot and verify sandboxed background and UI plugins.
+- **Appearance plugins and Apple TV Look**: Plugins can contribute validated palettes and bounded shell design tokens over Luma's existing theme system. A bundled, off-by-default Apple TV Look adds a frosted sidebar, cinematic type, and grayscale focus throughout the desktop UI.
 - **Plugin SDK sports event badges**: Added `luma.sports.onEventBadges()` and `luma.sports.setBadges()` to the Plugin SDK, enabling plugins to contribute live game badges, odds, and metadata.
 
 #### Changed

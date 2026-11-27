@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import luma from '../../assets/luma.png';
   import { slideIndicator } from '../services/motion';
   import { connectedControllers, controllerActions, controllerButtonLabel, controllerFamily } from '../services/controller';
   import type { Settings } from '../types';
@@ -96,6 +97,10 @@
 {/snippet}
 
 <header class="topbar">
+  <div class="sidebar-brand" aria-hidden="true">
+    <img src={luma} alt="" />
+    <strong>Luma</strong>
+  </div>
   <form class="nav-search" role="search" onsubmit={search}>
     <svg class="nav-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
     <input id="movie-search" type="search" bind:value={searchQuery} placeholder="Search titles, teams, or leagues" aria-label="Search all sources" autocomplete="off" spellcheck="false" />

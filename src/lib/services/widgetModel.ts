@@ -84,7 +84,7 @@ export const presenceLabels: Record<WidgetPresence, string> = {
   idle: 'When idle',
 };
 
-export const widgetCatalog: WidgetMeta[] = [
+export const builtinWidgetCatalog: WidgetMeta[] = [
   {
     type: 'spotify',
     name: 'Now playing',
@@ -131,6 +131,12 @@ export const widgetCatalog: WidgetMeta[] = [
     maxInstances: 8,
   },
 ];
+
+export const widgetCatalog: WidgetMeta[] = [...builtinWidgetCatalog];
+
+export function setPluginWidgets(widgets: WidgetMeta[]) {
+  widgetCatalog.splice(0, widgetCatalog.length, ...builtinWidgetCatalog, ...widgets);
+}
 
 export function widgetMeta(type: string): WidgetMeta | undefined {
   return widgetCatalog.find(widget => widget.type === type);

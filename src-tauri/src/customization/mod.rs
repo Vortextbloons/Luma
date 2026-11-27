@@ -258,9 +258,11 @@ impl Store {
             return Ok(None);
         };
         let effective = plugin::snapshot_for_connection(&connection, &document)?;
+        let mut plugins = plugin::state(&connection, &document.config)?;
+        plugin::populate_icons(self, &mut plugins);
         Ok(Some(Snapshot {
             document: effective,
-            plugins: plugin::state(&connection, &document.config)?,
+            plugins,
         }))
     }
 
@@ -517,6 +519,7 @@ impl Store {
         requested.app_tile_shape = defaults.app_tile_shape;
         requested.text_size = defaults.text_size;
         requested.reduced_motion = defaults.reduced_motion;
+        requested.appearance = None;
         requested.home_columns = defaults.home_columns;
         requested.home = defaults.home;
         requested.widgets = defaults.widgets;
@@ -963,8 +966,14 @@ pub async fn customization_initialize(
 ) -> Result<Document, Error> {
     tauri::async_runtime::spawn_blocking(move || {
         let document = app.state::<Store>().initialize(config)?;
-        publish(&app, &document);
-        effective(&app, document)
+        let store = app.state::<Store>();
+        let _ = plugin::seed_bundled(&store);
+        let effective = store
+            .snapshot()?
+            .map(|snapshot| snapshot.document)
+            .unwrap_or(document);
+        publish(&app, &effective);
+        Ok::<_, Error>(effective)
     })
     .await
     .map_err(|error| Error::new("storage", error))?
@@ -1119,6 +1128,29 @@ pub async fn customization_plugin_disable(
         let notify = app.clone();
         plugin::command_disable(&app.state::<Store>(), &plugin_id, expected_revision)?;
         crate::extension_spike::invalidate(&notify, &plugin_id);
+        if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
+            publish(&app, &snapshot.document);
+        }
+        plugin::state_for_app(&app)
+    })
+    .await
+    .map_err(|error| Error::new("storage", error))?
+}
+
+#[tauri::command]
+pub async fn customization_plugin_toggle(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    expected_revision: u64,
+    enabled: bool,
+) -> Result<plugin::PluginsState, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin::command_toggle_builtin(
+            &app.state::<Store>(),
+            &plugin_id,
+            expected_revision,
+            enabled,
+        )?;
         if let Ok(Some(snapshot)) = app.state::<Store>().snapshot() {
             publish(&app, &snapshot.document);
         }
@@ -1911,6 +1943,7 @@ mod tests {
             "reducedMotion",
             "interfaceSounds",
             "soundLevel",
+            "appearance",
         ] {
             raw_config.remove(field);
         }
@@ -1990,6 +2023,7 @@ mod tests {
                 "reducedMotion",
                 "interfaceSounds",
                 "soundLevel",
+                "appearance",
             ] {
                 value_config.remove(field);
             }
