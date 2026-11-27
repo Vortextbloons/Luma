@@ -204,6 +204,12 @@ fn remote_authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<(), 
     }
     authorized(app, headers)
 }
+fn display_authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> Result<bool, StatusCode> {
+    if authorized(app, headers).is_ok() {
+        return Ok(true);
+    }
+    phone_authorized(app, headers).map(|_| false)
+}
 fn rotate_display(saved: &Saved) -> Result<Saved, String> {
     Ok(Saved {
         enabled: saved.enabled,
@@ -454,9 +460,12 @@ async fn phone_playback(
     payload: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     if payload.is_some() {
-        same_origin(&headers)?;
+        if !display_authorized(&app, &headers)? {
+            same_origin(&headers)?;
+        }
+    } else {
+        display_authorized(&app, &headers)?;
     }
-    phone_authorized(&app, &headers)?;
     let position = match payload {
         Some(Json(value)) => Some(
             value
@@ -535,8 +544,9 @@ async fn phone_setting(
     headers: HeaderMap,
     Json(request): Json<SettingRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    same_origin(&headers)?;
-    phone_authorized(&app, &headers)?;
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
     server::change_setting(&app, request.key, request.value)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Json(serde_json::json!({"accepted": true})))
@@ -547,8 +557,9 @@ async fn phone_layout(
     headers: HeaderMap,
     Json(request): Json<LayoutRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    same_origin(&headers)?;
-    phone_authorized(&app, &headers)?;
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
     if request.order.len() > 32 || request.order.iter().any(|name| name.len() > 64) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -561,7 +572,7 @@ async fn phone_panels(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    phone_authorized(&app, &headers)?;
+    display_authorized(&app, &headers)?;
     server::phone_panels(&app)
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
@@ -580,8 +591,9 @@ async fn phone_panel_action(
     headers: HeaderMap,
     Json(request): Json<PanelActionRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    same_origin(&headers)?;
-    phone_authorized(&app, &headers)?;
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
     server::phone_panel_action(&app, request.id, request.action, request.version)
         .await
         .map(Json)
@@ -609,7 +621,7 @@ async fn phone_music_art(
     State(app): State<tauri::AppHandle>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    phone_authorized(&app, &headers)?;
+    display_authorized(&app, &headers)?;
     let (content_type, bytes) = crate::integrations::spotify::windows_media::current_artwork(&app)
         .ok_or(StatusCode::NOT_FOUND)?;
     Response::builder()
@@ -806,8 +818,9 @@ async fn remote_search(
     headers: HeaderMap,
     Json(request): Json<TextRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    phone_authorized(&app, &headers)?;
-    same_origin(&headers)?;
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
     let text = request.text.trim();
     if text.is_empty() || text.len() > 1024 || text.chars().any(char::is_control) {
         return Err(StatusCode::BAD_REQUEST);
@@ -824,6 +837,24 @@ async fn remote_search(
         "youtubeUnavailable": videos.is_err(), "sportsUnavailable": sports_html.is_err() && stream_east.is_err()})))
 }
 
+async fn display_search(
+    State(app): State<tauri::AppHandle>,
+    headers: HeaderMap,
+    Json(request): Json<TextRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
+    let text = request.text.trim();
+    if text.is_empty() || text.len() > 1024 || text.chars().any(char::is_control) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    crate::remote::display_search::search(&app, text.to_string())
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 enum SearchTarget {
@@ -837,8 +868,9 @@ enum SearchTarget {
 async fn remote_search_open(
     State(app): State<tauri::AppHandle>, headers: HeaderMap, Json(target): Json<SearchTarget>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    phone_authorized(&app, &headers)?;
-    same_origin(&headers)?;
+    if !display_authorized(&app, &headers)? {
+        same_origin(&headers)?;
+    }
     server::wake(&app).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let result = match target {
         SearchTarget::Movie { id } => crate::commands::stremio::stremio_open(app.clone(), app.state::<crate::commands::stremio::Stremio>(), Some(id), Some("movie".into())).await,
@@ -958,6 +990,14 @@ async fn start(app: &tauri::AppHandle) -> Result<(), String> {
         .route("/text", post(remote_text))
         .route("/phone/search", post(remote_search))
         .route("/phone/search/open", post(remote_search_open))
+        .route("/display/search", post(display_search))
+        .route("/display/search/open", post(remote_search_open))
+        .route("/display/playback", get(phone_playback).post(phone_playback))
+        .route("/display/settings", post(phone_setting))
+        .route("/display/layout", post(phone_layout))
+        .route("/display/panels", get(phone_panels))
+        .route("/display/panels/action", post(phone_panel_action))
+        .route("/display/music/art", get(phone_music_art))
         .route("/apps", get(apps_list))
         .route("/apps/{command}/icon", get(app_icon))
         .layer(DefaultBodyLimit::max(4096))

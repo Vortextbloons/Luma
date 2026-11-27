@@ -1,5 +1,7 @@
 # Display Box and web remote surfaces for customization
 
+> **Update 2026-11-24:** Display Box's TV Remote now uses frame-authenticated `/display/*` routes for Luma settings, app order, playback timeline, plugin panels, search and album art, plus native settings, search, panels, app order, offline retry and appearance following. See the Display Box working tree's `docs/project-status.md` for verification limits. The assessment below records the earlier state and the still-open surface/plugin architecture questions.
+
 Status: planning document, no application code written. Assessed 2026-11-15 against the shared Luma working tree and the Display Box working tree. Both trees had uncommitted changes from other agents at assessment; facts below describe those working trees, not committed `HEAD`, and line references reflect the tree at assessment. Display Box was inspected read-only: no device commands, no builds, no writes there.
 
 This document covers one connected question: how the customization layers reach the two non-TV surfaces — the native Android frame (Display Box) and the browser web remote — without turning either into a general-purpose extension host. Layer names follow the canonical [customization layers](CUSTOMIZATION-LAYERS.md) map; where this document needs to say what a layer means for a display, it does, and otherwise defers to that map rather than redefining it.
