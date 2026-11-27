@@ -3,7 +3,8 @@ import type { AppId, Settings, WidgetPlacement } from '../types';
 import { defaultHomeRows, legacyHomeRows, sanitizeHomeRows } from '../services/home';
 import { resolveThemeId, themeById, applyTheme, appearanceFor } from '../services/theme';
 import { setSoundSettings } from '../services/sound';
-import { native, setFastAppSwitch } from '../services/tauri';
+import { defaultControllerBinds, sanitizeControllerBinds } from '../services/controller';
+import { native, setControllerHome, setFastAppSwitch } from '../services/tauri';
 import {
   createCustomizationSync, customizationConfig,
   type CustomizationDocument, type CustomizationPreview, type HomeDraft,
@@ -31,6 +32,9 @@ function defaultSettings(): Settings {
     soundLevel: 'standard',
     textSize: 'standard',
     reducedMotion: false,
+    smoothAppHover: true,
+    controllerEnabled: true,
+    controllerBinds: defaultControllerBinds(),
     home: defaultHomeRows(),
     homeColumns: 1,
     widgets: { spotify: { enabled: true, placement: 'bar', visibility: 'available', position: null } },
@@ -58,6 +62,9 @@ function readSettings() {
       if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
       if (data.textSize === 'large' || data.textSize === 'larger') value.textSize = data.textSize;
       value.reducedMotion = data.reducedMotion === true;
+      if (typeof data.smoothAppHover === 'boolean') value.smoothAppHover = data.smoothAppHover;
+      if (typeof data.controllerEnabled === 'boolean') value.controllerEnabled = data.controllerEnabled;
+      if (data.controllerBinds !== undefined) value.controllerBinds = sanitizeControllerBinds(data.controllerBinds);
       value.home = sanitizeHomeRows(data.home) ?? legacyHomeRows(data.sections);
       if (data.homeColumns === 2) value.homeColumns = 2;
       for (const id of executable) if (typeof data.paths?.[id] === 'string') value.paths[id] = data.paths[id];
@@ -148,6 +155,9 @@ class SettingsStore {
         if (native) void setFastAppSwitch(this.value.fastAppSwitch).catch(error => this.notice = String(error));
       });
       $effect(() => {
+        if (native) void setControllerHome(this.value.controllerEnabled, this.value.controllerBinds.home).catch(() => {});
+      });
+      $effect(() => {
         if (native) this.sync.update(customizationConfig(this.value));
       });
       $effect(() => {
@@ -164,7 +174,8 @@ class SettingsStore {
         homeShortcut: this.value.homeShortcut, shortcutVersion: 1, theme: this.value.theme,
         density: this.value.density, appTileShape: this.value.appTileShape, fullscreen: this.value.fullscreen,
         fastAppSwitch: this.value.fastAppSwitch, interfaceSounds: this.value.interfaceSounds,
-        soundLevel: this.value.soundLevel, textSize: this.value.textSize, reducedMotion: this.value.reducedMotion,
+        soundLevel: this.value.soundLevel, textSize: this.value.textSize, reducedMotion: this.value.reducedMotion, smoothAppHover: this.value.smoothAppHover,
+        controllerEnabled: this.value.controllerEnabled, controllerBinds: this.value.controllerBinds,
         home: this.value.home, homeColumns: this.value.homeColumns, widgets: this.value.widgets, order: this.value.order,
       }));
     } catch { this.notice = 'Preferences could not be saved. Free some local storage and try again.'; }

@@ -15,6 +15,7 @@
     trackingEnabled: boolean;
     order: AppId[];
     launching: AppId | null;
+    smoothAppHover?: boolean;
     catalogVisible: boolean;
     youTubeFeed: YouTubeFeedItem[];
     previewMusic: MusicCardItem[];
@@ -75,6 +76,8 @@
   import { smoothHeight } from '../services/motion';
   import { preserveHomeFocus } from '../services/navigation';
   let { rows, data, actions, columns = 1 }: { rows: HomeRow[]; data: HomeData; actions: HomeActions; columns?: 1 | 2 } = $props();
+  const smoothHover = $derived(data.smoothAppHover ?? true);
+  const appClass = (id: AppId) => id.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '-');
   const registry: Record<HomeRowId, Snippet<[boolean]>> = { hero, continue: continuing, apps, popular, featured, recent, recentApps };
   const visible = $derived(rows.filter(row => row.visible));
   const leading = $derived(visible[0]?.component === 'hero' ? visible[0] : null);
@@ -95,24 +98,31 @@
 {/snippet}
 
 {#snippet continuing()}
-  {#if data.previewLeague}
-    {#key data.previewLeague}
-      <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} watch={actions.watchLeagueGame} onpreview={actions.previewLeagueGame} />
-    {/key}
-  {:else if data.previewApp === 'Stremio'}
-    <div class="view-swap"><StremioRow title="Recently watched on Stremio" items={data.stremioRecent.slice(0, 4)} open={actions.openStremio} connected={data.stremio?.connected ?? false} connect={actions.openStremioPairing} onpreview={actions.previewStremio} cinematic /></div>
-  {:else if data.previewApp === 'Steam' && data.steamGames.length}
-    <div class="view-swap"><SteamRow items={data.steamGames} open={actions.openSteamGame} onpreview={actions.previewSteamGame} /></div>
-  {:else if data.previewApp !== 'Steam'}
-    <ContinueWatching items={data.activityItems} trackingEnabled={data.trackingEnabled} onopen={actions.openItem} focusProvider={data.previewApp ? appProviders[data.previewApp] : null} onpreview={actions.previewActivityItem} />
-  {/if}
+  <div class={['app-continue-shelf', smoothHover && 'is-smooth', smoothHover && data.previewApp && appClass(data.previewApp)]}>
+    {#if data.previewLeague}
+      {#key data.previewLeague}
+        <div class={smoothHover ? 'preview-swap' : undefined}>
+          <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} watch={actions.watchLeagueGame} onpreview={actions.previewLeagueGame} />
+        </div>
+      {/key}
+    {:else if data.previewApp === 'Stremio'}
+      <div class={smoothHover ? 'preview-swap' : 'view-swap'}><StremioRow title="Recently watched on Stremio" items={data.stremioRecent.slice(0, 4)} open={actions.openStremio} connected={data.stremio?.connected ?? false} connect={actions.openStremioPairing} onpreview={actions.previewStremio} cinematic /></div>
+    {:else if data.previewApp === 'Steam' && data.steamGames.length}
+      <div class={smoothHover ? 'preview-swap' : 'view-swap'}><SteamRow items={data.steamGames} open={actions.openSteamGame} onpreview={actions.previewSteamGame} /></div>
+    {:else if data.previewApp !== 'Steam'}
+      <div class={smoothHover ? 'preview-swap' : undefined}>
+        <ContinueWatching items={data.activityItems} trackingEnabled={data.trackingEnabled} onopen={actions.openItem} focusProvider={data.previewApp ? appProviders[data.previewApp] : null} onpreview={actions.previewActivityItem} />
+      </div>
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet apps()}
-  <AppDock order={data.order} launch={actions.launch} launching={data.launching} preview={actions.preview} active={data.previewApp} />
+  <AppDock order={data.order} launch={actions.launch} launching={data.launching} preview={actions.preview} active={data.previewApp} {smoothHover} />
   {#if data.previewApp && data.catalogVisible && !data.previewLeague}
-    {#key data.previewApp}
-      <div class="view-swap">
+    <div class={['app-preview-shelf', smoothHover && `is-smooth ${appClass(data.previewApp)}`]}>
+      {#key data.previewApp}
+        <div class={smoothHover ? 'preview-swap' : 'view-swap'}>
         {#if data.previewApp === 'YouTube' && data.youTubeFeed.length}
           <VideoRow items={data.youTubeFeed} open={actions.openYouTubeItem} onpreview={actions.previewVideo} />
         {:else if data.previewApp === 'Spotify' && data.previewMusic.length}
@@ -126,8 +136,9 @@
         {:else}
           <section class="content-row" aria-label={`${data.previewApp} recommendations`}><div class="row-heading"><h2>From {data.previewApp === 'Custom' ? 'your custom app' : data.previewApp}</h2></div><div class="activity-empty"><strong>{data.previewApp === 'Spotify' && data.musicLoading ? 'Loading your music...' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'No recommendations right now' : 'No games to continue') : 'No recommendations available yet'}</strong><span>{data.previewApp === 'YouTube' ? 'Open YouTube to load its recommendations.' : data.previewApp === 'Steam' ? (data.steamGames.length ? 'Steam recommendations could not load. Check your connection and hover Steam again.' : 'Play a game through Steam, then hover Steam here again to see it.') : 'Content from this app will appear here when available.'}</span><button class="text-link" onclick={() => data.previewApp && actions.launch(data.previewApp)}>Open {data.previewApp === 'Custom' ? 'custom app' : data.previewApp}</button></div></section>
         {/if}
-      </div>
-    {/key}
+        </div>
+      {/key}
+    </div>
   {/if}
 {/snippet}
 

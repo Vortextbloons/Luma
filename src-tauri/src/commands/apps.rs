@@ -161,7 +161,7 @@ pub struct DetectedApp {
     path: Option<String>,
 }
 
-fn validate(path: &str) -> Result<PathBuf, String> {
+pub(crate) fn validate(path: &str) -> Result<PathBuf, String> {
     let value = Path::new(path);
     if path.starts_with(r"\\")
         || !value.is_absolute()

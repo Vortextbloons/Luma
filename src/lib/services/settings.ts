@@ -1,7 +1,7 @@
 import type { Settings } from '../types';
 import { defaultThemeId, themes } from './theme';
 
-export type ChoiceKey = 'theme' | 'density' | 'appTileShape' | 'textSize' | 'reducedMotion' | 'interfaceSounds' | 'soundLevel';
+export type ChoiceKey = 'theme' | 'density' | 'appTileShape' | 'textSize' | 'reducedMotion' | 'smoothAppHover' | 'interfaceSounds' | 'soundLevel';
 export type SettingKind = 'choice' | 'toggle';
 export interface SettingChoice {
   key: ChoiceKey;
@@ -18,6 +18,7 @@ export const settingChoices: SettingChoice[] = [
   { key: 'density', group: 'Layout', section: 'layout', kind: 'choice', label: 'Layout density', description: 'Compact fits more rows on screen.', options: [{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }] },
   { key: 'textSize', group: 'Layout', section: 'layout', kind: 'choice', label: 'Text size', description: 'Scales text and controls for easier reading from the sofa.', options: [{ value: 'standard', label: 'Standard' }, { value: 'large', label: 'Large' }, { value: 'larger', label: 'Extra large' }] },
   { key: 'reducedMotion', group: 'Layout', section: 'layout', kind: 'toggle', label: 'Reduce motion', description: 'Turns off screen transitions and animated height changes.', options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }] },
+  { key: 'smoothAppHover', group: 'Layout', section: 'layout', kind: 'toggle', label: 'Improve app hover', description: 'Waits briefly before switching app previews on hover, animates the active dock indicator, and fades preview tiles in.', options: [{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }] },
   { key: 'interfaceSounds', group: 'Sound', section: 'sound', kind: 'choice', label: 'Sound set', description: 'Feedback for focus, select, back, and app launch.', options: [{ value: 'real', label: 'Real hardware' }, { value: 'google', label: 'Google TV' }, { value: 'roku', label: 'Roku' }, { value: 'off', label: 'Off' }] },
   { key: 'soundLevel', group: 'Sound', section: 'sound', kind: 'choice', label: 'Sound level', description: 'Standard is tuned for a quiet room.', options: [{ value: 'soft', label: 'Soft' }, { value: 'standard', label: 'Standard' }, { value: 'loud', label: 'Loud' }] },
 ];
@@ -27,6 +28,7 @@ const defaults: Record<ChoiceKey, string | boolean> = {
   appTileShape: 'wide',
   textSize: 'standard',
   reducedMotion: false,
+  smoothAppHover: true,
   interfaceSounds: 'real',
   soundLevel: 'standard',
 };

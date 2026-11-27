@@ -9,6 +9,7 @@
   import ViewingSettings from './ViewingSettings.svelte';
   import TvSettings from './TvSettings.svelte';
   import FramePairing from './FramePairing.svelte';
+  import ControllerSettings from './ControllerSettings.svelte';
   import StremioIntegration from './StremioIntegration.svelte';
   import SpotifyIntegration from './spotify/SpotifyIntegration.svelte';
   import ActivitySettings from './activity/ActivitySettings.svelte';
@@ -26,9 +27,10 @@
   import type { HomeDraft } from '../services/customization';
   import type { PluginsState } from '../services/plugins';
   import type { ActivityState } from '../state/activity.svelte';
+  import type { SteamState } from '../state/steam.svelte';
   import type { ExecutableAppId, MediaItem, Settings } from '../types';
 
-  let { settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, startCategory = 'Display', popular = [], featured = [], plugins = null, pluginsLoading = false, pluginsError = '', onpluginsreload = async () => {} }: {
+  let { settings = $bindable(), homeDraft = $bindable(null), revision = 0, onlayoutpreview, onlayoutrestore, native, close, fullscreen, savePaths, detect, message, activity, steam, oncontrollercapture, startCategory = 'Display', popular = [], featured = [], plugins = null, pluginsLoading = false, pluginsError = '', onpluginsreload = async () => {} }: {
     homeDraft?: HomeDraft | null;
     revision?: number;
     onlayoutpreview?: (draft: HomeDraft) => Promise<void>;
@@ -36,6 +38,8 @@
     message: string; detect: () => Promise<void>; settings: Settings; native: boolean; close: () => void;
     fullscreen: () => void; savePaths: () => Promise<void>;
     activity: ActivityState;
+    steam?: SteamState;
+    oncontrollercapture?: (handler: ((buttonIndex: number) => boolean) | null) => void;
     startCategory?: string;
     popular?: MediaItem[];
     featured?: MediaItem[];
@@ -128,7 +132,7 @@
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`.settings-section-tab[data-section="${id}"]`)?.focus());
   }
   function resetLayout() {
-    resetSettingChoices(settings, ['density', 'appTileShape', 'textSize', 'reducedMotion']);
+    resetSettingChoices(settings, ['density', 'appTileShape', 'textSize', 'reducedMotion', 'smoothAppHover']);
     resetNote = 'Layout size and motion reset. Home rows, widgets, and theme were not changed.';
   }
   function resetSound() {
@@ -147,6 +151,46 @@
   async function saveApps() {
     busy = true;
     try { await savePaths(); } finally { busy = false; }
+  }
+  let shortcutName = $state('');
+  let shortcutExe = $state('');
+  let shortcutDir = $state('');
+  let shortcutStatus = $state('');
+  let shortcutBusy = $state(false);
+  $effect(() => {
+    if (native && activeCategory.name === 'Apps & Services' && activeSection.id === 'apps') {
+      void steam?.loadShortcuts();
+    }
+  });
+  async function addSteamGame(event: SubmitEvent) {
+    event.preventDefault();
+    if (!steam || shortcutBusy) return;
+    shortcutBusy = true;
+    shortcutStatus = '';
+    try {
+      const added = await steam.addShortcut(shortcutName, shortcutExe, shortcutDir);
+      shortcutName = '';
+      shortcutExe = '';
+      shortcutDir = '';
+      shortcutStatus = `Added ${added.name} to Steam (working folder: ${added.startDir}).`;
+    } catch (error) {
+      shortcutStatus = error instanceof Error ? error.message : String(error);
+    } finally {
+      shortcutBusy = false;
+    }
+  }
+  async function removeSteamGame(appid: number, name: string) {
+    if (!steam || shortcutBusy) return;
+    shortcutBusy = true;
+    shortcutStatus = '';
+    try {
+      await steam.removeShortcut(appid);
+      shortcutStatus = `Removed ${name} from Steam shortcuts.`;
+    } catch (error) {
+      shortcutStatus = error instanceof Error ? error.message : String(error);
+    } finally {
+      shortcutBusy = false;
+    }
   }
   function mountPage(element: HTMLElement) { (element.querySelector<HTMLButtonElement>('.settings-category.selected') ?? element.querySelector<HTMLButtonElement>('button'))?.focus(); window.scrollTo(0, 0); }
   function mountContent(element: HTMLDivElement) { content = element; }
@@ -280,6 +324,32 @@
               <div class="settings-actions settings-actions-end"><button class="panel-secondary is-primary" disabled={!native || busy} onclick={saveApps}>Save app settings</button></div>
             </div>
           </details>
+          {#if steam}
+            <section class="settings-group">
+              <h3>Custom Steam games</h3>
+              <p class="panel-description">Add non-Steam .exe games to Steam's shortcuts so they appear in your Steam library and launch inside their own folder.</p>
+              <form class="steam-shortcut-form" onsubmit={addSteamGame}>
+                <label class="field app-path-field"><span class="app-path-label">Game .exe path</span><input bind:value={shortcutExe} placeholder="C:\Games\The Jackbox Party Pack 12\The Jackbox Party Pack 12.exe" spellcheck="false" required /></label>
+                <label class="field app-path-field"><span class="app-path-label">Game name (optional)</span><input bind:value={shortcutName} placeholder="Defaults to the .exe name" spellcheck="false" /></label>
+                <label class="field app-path-field"><span class="app-path-label">Start in folder (optional)</span><input bind:value={shortcutDir} placeholder="Defaults to the .exe's folder" spellcheck="false" /></label>
+                <div class="settings-actions"><button type="submit" class="panel-secondary is-primary" disabled={!native || shortcutBusy}>Add to Steam</button></div>
+              </form>
+              {#if shortcutStatus}<p role="status" class="panel-description">{shortcutStatus}</p>{/if}
+              {#if steam.shortcuts.length}
+                <div class="steam-shortcut-list">
+                  {#each steam.shortcuts as shortcut (shortcut.appid)}
+                    <div class="settings-row">
+                      <div class="settings-row-copy">
+                        <strong>{shortcut.name}</strong>
+                        <span>{shortcut.exe} · Start in: {shortcut.startDir || 'Default'}</span>
+                      </div>
+                      <button class="panel-secondary" disabled={!native || shortcutBusy} onclick={() => removeSteamGame(shortcut.appid, shortcut.name)}>Remove</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </section>
+          {/if}
         {:else if activeSection.id === 'accounts'}
           <SpotifyIntegration {native} />
           <StremioIntegration {native} />
@@ -292,6 +362,8 @@
             <p class="panel-description">Pair a phone or Display Box to control Luma from another screen. A phone remote can keep its own theme; layout, sound, and other choices apply to Luma.</p>
           </section>
           <FramePairing {native} />
+        {:else if activeSection.id === 'controller'}
+          <ControllerSettings bind:settings oncapturechange={oncontrollercapture} />
         {:else if activeSection.id === 'keyboard'}
           <section class="settings-group">
             <h3>Keyboard</h3>

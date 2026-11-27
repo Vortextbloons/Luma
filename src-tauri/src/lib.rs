@@ -1,6 +1,7 @@
 mod activity;
 mod background;
 mod commands;
+mod controller;
 mod credentials;
 mod customization;
 mod developer;
@@ -84,6 +85,7 @@ pub fn run() {
         .manage(server::Remote::default())
         .manage(remote::pointer::Pointer::default())
         .manage(frame::Frame::default())
+        .manage(controller::ControllerHome::default())
         .manage(youtube::Bridge::default())
         .manage(stremio::Stremio::default())
         .manage(spotify::player::Player::default())
@@ -127,6 +129,7 @@ pub fn run() {
                 tv::load(app.handle()).map_err(std::io::Error::other)?;
                 tv::shortcut(app.handle());
                 background::setup(app)?;
+                controller::start(app.handle().clone());
                 extension_spike::autostart(app.handle().clone());
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -219,6 +222,10 @@ pub fn run() {
             steam::steam_open_game,
             steam::steam_open_store,
             steam::steam_recommendations,
+            steam::steam_shortcuts,
+            steam::steam_add_shortcut,
+            steam::steam_remove_shortcut,
+            controller::set_controller_home,
             session::close_launched_app,
             apps::app_paths,
             apps::save_app_paths,

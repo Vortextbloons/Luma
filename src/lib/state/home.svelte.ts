@@ -238,7 +238,10 @@ export function createHome(options: {
       key: `steam:${game.appid}`,
       eyebrow: 'FROM STEAM',
       title: game.name,
-      chips: [{ label: 'Steam' }, { label: `${steamPlaytime(game.playtimeMinutes)} played` }],
+      chips: [
+        { label: 'Steam' },
+        { label: game.appid >= 0x80000000 ? 'Non-Steam game' : `${steamPlaytime(game.playtimeMinutes)} played` },
+      ],
       description: '',
       art: game.hero,
       primaryLabel: 'Continue playing',

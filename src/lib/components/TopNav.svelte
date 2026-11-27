@@ -2,8 +2,11 @@
   import { onMount } from 'svelte';
   import NetworkStatus from './NetworkStatus.svelte';
   import { slideIndicator } from '../services/motion';
-  import logo from '../../assets/luma.png';
-  let { active, navigate, settings, connect, fullscreen, toggle, viewing, switchDisplay }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void; viewing: () => void; switchDisplay: () => void } = $props();
+  let { active, navigate, settings, connect, fullscreen, toggle, viewing, switchDisplay, searchQuery = $bindable(''), onsearch }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void; viewing: () => void; switchDisplay: () => void; searchQuery?: string; onsearch: () => void } = $props();
+  function search(event: SubmitEvent) {
+    event.preventDefault();
+    onsearch();
+  }
   let clock = $state('');
   onMount(() => {
     const update = () => clock = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -17,9 +20,6 @@
   <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
     {#if tab === 'Home'}
       <path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" />
-    {:else if tab === 'Search'}
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m16 16 4 4" />
     {:else if tab === 'Sports'}
       <path d="M8 4h8v5a4 4 0 0 1-8 0z" />
       <path d="M8 5H5v2a3 3 0 0 0 3 3" />
@@ -44,10 +44,13 @@
 {/snippet}
 
 <header class="topbar">
-  <span class="brand"><img class="brand-image" src={logo} alt="" /> luma<span class="brand-sub">TV</span></span>
+  <form class="nav-search" role="search" onsubmit={search}>
+    <svg class="nav-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+    <input id="movie-search" type="search" bind:value={searchQuery} placeholder="Search titles, teams, or leagues" aria-label="Search all sources" autocomplete="off" spellcheck="false" />
+  </form>
   <nav class="nav-pill" aria-label="Main navigation" use:slideIndicator={{ key: active }}>
     <span class="nav-indicator" aria-hidden="true"></span>
-    {#each ['Home', 'Search', 'Sports', 'Library', 'Music', 'Apps'] as tab (tab)}
+    {#each ['Home', 'Sports', 'Music', 'Library', 'Apps'] as tab (tab)}
       <button id={tab === 'Home' ? 'home-button' : undefined} class={['nav-btn', { 'is-active': active === tab }]} aria-current={active === tab ? 'page' : undefined} onclick={() => navigate(tab)}>{@render navIcon(tab)}{tab}</button>
     {/each}
   </nav>

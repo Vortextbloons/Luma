@@ -1,6 +1,7 @@
 export type AppId = 'YouTube' | 'Steam' | 'Spotify' | 'Stremio' | 'Netflix' | 'Disney+' | 'Prime Video' | 'Apple TV+' | 'Hulu' | 'Max' | 'Peacock' | 'NBA' | 'NFL' | 'MLB' | 'NHL' | 'Custom';
 export type ExecutableAppId = Exclude<AppId, 'YouTube' | 'NBA' | 'NFL' | 'MLB' | 'NHL'>;
 export type NavigationCommand = 'up' | 'down' | 'left' | 'right' | 'activate' | 'back' | 'home';
+export type ControllerBinds = Record<NavigationCommand, number | null>;
 export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite' | 'onyx';
 export type SoundPreset = 'real' | 'google' | 'roku' | 'off';
 export type SoundLevel = 'soft' | 'standard' | 'loud';
@@ -21,6 +22,9 @@ export interface Settings {
   soundLevel: SoundLevel;
   textSize: TextSize;
   reducedMotion: boolean;
+  smoothAppHover: boolean;
+  controllerEnabled: boolean;
+  controllerBinds: ControllerBinds;
   home: HomeRow[];
   homeColumns: 1 | 2;
   widgets: Record<WidgetId, WidgetConfig>;
@@ -42,6 +46,7 @@ export interface StremioItem {
 }
 export interface YouTubeFeedItem { id: string; title: string }
 export interface SteamGame { appid: number; name: string; icon: string; hero: string; header: string; playtimeMinutes: number }
+export interface SteamShortcutInfo { appid: number; name: string; exe: string; startDir: string }
 export interface StremioLink { code: string; link: string; qr: string }
 export interface StremioStatus {
   connected: boolean; email: string | null; lastSync: number | null;

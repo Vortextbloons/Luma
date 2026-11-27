@@ -30,9 +30,10 @@ export const settingsCategories: SettingsCategory[] = [
   },
   {
     name: 'Remotes & Devices',
-    description: 'Phone pairing, Display Box, and the keyboard shortcut.',
+    description: 'Phone pairing, Display Box, controller binds, and the keyboard shortcut.',
     sections: [
       { id: 'remote', name: 'Remotes', description: 'Phone, Display Box, and connected devices.' },
+      { id: 'controller', name: 'Controller', description: 'Gamepad navigation and custom button binds.' },
       { id: 'keyboard', name: 'Keyboard', description: 'Return-home shortcut.' },
     ],
   },

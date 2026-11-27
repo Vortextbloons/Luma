@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { ActivitySnapshot, AppId, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, StremioStatus, YouTubeFeedItem } from '../types';
+import type { ActivitySnapshot, AppId, ExecutableAppId, NavigationCommand, OpenOutcome, SteamGame, SteamShortcutInfo, StremioStatus, YouTubeFeedItem } from '../types';
 
 export const native = isTauri();
 export const openSetupLink = (service: string) => invoke<void>('open_setup_link', { service });
@@ -9,6 +9,7 @@ export const closeLaunchedApp = () => invoke<void>('close_launched_app');
 export const quitLuma = () => invoke<void>('quit_app');
 export const hideToTray = () => invoke<void>('hide_to_tray');
 export const setFastAppSwitch = (enabled: boolean) => invoke<void>('set_fast_app_switch', { enabled });
+export const setControllerHome = (enabled: boolean, homeButton: number | null) => invoke<void>('set_controller_home', { enabled, homeButton });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
 export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
 export const searchYouTube = (query: string) => invoke<YouTubeFeedItem[]>('youtube_search', { query });
@@ -20,6 +21,9 @@ export const steamRecentGames = () => invoke<SteamGame[]>('steam_recent_games');
 export const steamStoreRecommendations = (appid: number) => invoke<SteamGame[]>('steam_recommendations', { appid });
 export const steamOpenGame = (appid: number) => invoke<void>('steam_open_game', { appid });
 export const steamOpenStore = (appid: number) => invoke<void>('steam_open_store', { appid });
+export const steamShortcuts = () => invoke<SteamShortcutInfo[]>('steam_shortcuts');
+export const steamAddShortcut = (name: string, exe: string, startDir?: string) => invoke<SteamShortcutInfo>('steam_add_shortcut', { name, exe, startDir: startDir || null });
+export const steamRemoveShortcut = (appid: number) => invoke<void>('steam_remove_shortcut', { appid });
 export const openActivity = (id: string, fullscreen: boolean) => invoke<OpenOutcome>('open_activity', { id, fullscreen });
 export const stremioStatus = () => invoke<StremioStatus>('stremio_status');
 export const stremioLinkStart = () => invoke<StremioStatus>('stremio_link_start');

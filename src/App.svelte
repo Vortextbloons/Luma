@@ -34,6 +34,7 @@
   import { createYouTube } from './lib/state/youtube.svelte';
   import { createHome } from './lib/state/home.svelte';
   import { createNavigation } from './lib/services/navigation';
+  import { createController } from './lib/services/controller';
   import { smoothHeight } from './lib/services/motion';
   import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
   import { setAppVisible } from './lib/services/visibility';
@@ -75,6 +76,7 @@
     },
   });
   let tab = $state('Home');
+  let searchReturn = $state('Home');
   let panel = $state(false);
   let settingsPanel = $state<{ consumeBack: () => boolean }>();
   let remotePairing = $state(false);
@@ -93,8 +95,10 @@
   let searching = $state(false);
   let searchStatus = $state('');
   let searchRequest = 0;
-  async function searchWatch(event: SubmitEvent) {
-    event.preventDefault();
+  async function submitSearch() {
+    if (layoutPreview) return;
+    if (tab !== 'Search') searchReturn = tab;
+    navigate('Search');
     await runSearch();
   }
   async function runSearch() {
@@ -168,6 +172,7 @@
   let previous: HTMLElement | null = null;
   let playerPrevious: HTMLElement | null = null;
   const navigation = createNavigation(back, home, () => settings.homeShortcut, playSound);
+  let controllerCapture: ((buttonIndex: number) => boolean) | null = null;
   const showHome = $derived(tab === 'Home');
   const heroSlides = $derived(homeState.heroSlides);
   const heroSource = $derived(homeState.heroSource);
@@ -247,6 +252,13 @@
     window.addEventListener('focus', restoreFocus);
     const cleanup: (() => void)[] = [];
     function track(stop: () => void) { if (disposed) stop(); else cleanup.push(stop); }
+    const controller = createController({
+      enabled: () => settings.controllerEnabled,
+      binds: () => settings.controllerBinds,
+      oncommand: command => navigation.dispatch(command),
+      oncapture: buttonIndex => controllerCapture?.(buttonIndex) ?? false,
+    });
+    track(() => controller.destroy());
     async function start() {
       if (!native) { message = 'Browser preview. Native app launching, fullscreen, web remote, and Spotify controls require the desktop app.'; navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); return; }
       try {
@@ -344,6 +356,7 @@
     else if (playerOpen) { void playSound('back'); if (!player?.closeOverlay()) closePlayer(); return; }
     else if (tab === 'Sports' && sportsHome?.closeDetail()) { void playSound('back'); return; }
     else if (tab === 'Music' && musicHome?.closeDetail()) { void playSound('back'); return; }
+    else if (tab === 'Search' && searchReturn !== 'Search') { void playSound('back'); navigate(searchReturn); requestAnimationFrame(() => document.querySelector<HTMLElement>('#movie-search')?.focus()); return; }
     else { void playSound('back'); home(); return; }
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
@@ -393,6 +406,15 @@
         return;
       }
     }
+    if (event.target instanceof HTMLInputElement && event.target.id === 'movie-search' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      const up = event.key === 'ArrowUp';
+      navigation.focus((up
+        ? document.querySelector<HTMLElement>('.nav-pill [aria-current="page"]') ?? document.querySelector<HTMLElement>('#home-button')
+        : document.querySelector<HTMLElement>('.view-content button, .view-content input, .view-content select, .view-content a[href]')
+      ) ?? undefined);
+      return;
+    }
     if (event.key === 'F11' && !event.repeat) { event.preventDefault(); void fullscreen(); return; }
     if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement) && !(event.target instanceof HTMLButtonElement) && !(event.target instanceof HTMLAnchorElement)) {
       event.preventDefault();
@@ -401,7 +423,7 @@
     }
     navigation.keydown(event);
   }
-  const tabOrder = ['Home', 'Search', 'Sports', 'Library', 'Music', 'Apps'];
+  const tabOrder = ['Home', 'Sports', 'Music', 'Library', 'Apps'];
   let previousTab = 0;
   function animateView(view: string) {
     const index = Math.max(0, tabOrder.indexOf(view));
@@ -619,9 +641,9 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
+  {#if panel}<SettingsPanel bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
   {:else}
-  <TopNav viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} />
+  <TopNav viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} bind:searchQuery={movieQuery} onsearch={submitSearch} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if (showHome || tab === 'Search') && homeState.error}
@@ -632,7 +654,7 @@
   {/if}
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
-      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading, homeCards: pluginHomeCards, pluginCardPending, pluginCardFailure }}
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, smoothAppHover: settings.smoothAppHover, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading, homeCards: pluginHomeCards, pluginCardPending, pluginCardFailure }}
       actions={{ openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie, openPluginCard, retryPluginCard }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
@@ -642,16 +664,11 @@
       <div><span class="eyebrow">ON THIS PC</span><h1>Apps</h1><p>Open your streaming apps and keep the ones you use most in reach.</p></div>
       <button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>
     </header>
-    <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} />
+    <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} smoothHover={settings.smoothAppHover} />
   {/if}
   {#if tab === 'Search'}
     <header class="page-head">
-      <div><span class="eyebrow">FIND YOUR NEXT WATCH</span><h1>{tab}</h1><p>Find movies, shows, videos, and sports. Open a result to watch.</p></div>
-      <form onsubmit={searchWatch} class="movie-search-field" role="search">
-        <svg class="movie-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-        <input id="movie-search" type="search" bind:value={movieQuery} placeholder="Search titles, teams, or leagues" aria-label="Search all sources" autocomplete="off" spellcheck="false" />
-        <button type="submit" class="movie-search-submit">Search</button>
-      </form>
+      <div><span class="eyebrow">FIND YOUR NEXT WATCH</span><h1>{submittedQuery ? 'Results' : 'Browse'}</h1><p>{submittedQuery ? `Results for “${submittedQuery}”. Open a result to watch.` : 'Search titles, teams, or leagues from the bar above, or browse what is popular.'}</p></div>
     </header>
     <section class="content-row" aria-label="Search status">
       <p class="movie-search-status" role="status">{searching ? 'Searching sources…' : searchStatus}</p>
