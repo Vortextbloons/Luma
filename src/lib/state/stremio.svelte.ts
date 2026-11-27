@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 class StremioStore {
   status = $state.raw<StremioStatus | null>(null);
   error = $state('');
-  private refreshing = false;
+  loading = $state(false);
   private syncedAt = 0;
 
   get recent() {
@@ -20,8 +20,8 @@ class StremioStore {
   }
 
   async refresh(sync = false) {
-    if (!native || this.refreshing) return this.status;
-    this.refreshing = true;
+    if (!native || this.loading) return this.status;
+    this.loading = true;
     try {
       this.status = await stremioStatus();
       if (sync && this.status.connected) {
@@ -32,13 +32,13 @@ class StremioStore {
     } catch (error) {
       this.error = String(error);
     } finally {
-      this.refreshing = false;
+      this.loading = false;
     }
     return this.status;
   }
 
   async refreshIfStale() {
-    if (this.refreshing || Date.now() - this.syncedAt < 60_000) return;
+    if (this.loading || Date.now() - this.syncedAt < 60_000) return;
     this.syncedAt = Date.now();
     await this.refresh(true);
   }

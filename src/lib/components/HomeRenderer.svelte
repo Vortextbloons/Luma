@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from '../types';
+  import type { ActivityItem, AppId, HomeRow, HomeRowId, MediaItem, SportsBadge, SteamGame, StremioItem, StremioStatus, YouTubeFeedItem } from '../types';
   import type { MusicCardItem } from '../types/spotify';
   import type { GameScore } from '../services/sportsScores';
   import type { PluginHomeCard, PluginHomeCardFailure } from '../services/plugins';
@@ -17,7 +17,10 @@
     launching: AppId | null;
     smoothAppHover?: boolean;
     catalogVisible: boolean;
-    youTubeFeed: YouTubeFeedItem[];
+    youTubeFeed: YouTubeFeedItem[] | null;
+    youTubeFailed?: boolean;
+    stremioError?: string;
+    stremioLoading?: boolean;
     previewMusic: MusicCardItem[];
     steamRecommendations: SteamGame[];
     steamRecommendationSource: SteamGame | null;
@@ -28,6 +31,14 @@
     previewLeague: AppId | null;
     leagueGames: GameScore[];
     leagueGamesLoading: boolean;
+    leagueGamesError?: string;
+    leagueHero?: {
+      game: GameScore;
+      artwork: string;
+      badge?: SportsBadge;
+      hideScores: boolean;
+    } | null;
+    sportsBadges?: SportsBadge[];
     homeCards: PluginHomeCard[];
     pluginCardPending: string | null;
     pluginCardFailure: PluginHomeCardFailure | null;
@@ -35,14 +46,16 @@
   export interface HomeActions {
     openStremio: (id: string) => void;
     openStremioPairing: () => void;
+    retryStremio: () => void;
     previewStremio: (item: StremioItem | null) => void;
     openSteamGame: (id: number) => void;
     previewSteamGame: (item: SteamGame | null) => void;
     openItem: (item: ActivityItem) => void;
     removeItem: (item: ActivityItem) => void;
     previewActivityItem: (item: ActivityItem | null) => void;
-    launch: (id: AppId) => void;
+    launch: (id: AppId, retryFeed?: boolean) => void;
     preview: (id: AppId) => void;
+    retryLeague?: (league: string) => void;
     watchLeagueGame: (game: GameScore) => void;
     previewLeagueGame: (game: GameScore | null) => void;
     openYouTubeItem: (id: string) => void;
@@ -61,6 +74,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import MovieHero from './MovieHero.svelte';
+  import SportsHero from './SportsHero.svelte';
   import BackdropRow from './BackdropRow.svelte';
   import EmptyState from './EmptyState.svelte';
   import VideoRow from './VideoRow.svelte';
@@ -83,11 +97,17 @@
   const visible = $derived(rows.filter(row => row.visible));
   const leading = $derived(visible[0]?.component === 'hero' ? visible[0] : null);
   const content = $derived((leading ? visible.slice(1) : visible).filter(row => {
-    if (row.component === 'hero') return data.heroSlides.length > 0;
+    if (row.component === 'hero') return Boolean(data.leagueHero) || data.heroSlides.length > 0;
     if (row.component === 'continue') return data.previewApp !== 'Steam' || data.steamGames.length > 0;
     if (row.component === 'popular' || row.component === 'featured') return !data.previewApp;
     return true;
   }));
+  function leagueClock(game: GameScore, hideScores: boolean) {
+    if (hideScores && game.state !== 'pre') return game.state === 'in' ? 'Live now' : 'Completed';
+    if (game.state !== 'pre') return game.status;
+    const date = new Date(game.date);
+    return Number.isNaN(date.getTime()) ? game.status : date.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  }
   const cardFailure = $derived.by(() => {
     const failure = data.pluginCardFailure;
     return failure && data.homeCards.some(card => card.id === failure.card.id) ? failure : null;
@@ -95,7 +115,31 @@
 </script>
 
 {#snippet hero(inset: boolean)}
-  {#if data.heroSlides.length}<MovieHero slides={data.heroSlides} sourceKey={data.heroSource} {inset} />{/if}
+  {#if data.leagueHero}
+    {@const heroGame = data.leagueHero.game}
+    {@const clock = leagueClock(heroGame, data.leagueHero.hideScores)}
+    <SportsHero
+      heroKey={`league:${heroGame.league}:${heroGame.id}`}
+      league={heroGame.league}
+      title={heroGame.teams.map(team => team.name).join(' vs ')}
+      subtitle={`${heroGame.venue || 'Your front row to the game.'}${heroGame.venue ? ` · ${clock}` : ''}`}
+      artwork={data.leagueHero.artwork}
+      isLive={heroGame.state === 'in'}
+      badge={data.leagueHero.badge}
+      teams={heroGame.teams.map(team => ({ name: team.name, abbreviation: team.abbreviation || team.name, logo: team.logo, score: team.score }))}
+      showScores={!data.leagueHero.hideScores && heroGame.state !== 'pre'}
+      {clock}
+      primaryLabel={heroGame.state === 'post' && !data.leagueHero.hideScores ? 'Final score' : 'Game details'}
+      onprimary={() => actions.watchLeagueGame(heroGame)}
+      secondaryLabel={`Open ${heroGame.league}`}
+      onsecondary={() => actions.launch(heroGame.league as AppId)}
+      focusKeyPrefix={`league:${heroGame.league}:${heroGame.id}`}
+      framed={!inset}
+      {inset}
+    />
+  {:else if data.heroSlides.length}
+    <MovieHero slides={data.heroSlides} sourceKey={data.heroSource} {inset} />
+  {/if}
 {/snippet}
 
 {#snippet previewOpenAction()}
@@ -107,11 +151,17 @@
     {#if data.previewLeague}
       {#key data.previewLeague}
         <div class={smoothHover ? 'preview-swap' : undefined}>
-          <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} loading={data.leagueGamesLoading} watch={actions.watchLeagueGame} onpreview={actions.previewLeagueGame} />
+          <LeagueGamesRow league={data.previewLeague} games={data.leagueGames} badges={data.sportsBadges ?? []} loading={data.leagueGamesLoading} error={data.leagueGamesError} retry={() => data.previewLeague && actions.retryLeague?.(data.previewLeague)} watch={actions.watchLeagueGame} onpreview={actions.previewLeagueGame} />
         </div>
       {/key}
     {:else if data.previewApp === 'Stremio'}
+      {#if !data.stremioRecent.length && data.stremioError}
+        <EmptyState title="Stremio history could not load" actions={retryStremio} />
+      {:else if !data.stremioRecent.length && data.stremioLoading}
+        <EmptyState title="Loading Stremio history" role="status" />
+      {:else}
       <div class={smoothHover ? 'preview-swap' : 'view-swap'}><StremioRow title="Recently watched on Stremio" items={data.stremioRecent.slice(0, 4)} open={actions.openStremio} connected={data.stremio?.connected ?? false} connect={actions.openStremioPairing} onpreview={actions.previewStremio} cinematic /></div>
+      {/if}
     {:else if data.previewApp === 'Steam' && data.steamGames.length}
       <div class={smoothHover ? 'preview-swap' : 'view-swap'}><SteamRow items={data.steamGames} open={actions.openSteamGame} onpreview={actions.previewSteamGame} /></div>
     {:else if data.previewApp !== 'Steam'}
@@ -122,14 +172,25 @@
   </div>
 {/snippet}
 
+{#snippet retryStremio()}
+  <button class="btn btn-glass" onclick={actions.retryStremio}>Retry</button>
+{/snippet}
+
 {#snippet apps()}
   <AppDock order={data.order} launch={actions.launch} launching={data.launching} preview={actions.preview} active={data.previewApp} {smoothHover} />
   {#if data.previewApp && data.catalogVisible && !data.previewLeague}
     <div class={['app-preview-shelf', smoothHover && `is-smooth ${appClass(data.previewApp)}`]}>
       {#key data.previewApp}
         <div class={smoothHover ? 'preview-swap' : 'view-swap'}>
-        {#if data.previewApp === 'YouTube' && data.youTubeFeed.length}
+        {#if data.previewApp === 'YouTube' && data.youTubeFeed?.length}
           <VideoRow items={data.youTubeFeed} open={actions.openYouTubeItem} onpreview={actions.previewVideo} />
+        {:else if data.previewApp === 'YouTube' && data.youTubeFailed}
+          {#snippet retryYouTube()}<button class="btn btn-glass" onclick={() => actions.launch('YouTube', true)}>Retry</button>{/snippet}
+          <EmptyState title="YouTube recommendations could not load" description="Check your connection and reopen YouTube." actions={retryYouTube} />
+        {:else if data.previewApp === 'YouTube' && data.youTubeFeed}
+          <EmptyState title="No YouTube recommendations right now" actions={previewOpenAction} />
+        {:else if data.previewApp === 'Stremio' && data.stremioError}
+          <EmptyState title="Stremio library could not load" actions={retryStremio} />
         {:else if data.previewApp === 'Spotify' && data.previewMusic.length}
           <PlaylistRow title="Recently played on Spotify" items={data.previewMusic} empty="" kind="Track" onselect={actions.playMusic} onpreview={actions.previewMusicItem} />
         {:else if data.previewApp === 'Stremio' && data.stremio?.items.length}
@@ -169,7 +230,7 @@
 {/snippet}
 
 <div class="home-layout" {@attach preserveHomeFocus}>
-  {#if leading && data.heroSlides.length}
+  {#if leading && (data.leagueHero || data.heroSlides.length)}
     <div class="home-instance" data-home-instance={leading.id}>
       {@render registry[leading.component](false)}
     </div>

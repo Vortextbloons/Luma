@@ -63,7 +63,9 @@ pub fn run() {
     }
     if !developer_active {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !args.iter().any(|arg| arg == "--background") {
+            if args.iter().any(|arg| arg == "--sign-in") {
+                background::show_at_sign_in(app);
+            } else if !args.iter().any(|arg| arg == "--background") {
                 background::show(app);
             }
         }));
@@ -72,7 +74,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .args(["--background"])
+                .args(["--sign-in"])
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
@@ -220,6 +222,7 @@ pub fn run() {
             sound::play_startup_sound,
             background::launcher_ready,
             background::startup_enabled,
+            background::sleep_pc,
             background::open_setup_link,
             background::quit_app,
             background::hide_to_tray,

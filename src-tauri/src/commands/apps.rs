@@ -366,7 +366,7 @@ fn icon_path(value: &str) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn reg_text(
+pub(crate) fn reg_text(
     key: windows::Win32::System::Registry::HKEY,
     subkey: Option<&str>,
     name: Option<&str>,

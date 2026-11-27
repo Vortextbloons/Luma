@@ -35,7 +35,7 @@ The following are facts about the current checkout, recorded so later sections c
 - **Shipped.** Every route requires the bearer token, an exact `127.0.0.1:9878` Host header, and no `Origin` header; bodies are capped at 32 KiB and responses are `no-store` (`src-tauri/src/customization/server.rs:97`).
 - **Shipped.** Token holders can read, validate, preview, Keep, commit directly, restore, and cancel. There is no separate read-only or review-only credential. The documentation states this explicitly (`docs/CUSTOMIZATION-SERVER.md:26`).
 - **Shipped.** Routes are `/v1/config`, `/v1/validate`, `/v1/preview`, `/v1/preview/keep`, `/v1/preview/cancel`, and `/v1/restore` (`src-tauri/src/customization/server.rs:60`).
-- **Shipped.** A local MCP endpoint listens on `127.0.0.1:9879` when Luma runs and is enabled from Settings → MCP customization → AI access with a session token. It exposes read, validate, preview, plugin list/validate/disabled-stage, and plugin-settings-stage tools; no tool can keep or activate anything (`src-tauri/src/customization/mcp.rs`).
+- **Shipped.** A local MCP endpoint listens on `127.0.0.1:9879` when Luma runs and is enabled from Settings → Add-ons → AI access with a session token. It exposes read, validate, preview, plugin list/validate/disabled-stage, and plugin-settings-stage tools; no tool can keep or activate anything (`src-tauri/src/customization/mcp.rs`).
 
 ### Frontend, appearance, surfaces
 

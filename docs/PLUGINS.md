@@ -10,7 +10,7 @@ Import never runs code or install hooks. API v2 `isolated-ui` and `background` p
 
 Luma's own Theme, Home layout, and widgets are built into the app under **Settings → Appearance & Home**. They are not a plugin: they cannot be removed, and they stay usable when another plugin is disabled or broken. The old `Theme`, `Layout`, `Home layout`, and `Widgets` entry points resolve to those sections.
 
-**Settings → Plugins** imports, previews, enables, disables, exports, and removes packages. It holds only installed plugins. **Settings → MCP customization** remains the bottom category and owns AI access, saved versions, and reset.
+**Settings → Add-ons → Plugins** imports, previews, enables, disables, exports, and removes packages. AI access is a separate page under Add-ons. Saved versions and reset are under Appearance.
 
 ## Package format
 
@@ -173,7 +173,7 @@ If a user changes a field owned by an enabled plugin, Luma keeps their input, st
 ## Lifecycle
 
 1. **Import or MCP stage** validates the manifest and files, computes a SHA-256 content hash, installs the package under Luma-owned storage, and records it as disabled.
-2. **Preview and enable** is a user action in Settings → Plugins. Luma stages the effective appearance and Home candidate and shows the normal review overlay. The user presses **Keep and enable**.
+2. **Preview and enable** is a user action in Settings → Add-ons → Plugins. Luma stages the effective appearance and Home candidate and shows the normal review overlay. The user presses **Keep and enable**.
 3. **Disable** removes the plugin's contributions, stops its runtime, and revokes executable grants. The base appearance, Home, saved settings, and other plugins remain.
 4. **Update** requires a new version. Re-importing the same id and version with identical content is idempotent; changed content under the same version is rejected with `immutable_version`. A new version replaces the package, preserves declared setting values, and stays disabled until the user reviews it again. MCP staging refuses to replace an enabled package; the user must disable it in Settings first. Native Import may update it and disables it atomically for review.
 5. **Remove** deletes the package code and grants, stops its contributions/runtime, and writes a history checkpoint. Settings and local plugin data are kept for reinstalling by default; the confirmation offers an explicit delete option. Earlier history entries that referenced the package restore with a visible "not installed" or version-changed explanation and do not pretend the plugin is enabled.
@@ -194,10 +194,10 @@ The manifest author writes the schema and defaults. Luma validates values on wri
 ## Navigation and focus
 
 - **Appearance & Home** is Luma's own Settings category with **Theme**, **Home layout**, and **Widgets**. It is not a plugin and cannot be removed.
-- **Plugins** is a separate Settings category holding **Installed plugins**: import, enable, export, and remove. It sits directly above MCP customization.
+- **Add-ons → Plugins** manages installed plugins.
 - The old `Appearance & Home`, `Theme`, `Layout`, `Home layout`, and `Widgets` entry points open the matching Appearance & Home section.
 - The Appearance & Home sections render the existing theme, layout, widget, preview, restore, and reset controls exactly once.
-- The bottom **MCP customization** category keeps AI access, saved versions, and reset.
+- **Add-ons → AI access** manages MCP connections.
 - Back from a plugin review returns to Plugins. Cancel on a remove confirmation focuses Cancel. Import, action, busy, empty, error, disabled, and unsupported-runtime states are visible.
 - A plugin failure does not remove the Appearance & Home sections, Settings, recovery, or the MCP connection.
 
@@ -251,7 +251,7 @@ Before activation, Luma rejects absolute paths, `..`, backslashes, drive/UNC pat
 
 ## Executable lifecycle
 
-In Settings > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP development tools use the grant from the disposable instance. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
+In Settings > Add-ons > Plugins, choose **Review access**, review the package identity, exact permissions and network origins, and choose its trigger. **Allow and enable** persists an explicit grant. MCP development tools use the grant from the disposable instance. **Disable and revoke** stops the runtime and removes its grant while keeping settings.
 
 - API v2 `isolated-ui` uses `launcher-open`. API v3 Home packages use `on-demand`. **Open** in Settings shows either desktop surface after `surface.ready`.
 - `background` supports `launcher-open`, `startup`, and `always`. Launcher-open services stop when Luma hides to tray. Startup/always services can start without a launcher and continue in the tray until disabled or Luma exits.
@@ -272,7 +272,7 @@ A declarative API v1 package may declare `remote: { "title": "Music controls", "
 
 API v3 command panels use the same host-rendered foundation. The panel declares host labels and command references instead of playback actions. The web remote receives only the panel identity, title, label, and command identifier; it never receives package code, settings, or bridge credentials. v1 panels and playback-only panels keep their existing wire format.
 
-The importable [music remote example](../examples/plugins/com.example.music-remote/luma-extension.json) proves the declarative panel shape. The [weather example](../examples/plugins/com.example.weather/luma-extension.json) uses the generic executable bridge and its own location/unit settings. Zip a package folder's contents, then import the ZIP through Settings > Plugins. For example:
+The importable [music remote example](../examples/plugins/com.example.music-remote/luma-extension.json) proves the declarative panel shape. The [weather example](../examples/plugins/com.example.weather/luma-extension.json) uses the generic executable bridge and its own location/unit settings. Zip a package folder's contents, then import the ZIP through Settings > Add-ons > Plugins. For example:
 
 ```powershell
 luma-plugin pack examples\plugins\com.example.weather --out $env:TEMP

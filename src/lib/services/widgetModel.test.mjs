@@ -67,6 +67,9 @@ test('placement and style presets update every instance and clear custom positio
   applyStylePreset(widgets, 'cinematic');
   assert.equal(widgets.spotify.variant, 'cinematic');
   assert.equal(widgets.clock.variant, 'cinematic');
+  delete widgets.spotify;
+  applyPlacementPreset(widgets, 'dock');
+  assert.equal(widgets.clock.placement, 'rail-right');
 });
 
 test('adding widgets respects limits and gives each instance a stable id', () => {

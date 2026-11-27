@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Your entertainment, together.</strong><br />
-  A TV launcher for Windows. Control it from the couch with a keyboard or your phone.
+  A TV launcher for Windows. Control it from the couch with a game controller, keyboard, or phone.
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/home.webp" width="100%" alt="The Luma home screen: a featured movie hero above Continue Watching, the app dock, and rows of movie posters" />
+  <img src="docs/screenshots/home.webp" width="100%" alt="The Luma home screen: a featured movie above the app dock and catalog rows" />
   <br />
   <em>Featured picks, apps, catalogs, and unfinished titles on one home screen.</em>
 </p>
@@ -26,7 +26,7 @@
 
 Luma is a launcher, not another streaming stack. It reads what you already have on the PC and puts Netflix, Stremio, Plex, Spotify, and the rest behind one fullscreen UI you can drive from across the room.
 
-Open a service from the dock, pick something from Cinemeta, or resume what you left off. Arrow keys, Enter, and Back are enough. If you prefer, pair a phone on the same Wi-Fi and use it as a remote.
+Open a service from the dock, pick something from Cinemeta, or resume what you left off. Use a game controller or the keyboard, or pair a phone on the same Wi-Fi. On first launch, setup walks you through choosing a theme, pairing your phone, connecting services, and following leagues and teams.
 
 ## Design goals
 
@@ -39,13 +39,17 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 | | |
 | --- | --- |
 | Continue Watching | One row for in-progress films, episodes, and tracks from launches inside Luma plus YouTube, Spotify, Plex, Jellyfin, and Trakt. Stremio gets its own row after you link an account. |
-| App dock | Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, YouTube, Spotify, Stremio, and a custom tile. Luma detects installed desktop apps. Services without one open in a dedicated fullscreen browser window. |
+| App dock | Netflix, Disney+, Prime Video, Apple TV+, Hulu, Max, Peacock, YouTube, Spotify, Stremio, and a custom tile. Luma detects installed desktop apps and can launch Steam games and non-Steam shortcuts. Services without one open in a dedicated fullscreen browser window. |
 | Catalog browse | Popular and highly rated titles from Stremio's public Cinemeta feed: posters, ratings, runtime, description, and search, without starting another app first. |
 | Stremio account | Pair with a short device code, pull library and Continue Watching, open titles in Stremio's official web player inside Luma. |
 | Spotify | Playlists, saved albums, liked songs, search, device picking, and transport controls from the TV UI. |
 | Phone remote | Same Wi-Fi, scan the QR code to pair, add it to your phone's home screen, then control Luma with a D-pad or touchpad, playback, volume, and a separate apps screen. A Display Box frame can pair too. |
 | In-app control | While a launched app is focused, the remote can move the mouse and click inside it. Home returns you to Luma. |
-| TV layout | 10-foot typography, six themes, reorderable home rows and hero, a widget studio with placement, size, look, and presence presets (including the player and idle), drag-to-reorder app dock shared with both remotes, comfortable or compact density, text size and reduced motion, separate display and audio outputs. |
+| Game controllers | Navigate with Xbox, PlayStation, Nintendo, or generic controllers and customize button bindings in Settings. The Xbox Guide button can bring Luma back to the foreground from a fullscreen game. |
+| Sports | Follow leagues and teams, check schedules and live scores, and open available streams. Plugins can add matchup odds and badges. |
+| Multi Watch | Put two players side by side, on separate displays, or in a floating window, and choose which one the remote controls. |
+| TV layout | Nine built-in themes, reorderable home rows, shared app dock ordering, adjustable text size, and reduced motion. The widget studio configures widgets such as Clock for Home, the player, and idle screens. An ambient screensaver can show a clock while idle. |
+| Plugins | Install and manage plugins under Settings > Add-ons > Plugins. Plugins can add widgets, remote panels, and sports badges. |
 | Privacy | Local SQLite history, Credential Manager for secrets, remote bound to the local network. |
 | Tray and updates | System tray icon, optional login startup, single-instance lock, signed in-app updates. |
 
@@ -53,11 +57,17 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
 
 <p align="center">
   <img src="docs/screenshots/details.webp" width="49%" alt="A title details dialog over the home screen, with artwork, description, metadata, and an Open in Stremio action" />
-  <img src="docs/screenshots/settings.webp" width="49%" alt="Settings with Theme, Layout, and Widgets sections and the six theme cards" />
+  <img src="docs/screenshots/settings.webp" width="49%" alt="The eight Settings categories and nine theme choices" />
 </p>
 
 <p align="center">
-  <em>Title details and a theme picker, a few key presses from the home screen.</em>
+  <em>Title details and the Appearance settings.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/setup.webp" width="70%" alt="The first step of Luma setup, with theme choices and options to continue or skip setup" />
+  <br />
+  <em>First-run setup starts with a theme choice.</em>
 </p>
 
 ## Run it

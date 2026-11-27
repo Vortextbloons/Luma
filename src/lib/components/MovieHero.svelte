@@ -86,7 +86,7 @@
       <div class="hero-actions">
         <button data-focus-key={`${item.key}:primary`} class="btn btn-primary" onclick={item.primary}>
           {#if item.primaryIcon === 'open'}
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
+            <svg class="is-stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
           {:else}
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
           {/if}
@@ -268,6 +268,7 @@
     fill: currentColor;
     stroke: none;
   }
+  .hero-actions .btn svg.is-stroke,
   .hero-actions .btn-glass svg {
     fill: none;
     stroke: currentColor;

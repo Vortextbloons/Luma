@@ -157,7 +157,7 @@
   <div class="app-order-head">
     <div>
       <h3>App order</h3>
-      <p class="panel-description">Drag a row to move it, or focus Move and use the arrow keys. This order is shared with Home, the Display Box, and the web remote.</p>
+      <p class="panel-description">Set the order on Home, the Display Box, and the phone remote.</p>
     </div>
     <button class="panel-secondary app-order-reset" onclick={reset}>Reset order</button>
   </div>
@@ -220,7 +220,7 @@
           {#if app === 'YouTube' || app === 'Steam' || app === 'Stremio' || ['NBA', 'NFL', 'MLB', 'NHL'].includes(app)}
             <p class="app-order-note">{builtInNote(app)}</p>
           {:else if app !== 'Custom' && !settings.paths[app as ExecutableAppId]}
-            <p class="app-order-note">{app === 'Apple TV+' || app === 'Hulu' || app === 'Max' || app === 'Peacock' ? 'No program is needed. It opens in its own window.' : 'Choose this app under App locations if you use it.'}</p>
+            <p class="app-order-note">{app === 'Apple TV+' || app === 'Hulu' || app === 'Max' || app === 'Peacock' ? 'No program is needed. It opens in its own window.' : 'Set a location in Apps & Accounts → Installed apps.'}</p>
           {/if}
         </div>
         <div class="app-order-controls">

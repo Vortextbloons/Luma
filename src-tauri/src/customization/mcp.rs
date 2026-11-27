@@ -45,7 +45,7 @@ const PHONE_MANIFEST: &str = include_str!("../../templates/phone-command/luma-ex
 const PHONE_HTML: &str = include_str!("../../templates/phone-command/ui/index.html");
 const PHONE_SCRIPT: &str = include_str!("../../templates/phone-command/ui/main.js");
 const PHONE_STYLE: &str = include_str!("../../templates/phone-command/ui/style.css");
-const INSTRUCTIONS: &str = "Luma is a Windows TV launcher with an agent-first authoring contract for customization and plugins. Start with luma_capabilities_get, luma_plugins_list, and luma_status, then read the resource that matches the task. For customization, call luma_config_get, build a complete candidate, call luma_candidate_validate, then luma_candidate_preview; the user must press Keep in Luma. For a plugin, read luma://plugins/schema and one complete template from luma://plugins/templates/declarative, luma://plugins/templates/weather, or luma://plugins/templates/phone-command. Edit the template in your workspace and pass its submission object to luma_plugin_validate. luma_plugin_stage installs a package disabled for production review: declarative packages are then previewed and enabled by the user with Keep, while executable isolated-ui and background packages require the user to review their exact permissions, network origins, and trigger in Settings > Plugins before anything runs. For an executable draft, call luma_plugin_dev_start with the validated submission; it returns a sessionId and starts a disposable Luma profile with separate app data and grants. The draft stays disabled until the user approves access in the development window. Use luma_plugin_dev_invoke for a declared command, luma_plugin_dev_status for readiness and diagnostics, luma_plugin_dev_reload for the same session, and luma_plugin_dev_stop when finished. Development tools never change the production profile. No MCP tool can approve access, enable, keep, commit, disable, remove, export, restore, reset, launch, or execute a package in production. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
+const INSTRUCTIONS: &str = "Luma is a Windows TV launcher with an agent-first authoring contract for customization and plugins. Start with luma_capabilities_get, luma_plugins_list, and luma_status, then read the resource that matches the task. For customization, call luma_config_get, build a complete candidate, call luma_candidate_validate, then luma_candidate_preview; the user must press Keep in Luma. For a plugin, read luma://plugins/schema and one complete template from luma://plugins/templates/declarative, luma://plugins/templates/weather, or luma://plugins/templates/phone-command. Edit the template in your workspace and pass its submission object to luma_plugin_validate. luma_plugin_stage installs a package disabled for production review: declarative packages are then previewed and enabled by the user with Keep, while executable isolated-ui and background packages require the user to review their exact permissions, network origins, and trigger in Settings > Add-ons > Plugins before anything runs. For an executable draft, call luma_plugin_dev_start with the validated submission; it returns a sessionId and starts a disposable Luma profile with separate app data and grants. The draft stays disabled until the user approves access in the development window. Use luma_plugin_dev_invoke for a declared command, luma_plugin_dev_status for readiness and diagnostics, luma_plugin_dev_reload for the same session, and luma_plugin_dev_stop when finished. Development tools never change the production profile. No MCP tool can approve access, enable, keep, commit, disable, remove, export, restore, reset, launch, or execute a package in production. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
 const THEMES: [&str; 9] = [
     "violet-night",
@@ -1356,7 +1356,7 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                 Ok(state) => tool_success(json!({
                     "plugins": state.plugins,
                     "effective": state.effective,
-                    "enable": "Installed plugins start disabled. The user must open Luma > Settings > Plugins, preview the plugin, and press Keep to enable it.",
+                    "enable": "Installed plugins start disabled. The user must open Luma > Settings > Add-ons > Plugins, preview the plugin, and press Keep to enable it.",
                     "settingsReview": "Use luma_plugin_settings_stage to stage setting values. The user must press Keep.",
                     "development": "Use luma_plugin_dev_start for an executable draft. Development sessions are disposable, keep separate app data and grants, and require the user to approve access in the development window."
                 })),
@@ -1404,7 +1404,7 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                 if !package.manifest.runtime.kind.is_executable() {
                     return tool_failure(failure(
                         "plugin_unsupported",
-                        "Development sessions run only executable isolated-ui or background packages. Validate and stage a declarative package, then ask the user to preview and enable it in Settings > Plugins.",
+                        "Development sessions run only executable isolated-ui or background packages. Validate and stage a declarative package, then ask the user to preview and enable it in Settings > Add-ons > Plugins.",
                     ));
                 }
                 if let Err(error) = server.ensure_write(generation).await {
@@ -1417,7 +1417,7 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
                         result,
                         declared,
                         review,
-                        "Ask the user to review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. Use luma_plugin_dev_status to check readiness. MCP cannot approve access.",
+                        "Ask the user to review the draft in the Luma Development window: open Settings > Add-ons > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. Use luma_plugin_dev_status to check readiness. MCP cannot approve access.",
                     )),
                     Err(error) => tool_failure(error),
                 }
@@ -1503,7 +1503,7 @@ async fn call_tool(server: &McpServer, generation: u64, name: &str, arguments: V
             match server.stop_dev(&arguments.session_id).await {
                 Ok(result) => tool_success(with_next(
                     result,
-                    "The disposable development window closes. Call luma_plugin_stage with the final submission and ask the user to review the installed package in Settings > Plugins.",
+                    "The disposable development window closes. Call luma_plugin_stage with the final submission and ask the user to review the installed package in Settings > Add-ons > Plugins.",
                 )),
                 Err(error) => tool_failure(error),
             }
@@ -1669,9 +1669,9 @@ fn staging_review(package: &plugin::PreparedPackage) -> Value {
             Value::Null
         },
         "approval": if executable {
-            "The user must open Luma > Settings > Plugins, review the exact permissions, network origins, and trigger, then choose Allow and enable. MCP cannot approve access."
+            "The user must open Luma > Settings > Add-ons > Plugins, review the exact permissions, network origins, and trigger, then choose Allow and enable. MCP cannot approve access."
         } else {
-            "The user must open Luma > Settings > Plugins, preview the plugin, and press Keep. MCP cannot enable or keep it."
+            "The user must open Luma > Settings > Add-ons > Plugins, preview the plugin, and press Keep. MCP cannot enable or keep it."
         }
     })
 }
@@ -1692,7 +1692,7 @@ fn development_review(package: &plugin::PreparedPackage) -> Value {
         } else {
             json!("chosen by the user during access review")
         },
-        "approval": "The user must review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. This approval belongs only to the disposable session. MCP cannot approve access."
+        "approval": "The user must review the draft in the Luma Development window: open Settings > Add-ons > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. This approval belongs only to the disposable session. MCP cannot approve access."
     })
 }
 
@@ -1706,15 +1706,15 @@ fn staging_next(
     }
     if already_installed {
         return if package.manifest.runtime.kind.is_executable() {
-            "The same package is already installed and still disabled. Ask the user to review its exact permissions, network origins, and trigger in Luma > Settings > Plugins before enabling it.".into()
+            "The same package is already installed and still disabled. Ask the user to review its exact permissions, network origins, and trigger in Luma > Settings > Add-ons > Plugins before enabling it.".into()
         } else {
-            "The same package is already installed and still disabled. Ask the user to preview it and press Keep in Luma > Settings > Plugins.".into()
+            "The same package is already installed and still disabled. Ask the user to preview it and press Keep in Luma > Settings > Add-ons > Plugins.".into()
         };
     }
     if package.manifest.runtime.kind.is_executable() {
-        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, review its exact permissions, network origins, and trigger, then choose Allow and enable. No MCP tool can approve access or enable it.".into()
+        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Add-ons > Plugins, review its exact permissions, network origins, and trigger, then choose Allow and enable. No MCP tool can approve access or enable it.".into()
     } else {
-        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Plugins, preview the plugin, and press Keep. No MCP tool can enable or keep it.".into()
+        "Tell the user the plugin is installed but disabled. They must open Luma > Settings > Add-ons > Plugins, preview the plugin, and press Keep. No MCP tool can enable or keep it.".into()
     }
 }
 
@@ -1936,16 +1936,16 @@ fn action(code: &str) -> &'static str {
             "This tool can cancel only the preview created by the current agent grant. Ask the user to reject any other review in Luma."
         }
         "plugin_missing" => {
-            "Stage the plugin package first, or ask the user to import it in Settings > Plugins."
+            "Stage the plugin package first, or ask the user to import it in Settings > Add-ons > Plugins."
         }
         "plugin_enabled" => {
-            "Ask the user to disable the plugin in Luma > Settings > Plugins before staging an update. Do not try to bypass this."
+            "Ask the user to disable the plugin in Luma > Settings > Add-ons > Plugins before staging an update. Do not try to bypass this."
         }
         "plugin_conflict" => {
             "Another enabled plugin already controls one of these fields. Ask the user to disable or remove it, or choose different contributions."
         }
         "plugin_unsupported" => {
-            "Use an executable isolated-ui or background package for a development session. Declarative packages are staged and enabled by the user in Settings > Plugins. Report main-page limitations without claiming the package can run."
+            "Use an executable isolated-ui or background package for a development session. Declarative packages are staged and enabled by the user in Settings > Add-ons > Plugins. Report main-page limitations without claiming the package can run."
         }
         "plugin_runtime" => {
             "Use an executable package for a development session. Declarative packages are staged for user preview and Keep."
@@ -1960,7 +1960,7 @@ fn action(code: &str) -> &'static str {
             "That development session is not active. Call luma_plugin_dev_start again and use the returned sessionId."
         }
         "dev_approval" | "plugin_grant" | "plugin_denied" => {
-            "Ask the user to open the Luma Development window, review Settings > Plugins, and allow the exact access. Do not retry until the user approves."
+            "Ask the user to open the Luma Development window, review Settings > Add-ons > Plugins, and allow the exact access. Do not retry until the user approves."
         }
         "dev_command" | "plugin_command" => {
             "Use a command declared by the active package. Read luma_plugin_dev_status for the current declaration."
@@ -2165,7 +2165,7 @@ fn tool_list() -> Value {
             tool(
                 "luma_plugin_stage",
                 "Stage a Luma plugin as installed and disabled",
-                "Install a validated plugin package into Luma-owned storage with enabled set to false. This never enables, keeps, activates, or executes the plugin. The user must review it in Settings > Plugins.",
+                "Install a validated plugin package into Luma-owned storage with enabled set to false. This never enables, keeps, activates, or executes the plugin. The user must review it in Settings > Add-ons > Plugins.",
                 plugin_submission_schema(),
                 false
             ),
@@ -2519,7 +2519,7 @@ fn capabilities() -> Value {
                 "declarative": true,
                 "executable": true,
                 "homeCards": true,
-                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Plugins before the runtime starts. API version 3 isolated-ui packages can register host-rendered Home cards and paired-phone panels backed by on-demand commands. Executable drafts may run in a disposable development session after explicit user approval; MCP cannot approve access or change production."
+                "reason": "Declarative plugins contribute appearance, Home layout, settings, and host-rendered remote panels. Isolated-ui and background plugins install disabled; only the user can approve their declared permissions, network origins, and trigger in Settings > Add-ons > Plugins before the runtime starts. API version 3 isolated-ui packages can register host-rendered Home cards and paired-phone panels backed by on-demand commands. Executable drafts may run in a disposable development session after explicit user approval; MCP cannot approve access or change production."
             },
             "plugins": {
                 "supported": true,
@@ -2673,7 +2673,7 @@ fn capabilities() -> Value {
             "pluginStage": "Installs disabled only.",
             "pluginSettingsStage": "Requires user Keep.",
             "executableDevelopment": "The user must approve the draft's exact permissions, network origins, and trigger in the disposable development window. MCP cannot approve access.",
-            "declarativeReview": "The user must preview the staged declarative plugin and press Keep in Settings > Plugins."
+            "declarativeReview": "The user must preview the staged declarative plugin and press Keep in Settings > Add-ons > Plugins."
         },
         "unavailable": [
             "Seeing or committing without user Keep.",
@@ -2721,7 +2721,7 @@ fn resource_list() -> Value {
                 "uri": DECLARATIVE_TEMPLATE,
                 "name": "Luma declarative plugin template",
                 "title": "Declarative plugin template",
-                "description": "A complete editable API v1 declarative package bundle. Its manifest binds enum, boolean, and number settings to appearance and Home. Validate and stage it; the user previews and presses Keep in Settings > Plugins.",
+                "description": "A complete editable API v1 declarative package bundle. Its manifest binds enum, boolean, and number settings to appearance and Home. Validate and stage it; the user previews and presses Keep in Settings > Add-ons > Plugins.",
                 "mimeType": "application/json"
             },
             {
@@ -2818,7 +2818,7 @@ fn template_bundle(uri: &str) -> Result<Value, String> {
             "next": [
                 "Call luma_plugin_validate with submission.",
                 "Call luma_plugin_stage with the same submission.",
-                "Ask the user to open Luma > Settings > Plugins, preview the plugin, and press Keep."
+                "Ask the user to open Luma > Settings > Add-ons > Plugins, preview the plugin, and press Keep."
             ]
         })),
         WEATHER_TEMPLATE => Ok(json!({
@@ -2908,14 +2908,14 @@ Luma is a Windows TV launcher. This MCP server is the agent-first authoring cont
 1. Start from the declarative template or write `luma-extension.json` with a stable id, `major.minor.patch` version, `apiVersion: 1`, bounded settings, and declared contributions.
 2. Call `luma_plugin_validate`.
 3. Call `luma_plugin_stage`. It installs disabled.
-4. Tell the user to open Luma > Settings > Plugins, preview the plugin, and press Keep. No MCP tool can enable it.
+4. Tell the user to open Luma > Settings > Add-ons > Plugins, preview the plugin, and press Keep. No MCP tool can enable it.
 
 ## Executable plugin development
 
 1. Start from the Weather v3 or phone command template, or write an `isolated-ui` package with `apiVersion: 2` (or 3 for Home cards and commands), exact `permissions`, and, for `network.get`, a `network.allow` list.
 2. Call `luma_plugin_validate`.
 3. Call `luma_plugin_dev_start` with the validated submission. The response includes `sessionId`, `declared` permissions and origins, and a `review` action.
-4. Ask the user to review the draft in the Luma Development window: open Settings > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. The session is disposable and has separate app data and grants.
+4. Ask the user to review the draft in the Luma Development window: open Settings > Add-ons > Plugins, check the exact permissions, network origins, and trigger, then choose Allow and enable. The session is disposable and has separate app data and grants.
 5. Call `luma_plugin_dev_status` to inspect readiness. The draft stays disabled until the user approves it.
 6. Call `luma_plugin_dev_invoke` with a command declared in `contributes.commands`. Delivery is not the feature outcome; check status and the development window.
 7. Edit and call `luma_plugin_dev_reload` for the same session. A failed validation leaves the last working draft available. A change to requested access requires another user review.
@@ -2932,7 +2932,7 @@ A manifest can declare boolean, enum, number, or string settings with validated 
 
 ## Home cards and phone commands
 
-An isolated-ui package can use `apiVersion: 3` with `minHostVersion`, `contributes.commands`, and one or more `contributes.cards`. Each card references a command declared by the same package. The host renders the card and starts the package only when the user selects it; rendering Home never starts a runtime. The user approves the on-demand grant in Settings > Plugins. The same package can declare `remote.commands` with host-rendered labels for a paired phone; each entry must reference a command declared by the package. Phone actions start a hidden runtime and never open or focus a desktop surface.
+An isolated-ui package can use `apiVersion: 3` with `minHostVersion`, `contributes.commands`, and one or more `contributes.cards`. Each card references a command declared by the same package. The host renders the card and starts the package only when the user selects it; rendering Home never starts a runtime. The user approves the on-demand grant in Settings > Add-ons > Plugins. The same package can declare `remote.commands` with host-rendered labels for a paired phone; each entry must reference a command declared by the package. Phone actions start a hidden runtime and never open or focus a desktop surface.
 
 ## Examples
 
@@ -4255,7 +4255,7 @@ mod tests {
             false
         );
         let next = start["structuredContent"]["next"].as_str().unwrap();
-        assert!(next.contains("Settings > Plugins"));
+        assert!(next.contains("Settings > Add-ons > Plugins"));
         assert!(next.contains("MCP cannot approve access"));
         assert!(start["structuredContent"]["appDataDir"].is_null());
         assert_eq!(backend.dev_starts(), 1);

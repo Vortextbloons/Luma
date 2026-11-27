@@ -19,7 +19,13 @@ const SCRIPT: &str = include_str!("../../resources/youtube/inject.js");
 pub struct Bridge {
     url: tokio::sync::OnceCell<String>,
     window: tokio::sync::Mutex<()>,
-    feed: std::sync::Mutex<Vec<FeedItem>>,
+    feed: std::sync::Mutex<YouTubeFeed>,
+}
+
+#[derive(Clone, Default, Serialize)]
+pub struct YouTubeFeed {
+    items: Option<Vec<FeedItem>>,
+    failed: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -242,14 +248,14 @@ async fn playback(
 async fn feed(
     State(app): State<AppHandle>,
     headers: HeaderMap,
-    Json(items): Json<Vec<FeedItem>>,
+    Json(items): Json<Option<Vec<FeedItem>>>,
 ) -> Response {
     if !origin_allowed(&headers) {
         return reply(StatusCode::FORBIDDEN, "text/plain", Vec::new());
     }
     let mut seen = std::collections::HashSet::new();
-    let items: Vec<FeedItem> = items
-        .into_iter()
+    let failed = items.is_none();
+    let items = items.map(|items| items.into_iter()
         .filter(|item| checked_id(&item.id).is_ok())
         .filter(|item| !item.title.trim().is_empty())
         .filter(|item| seen.insert(item.id.clone()))
@@ -258,19 +264,17 @@ async fn feed(
             title: item.title.trim().to_string(),
             ..item
         })
-        .collect();
-    if items.is_empty() {
-        return reply(StatusCode::NO_CONTENT, "text/plain", Vec::new());
-    }
+        .collect());
+    let result = YouTubeFeed { items, failed };
     if let Ok(mut feed) = app.state::<Bridge>().feed.lock() {
-        *feed = items.clone();
+        *feed = result.clone();
     }
-    let _ = app.emit("youtube-feed", &items);
+    let _ = app.emit("youtube-feed", &result);
     reply(StatusCode::NO_CONTENT, "text/plain", Vec::new())
 }
 
 #[tauri::command]
-pub async fn youtube_feed(state: tauri::State<'_, Bridge>) -> Result<Vec<FeedItem>, String> {
+pub async fn youtube_feed(state: tauri::State<'_, Bridge>) -> Result<YouTubeFeed, String> {
     Ok(state
         .feed
         .lock()
@@ -430,12 +434,19 @@ fn create(
 }
 
 #[tauri::command]
-pub async fn open_youtube(app: AppHandle, fullscreen: bool) -> Result<(), String> {
+pub async fn open_youtube(app: AppHandle, fullscreen: bool, retry_feed: Option<bool>) -> Result<(), String> {
     let state = app.state::<Bridge>();
     let _guard = state.window.lock().await;
     crate::background::clear_unloading("youtube");
     let window = match app.get_webview_window("youtube") {
-        Some(window) => window,
+        Some(window) => {
+            if retry_feed == Some(true) {
+                let url = serde_json::to_string(URL).map_err(|error| error.to_string())?;
+                window.eval(format!("history.replaceState(null, \"\", {url}); location.reload();"))
+                    .map_err(|error| error.to_string())?;
+            }
+            window
+        }
         None => create(&app, &bridge(&app).await?, fullscreen, true, None)?,
     };
     crate::background::present(window, Some(fullscreen)).await?;

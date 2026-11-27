@@ -100,7 +100,7 @@
 
 <section class="settings-group">
   <h3>Controller navigation</h3>
-  <p class="panel-description">Use a connected Xbox, PlayStation, or generic gamepad to navigate Luma while it is in focus. Left stick navigation is always active when enabled.</p>
+  <p class="panel-description">Use a game controller when Luma is in focus.</p>
   <label class="setting-toggle">
     <span class="setting-toggle-copy">
       <span>Enable controller input</span>
@@ -121,7 +121,7 @@
   <div class="settings-group-head">
     <div class="controller-map-copy">
       <h3>Controller map</h3>
-      <p class="panel-description">Select a highlighted button to rebind it. Bound buttons are lit and labelled with their action; unused buttons stay dim.</p>
+      <p class="panel-description">Select a button to change its action.</p>
     </div>
     <div class="controller-family-picker" role="group" aria-label="Controller layout">
       {#each controllerFamilies as item (item.id)}
@@ -152,8 +152,8 @@
 </section>
 
 <section class="settings-group">
-  <h3>Custom button binds</h3>
-  <p class="panel-description">Choose which controller button triggers each action. Changes save automatically.</p>
+  <h3>Button assignments</h3>
+  <p class="panel-description">Choose a button for each action.</p>
   <div class="controller-bind-list">
     {#each controllerActions as item (item.key)}
       <div

@@ -76,6 +76,13 @@ export function createHome(options: {
   const steamHero = $derived(previewApp === 'Steam' ? steam.games.slice(0, 5) : []);
   const leagueGames = $derived(previewLeague ? sports.games(previewLeague) : []);
   const leagueGamesLoading = $derived(sports.previewLoading);
+  const activeLeagueGame = $derived(previewLeague ? (hoveredGame && hoveredGame.league === previewLeague ? hoveredGame : leagueGames[0] ?? null) : null);
+  const leagueHero = $derived(activeLeagueGame ? {
+    game: activeLeagueGame,
+    artwork: sports.artworkFor(activeLeagueGame.id),
+    badge: sports.badgeFor(activeLeagueGame),
+    hideScores: sportsScoresHidden(),
+  } : null);
   const catalogVisible = $derived(rowVisible('popular') || rowVisible('featured'));
   const heroSource = $derived(heroPick ? `pick:${heroPick.key}` : hoveredGame && previewLeague ? `pick:league:${previewLeague}:${hoveredGame.id}` : previewApp && (previewLeague || appHeroItems.length || spotifyHero.length || stremioHero.length || steamHero.length) ? `app:${previewApp}` : continueItems.length ? 'continue' : 'catalog');
   const heroSlides = $derived.by<HeroSlide[]>(() => {
@@ -280,12 +287,17 @@ export function createHome(options: {
   function leagueSlide(league: string, game?: GameScore): HeroSlide {
     const art = game ? sports.artworkFor(game.id) : '';
     const loading = !game && leagueGamesLoading;
+    const failed = !game && !!sports.previewError;
+    const badge = game ? sports.badgeFor(game) : undefined;
+    const oddsChip = badge?.sides.length
+      ? [{ label: `${badge.label}: ${badge.sides.map(s => `${s.team.split(' ').pop()} ${s.value}`).join(' · ')}` }]
+      : [];
     return {
-      key: game ? `league:${league}:${game.id}` : `league:${league}:${loading ? 'loading' : 'empty'}`,
+      key: game ? `league:${league}:${game.id}` : `league:${league}:${loading ? 'loading' : failed ? 'error' : 'empty'}`,
       eyebrow: `FROM ${league}`,
-      title: game ? game.teams.map(team => team.name).join(' vs ') : loading ? league : `No ${league} games right now`,
-      chips: [{ label: league }, ...(game ? [{ label: game.status }] : loading ? [{ label: 'Loading' }] : [{ label: 'No games' }])],
-      description: game?.venue || (loading ? 'Looking up live and upcoming games.' : 'There are no live or upcoming games listed for this league.'),
+      title: game ? game.teams.map(team => team.name).join(' vs ') : loading || failed ? league : `No ${league} games right now`,
+      chips: [{ label: league }, ...(game ? [{ label: game.status }] : loading ? [{ label: 'Loading' }] : failed ? [] : [{ label: 'No games' }]), ...oddsChip],
+      description: game?.venue || (loading ? 'Looking up live and upcoming games.' : failed ? sports.previewError : 'There are no live or upcoming games listed for this league.'),
       art: art || game?.leagueLogo || leagueCovers[league],
       artShape: art ? undefined : 'square',
       primaryLabel: game ? game.state === 'post' && !sportsScoresHidden() ? 'Final score' : 'Game details' : `Open ${league}`,
@@ -308,6 +320,7 @@ export function createHome(options: {
     get previewLeague() { return previewLeague; },
     get leagueGames() { return leagueGames; },
     get leagueGamesLoading() { return leagueGamesLoading; },
+    get leagueHero() { return leagueHero; },
     get stremioRecent() { return stremioRecent; },
     get previewActivity() { return previewActivity; },
     get previewMusic() { return previewMusic; },

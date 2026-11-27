@@ -122,7 +122,7 @@ pub async fn viewing_open_source(app: tauri::AppHandle, id: String) -> Result<()
         return Err("Unknown video source.".into());
     }
     if id == "YouTube" {
-        return crate::commands::youtube::open_youtube(app, true).await;
+        return crate::commands::youtube::open_youtube(app, true, None).await;
     }
     crate::commands::apps::launch_app(id, app.state::<crate::commands::apps::Apps>(), app.clone())
         .await

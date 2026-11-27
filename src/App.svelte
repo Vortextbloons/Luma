@@ -1,13 +1,14 @@
 <script lang="ts">
   import { listen } from '@tauri-apps/api/event';
   import { onMount, tick, untrack } from 'svelte';
-  import { initializeUpdates } from './lib/state/updates.svelte';
+  import { dismissUpdate, initializeUpdates, updates } from './lib/state/updates.svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { invoke } from '@tauri-apps/api/core';
+  import Setup from './lib/components/Setup.svelte';
   import TopNav from './lib/components/TopNav.svelte';
   import HomeRenderer from './lib/components/HomeRenderer.svelte';
   import LayoutReview from './lib/components/LayoutReview.svelte';
-  import UpdateNotice from './lib/components/UpdateNotice.svelte';
+  import UpdateDialog from './lib/components/UpdateDialog.svelte';
   import FramePairing from './lib/components/FramePairing.svelte';
   import SearchSportsRow from './lib/components/SearchSportsRow.svelte';
   import ActivityCard from './lib/components/activity/ActivityCard.svelte';
@@ -42,7 +43,7 @@
   import { createController } from './lib/services/controller';
   import { smoothHeight } from './lib/services/motion';
   import { playShutdownSound, playSound, playStartupSound, setSoundSettings, soundPlayedRecently, unlockSound, warmSound } from './lib/services/sound';
-  import { setAppVisible } from './lib/services/visibility';
+  import { onAppVisible, setAppVisible } from './lib/services/visibility';
   import { providerName } from './lib/services/activity';
   import { native, searchYouTube, launchApp, closeLaunchedApp, quitLuma, hideToTray, saveAppPaths, onNavigation, onOpenMusic, openYouTube } from './lib/services/tauri';
   import { searchMovies, searchShows } from './lib/services/catalog';
@@ -53,6 +54,23 @@
 
   const preferences = createSettings();
   const settings = preferences.value;
+  function shouldShowSetup() {
+    try {
+      const status = localStorage.getItem('luma-setup');
+      if (status) return status === 'pending';
+      if (localStorage.getItem('luma-v1')) return false;
+      localStorage.setItem('luma-setup', 'pending');
+    } catch {}
+    return true;
+  }
+  let setupOpen = $state(shouldShowSetup());
+  let setup: Setup | undefined = $state();
+  function finishSetup() {
+    try { localStorage.setItem('luma-setup', 'complete'); } catch {}
+    setupOpen = false;
+    void refreshStremio();
+    void tick().then(() => navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined));
+  }
   const activity = createActivity();
   const activityItems = $derived(activity.items);
   const sports = createSports();
@@ -84,10 +102,14 @@
   let tab = $state('Home');
   let searchReturn = $state('Home');
   let panel = $state(false);
+  let updateView = $state<'installed' | 'update' | null>(null);
+  let updateOrigin: HTMLElement | undefined;
+  let launcherReady = $state(false);
+  let launcherVisible = $state(true);
   let settingsPanel = $state<{ consumeBack: () => boolean; cycleCategory: (direction: -1 | 1) => void }>();
   let remotePairing = $state(false);
   let exitRequested = $state(false);
-  let settingsCategory = $state('Display');
+  let settingsCategory = $state('Appearance');
   let details = $state<MediaItem | null>(null);
   let message = $state(preferences.error);
   let homeDraft = $state<HomeDraft | null>(null);
@@ -131,7 +153,7 @@
   const featured = $derived(homeState.featured);
   const popularShows = $derived(homeState.popularShows);
   let playerOpen = $state(false);
-  const saver = $state(loadSaver());
+  let saver = $state(loadSaver());
   let saverOpen = $state(false);
   let topNav = $state<ReturnType<typeof TopNav>>();
   $effect(() => { localStorage.setItem('luma.screensaver', JSON.stringify(saver)); });
@@ -271,6 +293,7 @@
     window.addEventListener('focus', restoreFocus);
     const cleanup: (() => void)[] = [];
     function track(stop: () => void) { if (disposed) stop(); else cleanup.push(stop); }
+    track(onAppVisible(visible => { launcherVisible = visible; }));
     const idleCheck = setInterval(() => {
       const elapsed = Date.now() - lastInput;
       if (!playerOpen && elapsed > 120_000) idle = true;
@@ -367,12 +390,13 @@
         await tick();
         document.getElementById('startup')?.remove();
         document.getElementById('app')?.removeAttribute('inert');
+        if (!disposed) launcherReady = true;
         if (!disposed) {
-          void getCurrentWindow().isVisible().then(visible => {
-            if (!visible || disposed) return;
-            if (native) void invoke('play_startup_sound', { preset: settings.interfaceSounds, level: settings.soundLevel }).catch(() => playStartupSound());
-            else void playStartupSound();
-          }).catch(() => {});
+          if (native) {
+            void getCurrentWindow().isVisible().then(visible => {
+              if (visible && !disposed) void invoke('play_startup_sound', { preset: settings.interfaceSounds, level: settings.soundLevel }).catch(() => playStartupSound());
+            }).catch(() => {});
+          } else void playStartupSound();
           navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined);
           if (native) await invoke('launcher_ready');
         }
@@ -388,9 +412,33 @@
       window.removeEventListener('focus', restoreFocus);
     };
   });
+  $effect(() => {
+    if (!native || !launcherReady || !launcherVisible || updateView || panel || !showHome
+      || details || playerOpen || remotePairing || stremioPairing || exitRequested || layoutPreview || saverOpen || launching) return;
+    if (updates.phase !== 'available' && updates.phase !== 'ready') return;
+    if (!updates.nextVersion || updates.dismissedVersion === updates.nextVersion || document.querySelector('dialog[open]')) return;
+    untrack(() => showUpdate('update'));
+  });
+
+  function showUpdate(kind: 'installed' | 'update') {
+    updateOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    updateView = kind;
+  }
+
+  async function closeUpdate() {
+    if (updateView === 'update') dismissUpdate();
+    const origin = updateOrigin;
+    updateView = null;
+    updateOrigin = undefined;
+    await tick();
+    navigation.focus(origin);
+  }
+
   function rememberFocus() { previous = document.activeElement as HTMLElement; }
   function back() {
-    if (topNav?.closeMenu()) { void playSound('back'); return; }
+    if (setupOpen && setup?.back()) return;
+    if (updateView) { void playSound('back'); void closeUpdate(); return; }
+    if (topNav?.backMenu()) { void playSound('back'); return; }
     if (widgetHost?.cancelMove()) return;
     if (layoutPreview && !exitRequested && !remotePairing && !stremioPairing && !details && !playerOpen) { void cancelReview(); return; }
     if (exitRequested) { void playSound('back'); cancelExit(); return; }
@@ -420,7 +468,7 @@
     requestAnimationFrame(() => dialog.querySelector<HTMLButtonElement>('button')?.focus());
   }
   function leaveApp() { if (native) void closeLaunchedApp().catch(() => {}); }
-  function home() { topNav?.closeMenu(); leaveApp(); remotePairing = false; homeState.clearPreview(); playerOpen = false; wake(); panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
+  function home() { if (updateView === 'update') dismissUpdate(); updateView = null; updateOrigin = undefined; topNav?.closeMenu(); leaveApp(); remotePairing = false; homeState.clearPreview(); playerOpen = false; wake(); panel = false; details = null; tab = 'Home'; requestAnimationFrame(() => { window.scrollTo(0, 0); navigation.focus(document.querySelector<HTMLElement>('#home-button') ?? undefined); }); }
   function openPlayer() {
     playerPrevious = document.activeElement as HTMLElement;
     playerOpen = true;
@@ -464,6 +512,7 @@
       return;
     }
     if (event.key === 'F11' && !event.repeat) { event.preventDefault(); void fullscreen(); return; }
+    if (event.key === ' ' && event.target instanceof HTMLElement && event.target.matches('[data-release-notes-scroll]')) return;
     if (event.key === ' ' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement) && !(event.target instanceof HTMLSelectElement) && !(event.target instanceof HTMLButtonElement) && !(event.target instanceof HTMLAnchorElement)) {
       event.preventDefault();
       if (spotify.playback.canToggle) void spotify.action('toggle');
@@ -571,7 +620,7 @@
     requestAnimationFrame(() => navigation.focus(previous ?? undefined));
   }
   function mountRemoteDialog(dialog: HTMLDialogElement) { dialog.showModal(); }
-  function openSettings() { showSettings('Display'); }
+  function openSettings() { showSettings('Appearance'); }
   function openApps() { showSettings('Apps'); }
   function openStremioPairing() { rememberFocus(); stremioPairing = true; }
   function closeStremioPairing() {
@@ -630,7 +679,7 @@
       if (fallback) navigation.focus(fallback);
     });
   }
-  async function launch(id: AppId) {
+  async function launch(id: AppId, retryFeed = false) {
     if (id === 'Spotify') {
       await openMusic();
       return;
@@ -639,7 +688,7 @@
     if (!native) { message = 'App launching is available in the Luma desktop app.'; return; }
     launching = id;
     try {
-      if (id === 'YouTube') { await openYouTube(settings.fullscreen); message = 'YouTube TV opened in its own window. Use Back to Luma when you are done.'; }
+      if (id === 'YouTube') { await openYouTube(settings.fullscreen, retryFeed); message = 'YouTube TV opened in its own window. Use Back to Luma when you are done.'; }
       else { await launchApp(id); message = id === 'Stremio' ? 'Stremio opened inside Luma. Use Back to Luma when you are done.' : id === 'Steam' ? 'Steam Big Picture opened. Press Home to return to Luma.' : `${id} opened. Press Home to return to Luma.`; }
       void playSound('open');
     } catch (error) { message = String(error); void playSound('error'); }
@@ -668,8 +717,8 @@
       if (announce) {
         const found = apps.filter(app => app.path).length;
         message = found
-          ? `${found} app${found === 1 ? '' : 's'} found. Choose Save app settings to keep them. If an app you use is missing, choose it under App locations.`
-          : 'No installed apps were found automatically. You can choose an app under App locations.';
+          ? `${found} app${found === 1 ? '' : 's'} found. Choose Save app settings to keep them.`
+          : 'No apps found. Choose a program under App locations.';
       }
     } catch (error) { message = String(error); }
   }
@@ -685,7 +734,7 @@
     try {
       await stremioState.sync();
       message = 'Your Stremio library is up to date.';
-    } catch (error) { message = String(error); }
+    } catch (error) { message = String(error); throw error; }
   }
   async function openYouTubeItem(id: string) {
     if (!native) { message = 'Opening YouTube is available in the desktop app.'; return; }
@@ -753,9 +802,10 @@
 
 <svelte:window onkeydown={keydown} onclick={pointerSound} onchange={changeSound} />
 <main class="app-shell" class:is-home={showHome} {@attach horizontalWheel}>
-  {#if panel}<SettingsPanel {saver} onsaverpreview={() => { saverOpen = true; }} bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
+  {#if panel}<SettingsPanel bind:saver onsaverpreview={() => { saverOpen = true; }} bind:this={settingsPanel} {message} bind:settings={preferences.value} bind:homeDraft revision={preferences.revision} onlayoutpreview={previewLayout} onlayoutrestore={() => preferences.restoreLayout()} {native} {activity} steam={steamState} oncontrollercapture={handler => controllerCapture = handler} startCategory={settingsCategory} onupdatenotes={showUpdate} close={back} {fullscreen} {savePaths} {detect} popular={popular} featured={featured} plugins={preferences.plugins} pluginsLoading={preferences.pluginsLoading} pluginsError={preferences.pluginsError} onpluginsreload={() => preferences.refreshPlugins()} />
   {:else}
-  <TopNav bind:this={topNav} startScreensaver={() => { saverOpen = true; }} viewing={() => showSettings('Display')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} bind:searchQuery={movieQuery} onsearch={submitSearch} />
+  <TopNav bind:this={topNav} {native} controllerEnabled={settings.controllerEnabled} binds={settings.controllerBinds}
+    sleep={() => invoke('sleep_pc')} exit={() => { rememberFocus(); exitRequested = true; }} startScreensaver={() => { saverOpen = true; }} viewing={() => showSettings('viewing')} switchDisplay={() => { void invoke<string>('switch_display').then(display => message = `Moved to ${display}.`).catch(error => message = String(error)); }} active={tab} {navigate} settings={openSettings} connect={openRemotePairing} fullscreen={settings.fullscreen} toggle={fullscreen} bind:searchQuery={movieQuery} onsearch={submitSearch} />
   <div class="topbar-offset" aria-hidden="true"></div>
   <div class="view-content" {@attach animateView(tab)}>
   {#if (showHome || tab === 'Search') && homeState.error}
@@ -767,16 +817,16 @@
   {/if}
   {#if showHome}
     <HomeRenderer rows={layoutConfig.home} columns={layoutConfig.homeColumns}
-      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, smoothAppHover: settings.smoothAppHover, catalogVisible, youTubeFeed, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading, homeCards: pluginHomeCards, pluginCardPending, pluginCardFailure }}
-      actions={{ openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie, openPluginCard, retryPluginCard }} />
+      data={{ heroSlides, heroSource, previewApp, stremioRecent, stremio, steamGames, activityItems, trackingEnabled: activity.trackingEnabled, order: layoutConfig.order, launching, smoothAppHover: settings.smoothAppHover, catalogVisible, youTubeFeed, youTubeFailed: youtube.failed, stremioError: stremioState.error, stremioLoading: stremioState.loading, previewMusic, steamRecommendations, steamRecommendationSource, previewActivity, musicLoading: spotify.homeLoading, popular, featured, previewLeague, leagueGames, leagueGamesLoading, leagueGamesError: sports.previewError, leagueHero: homeState.leagueHero, sportsBadges: sports.badges, homeCards: pluginHomeCards, pluginCardPending, pluginCardFailure }}
+      actions={{ retryLeague: league => void sports.preview(league), retryStremio: () => void refreshStremio(true), openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie, openPluginCard, retryPluginCard }} />
   {/if}
-  {#if tab === 'Library'}<StremioLibrary status={stremio} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
+  {#if tab === 'Library'}<StremioLibrary status={stremio} loadError={stremioState.error} loading={stremioState.loading} retry={() => refreshStremio(true)} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
   {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} {sports} ondetailclose={returnFromSportsDetail} />{/if}
   {#if tab === 'Apps'}
     <PageHeader eyebrow="ON THIS PC" title="Apps" description="Open your streaming apps and keep the ones you use most in reach">
       {#snippet actions()}<button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>{/snippet}
     </PageHeader>
-    <AppDock order={settings.order} {launch} {launching} {preview} active={previewApp} smoothHover={settings.smoothAppHover} />
+    <AppDock grid order={settings.order} {launch} {launching} {preview} active={previewApp} smoothHover={settings.smoothAppHover} />
   {/if}
   {#if tab === 'Search'}
     <PageHeader eyebrow="FIND YOUR NEXT WATCH" title={submittedQuery ? 'Results' : 'Browse'} description={submittedQuery ? `Results for “${submittedQuery}”. Open a result to watch.` : 'Search titles, teams, or leagues from the bar above, or browse what is popular.'} />
@@ -801,7 +851,7 @@
             </div>
           </section>
         {/if}
-        {#if matchedSports.length}<SearchSportsRow items={matchedSports} onselect={item => void openSportsDetail(item)} />{/if}
+        {#if matchedSports.length}<SearchSportsRow items={matchedSports} badges={sports.badges} onselect={item => void openSportsDetail(item)} />{/if}
         {#if searchHistory.length}
           <section class="content-row activity-row" aria-label="Results from your sources">
             <div class="row-heading"><div><h2>From your sources</h2><p>Titles from your connected history</p></div></div>
@@ -828,7 +878,6 @@
   </div>
   <div class="notice-stack">
     {#if message && !details}<div role="status" class="notice"><span>{message}</span><button aria-label="Dismiss message" onclick={() => message = ''}>×</button></div>{/if}
-    <UpdateNotice {native} />
   </div>
   {#if !playerOpen}<WidgetHost bind:this={widgetHost} widgets={layoutConfig.widgets} context={idle ? 'idle' : 'home'} onposition={(id, position) => { if (settings.widgets[id]) settings.widgets[id].position = position; }} onopen={openPlayer} />{/if}
   {#if playerOpen}
@@ -838,6 +887,8 @@
   {/if}
   {/if}
 </main>
+{#if setupOpen}<Setup bind:this={setup} {settings} {native} ondone={finishSetup} />{/if}
+{#if updateView}<UpdateDialog kind={updateView} onclose={() => void closeUpdate()} />{/if}
 {#if layoutPreview}<LayoutReview busy={preferences.reviewBusy} error={preferences.reviewError} editing={preferences.previewFromEditor} plugin={layoutPreview.plugin ?? null} detached={layoutPreview.detached ?? []} keep={() => void keepLayout()} cancel={() => void cancelReview()} />{/if}
 {#if details}<DetailsDialog {message} item={details} close={back} launch={() => details && openStremioDetail('movie', details.id)} />{/if}
 

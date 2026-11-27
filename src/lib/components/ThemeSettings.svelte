@@ -11,7 +11,7 @@
 
 <section class="settings-group">
   <h3>Theme</h3>
-  <p class="panel-description">Sets the background, surfaces, and accent together. Every screen follows the theme. A web remote can follow Luma or keep its own theme on that device.</p>
+  <p class="panel-description">Choose a look for Luma.</p>
   <div class="theme-grid" role="group" aria-label="Theme">
     {#each themes as theme (theme.id)}
       <button

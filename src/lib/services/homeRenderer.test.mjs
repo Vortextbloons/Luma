@@ -84,19 +84,26 @@ test('sports app previews show the league games instead of unrelated Continue Wa
   const props = fixture();
   props.data.previewApp = 'NBA';
   props.data.previewLeague = 'NBA';
-  props.data.leagueGames = [{
+  const game = {
     id: '401', league: 'NBA', leagueLogo: '', date: '2026-11-15T00:00Z', state: 'in', status: '4th · 2:31', venue: 'Garden',
     teams: [
       { name: 'Boston Celtics', abbreviation: 'BOS', logo: '', score: '102', record: '9-2', color: '#007a33' },
       { name: 'Los Angeles Lakers', abbreviation: 'LAL', logo: '', score: '98', record: '7-4', color: '#552583' },
     ],
-  }];
+  };
+  props.data.leagueGames = [game];
+  props.data.leagueHero = { game, artwork: '', hideScores: false };
   const html = render(HomeRenderer, { props }).body;
+  assert.match(html, /sports-hero/);
+  assert.match(html, /hero-matchup/);
+  assert.match(html, /Boston Celtics vs Los Angeles Lakers/);
+  assert.match(html, /Open NBA/);
   assert.match(html, /Live on NBA/);
   assert.match(html, /Boston Celtics/);
   assert.match(html, /● LIVE/);
   assert.doesNotMatch(html, /Nothing in progress|No recommendations available yet/);
   props.data.leagueGames = [];
+  props.data.leagueHero = null;
   props.data.leagueGamesLoading = true;
   assert.match(render(HomeRenderer, { props }).body, /Looking up NBA games/);
   props.data.previewApp = 'MLB';

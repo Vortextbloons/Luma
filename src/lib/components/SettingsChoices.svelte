@@ -14,9 +14,10 @@
 </script>
 
 {#if selects.length}
-  <div class="settings-form-grid">
+  <div class="settings-choice-list">
     {#each selects as choice (choice.key)}
-      <label class="field">{choice.label}
+      <label class="settings-row field settings-choice">
+        <span class="settings-row-copy"><strong>{choice.label}</strong><span>{choice.description}</span></span>
         <select
           value={settingValue(settings, choice.key)}
           disabled={disabledChoice?.(choice) ?? false}
@@ -24,7 +25,6 @@
         >
           {#each choice.options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
         </select>
-        <span class="field-hint">{choice.description}</span>
       </label>
     {/each}
   </div>

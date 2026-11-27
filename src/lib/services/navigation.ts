@@ -94,6 +94,11 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     }
     const candidates = elements();
     if (!candidates.includes(current)) { focus(candidates[0], true); return; }
+    if (current.matches?.('[data-release-notes-scroll]') && (command === 'up' || command === 'down')) {
+      if (command === 'up' && current.scrollTop <= 0) focus(candidates[0], true);
+      else current.scrollBy({ top: current.clientHeight * (command === 'down' ? .28 : -.28), behavior: 'instant' });
+      return;
+    }
     if (command === 'activate') {
       if (current instanceof HTMLInputElement && current.type === 'range') { sound('volume'); return; }
       if (!(current instanceof HTMLInputElement && (current.type === 'checkbox' || current.type === 'radio'))) sound('press');
@@ -105,7 +110,7 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       return;
     }
     const rail = current.closest?.('.sports-grid, .app-track');
-    if (rail && (command === 'left' || command === 'right')) {
+    if (rail && !rail.classList?.contains('is-grid') && (command === 'left' || command === 'right')) {
       const row = candidates.filter(element => rail.contains(element));
       const next = row[row.indexOf(current) + (command === 'right' ? 1 : -1)];
       if (next) focus(next, true);
@@ -114,22 +119,55 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
     const categories = current.closest?.('.settings-categories');
     const content = current.closest?.('.settings-content');
     const page = current.closest?.('.settings-page');
-    if (categories && command === 'right') {
-      const target = candidates.find(el => el.closest?.('.settings-content'));
-      if (target) focus(target, true);
+    const horizontalCategories = categories && typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches;
+    if (horizontalCategories && (command === 'left' || command === 'right')) {
+      const group = candidates.filter(el => categories.contains(el));
+      const next = group[group.indexOf(current) + (command === 'right' ? 1 : -1)];
+      if (next) focus(next, true);
+      return;
+    }
+    if (categories && command === (horizontalCategories ? 'down' : 'right')) {
+      const target = page?.querySelector<HTMLElement>('.settings-section-tab.selected');
+      const first = candidates.find(el => el.closest?.('.settings-content'));
+      if (target && candidates.includes(target)) focus(target, true);
+      else if (first) focus(first, true);
       return;
     }
     const sections = current.closest?.('.settings-sections');
-    if (sections && command === 'down') {
+    const grid = current.closest?.('[data-settings-grid]');
+    if (grid && (command === 'up' || command === 'down')) {
+      const group = candidates.filter(el => grid.contains(el));
       const currentRect = current.getBoundingClientRect();
-      const bottom = currentRect.bottom ?? (currentRect.top ?? currentRect.y) + currentRect.height;
-      const target = candidates.find(el => {
-        if (!el.closest?.('.settings-content') || el.closest('.settings-sections')) return false;
+      const direction = command === 'down' ? 1 : -1;
+      let nearest: HTMLElement | undefined;
+      let distance = Infinity;
+      for (const el of group) {
         const rect = el.getBoundingClientRect();
-        return (rect.top ?? rect.y) >= bottom;
-      });
+        const dy = direction * (rect.y - currentRect.y);
+        if (dy <= 4) continue;
+        const score = dy * 2 + Math.abs(rect.x - currentRect.x);
+        if (score < distance) { distance = score; nearest = el; }
+      }
+      const edge = direction === 1 ? group.at(-1) : group[0];
+      const target = nearest ?? (edge && candidates[candidates.indexOf(edge) + direction]);
+      if (target && content?.contains(target)) { focus(target, true); return; }
+    }
+    if (sections && command === 'down') {
+      const target = candidates.find(el => content?.contains(el) && !sections.contains(el));
       if (target) focus(target, true);
       return;
+    }
+    if (sections && command === 'up') {
+      focus(page?.querySelector<HTMLElement>('.settings-category.selected') ?? current, true);
+      return;
+    }
+    if (content && command === 'up') {
+      const first = candidates.find(el => content.contains(el) && !el.closest?.('.settings-sections'));
+      const selected = page?.querySelector<HTMLElement>('.settings-section-tab.selected');
+      if (current === first && selected && candidates.includes(selected)) {
+        focus(selected, true);
+        return;
+      }
     }
     if ((categories || content) && (command === 'up' || command === 'down')) {
       const group = candidates.filter(el => (categories ?? content)!.contains(el));
@@ -147,6 +185,7 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       if (el === current) continue;
       if (content && !content.contains(el)) continue;
       const b = el.getBoundingClientRect();
+      if (rail?.classList?.contains('is-grid') && !vertical && rail.contains(el) && Math.abs(a.y - b.y) > 4) continue;
       if (content && !vertical && (b.y + b.height <= a.y || b.y >= a.y + a.height)) continue;
       const dx = b.x + b.width / 2 - a.x - a.width / 2;
       const dy = b.y + b.height / 2 - a.y - a.height / 2;
@@ -168,7 +207,9 @@ export function createNavigation(back: () => void, home: () => void, shortcut: (
       else if (!event.shiftKey && index === candidates.length - 1) { event.preventDefault(); focus(candidates[0], true); }
       return;
     }
-    const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || (event.target as HTMLElement)?.tagName === 'TEXTAREA' || (event.target as HTMLElement)?.isContentEditable;
+    const target = event.target;
+    const settingsToggle = target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio') && target.closest('.settings-page');
+    const editing = (target instanceof HTMLInputElement && !settingsToggle) || target instanceof HTMLSelectElement || (target as HTMLElement)?.tagName === 'TEXTAREA' || (target as HTMLElement)?.isContentEditable;
     if (editing && event.key !== 'Escape') return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     const mapping: Record<string, NavigationCommand> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'activate', Escape: 'back', Backspace: 'back', Home: 'home' };

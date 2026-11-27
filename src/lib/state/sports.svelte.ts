@@ -1,10 +1,11 @@
-import { matchEvent, scoreSummary, type GameScore } from '../services/sportsScores';
+import { indexMatchups, matchSportsBadge, scoreSummary, type GameScore } from '../services/sportsScores';
 import {
   cachedSportsArtwork, cachedSportsListing, cachedSportsScores, loadSportsArtwork, loadSportsListing,
   loadSportsScores, majorSportsLeagues, onSportsClosed, openSportsStream, sportsScoresHidden,
   updateSportsScore, type SportsEvent, type SportsListing,
 } from '../services/sports';
-import { native } from '../services/tauri';
+import { native, onSportsBadges, pluginSportsBadges } from '../services/tauri';
+import type { SportsBadge } from '../types';
 
 const order = (game: GameScore) => ['in', 'pre', 'post'].indexOf(game.state);
 
@@ -21,9 +22,13 @@ class SportsStore {
   scoreError = $state('');
   updatedAt = $state(cachedSportsScores().updatedAt);
   previewLoading = $state(false);
+  previewError = $state('');
   opening = $state(false);
   watching = $state(false);
   closedAt = $state(0);
+  badges = $state.raw<SportsBadge[]>([]);
+  private scoreMatch = $derived(indexMatchups(this.scores));
+  private streamMatch = $derived(indexMatchups(this.events));
   private scoreBusy = false;
   private watchingGame: GameScore | null = null;
   private previewRequest = 0;
@@ -44,15 +49,24 @@ class SportsStore {
     this.artwork[id] = '';
   }
 
+  badgeFor(event: { league: string; teams: { name: string }[] }) {
+    return matchSportsBadge(event, this.badges);
+  }
+
   async refreshListing() {
-    const listing = await loadSportsListing();
-    this.listing = listing;
-    return listing;
+    this.listing = await loadSportsListing();
+  }
+
+  scoreFor(event: SportsEvent) {
+    return this.scoreMatch(event);
+  }
+
+  streamFor(game: GameScore) {
+    return this.streamMatch(game);
   }
 
   eventFor(game: GameScore) {
-    const event = this.listing ? matchEvent(game, this.listing.events) : undefined;
-    return event ?? {
+    return this.streamFor(game) ?? {
       id: game.id, url: '', league: game.league,
       title: game.teams.map(team => team.name).join(' vs '),
       teams: game.teams.map(team => ({ name: team.name, logo: team.logo })),
@@ -62,13 +76,24 @@ class SportsStore {
 
   async start() {
     if (!native) return () => {};
-    const stop = await onSportsClosed(() => {
-      this.closedAt++;
-      this.watching = false;
-      this.opening = false;
-      this.watchingGame = null;
-    });
-    return stop;
+    let active = true;
+    void pluginSportsBadges().then(list => { if (active) this.badges = list; }).catch(() => {});
+    const [stopClosed, stopBadges] = await Promise.all([
+      onSportsClosed(() => {
+        this.closedAt++;
+        this.watching = false;
+        this.opening = false;
+        this.watchingGame = null;
+      }),
+      onSportsBadges(list => {
+        if (active) this.badges = list;
+      }),
+    ]);
+    return () => {
+      active = false;
+      stopClosed();
+      stopBadges();
+    };
   }
 
   async load(force = false) {
@@ -109,6 +134,7 @@ class SportsStore {
     if (!native) return;
     const request = ++this.previewRequest;
     this.previewLoading = true;
+    this.previewError = '';
     try {
       if (!this.listing) {
         const listing = await loadSportsListing().catch(() => null);
@@ -123,6 +149,7 @@ class SportsStore {
         if (request === this.previewRequest) this.artwork[first.id] = art;
       }
     } catch {
+      if (request === this.previewRequest) this.previewError = 'Games could not load. Check your connection and retry.';
     } finally {
       if (request === this.previewRequest) this.previewLoading = false;
     }
@@ -131,6 +158,7 @@ class SportsStore {
   endPreview() {
     this.previewRequest++;
     this.previewLoading = false;
+    this.previewError = '';
   }
 
   async loadArtwork(league: string, eventId: string) {

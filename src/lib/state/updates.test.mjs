@@ -2,6 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { compileModule } from 'svelte/compiler';
+import { notesForVersion } from '../../../scripts/changelog-section.ts';
+
+test('installed changelog selects the exact version even when a newer section is first', () => {
+  const changelog = '## [1.0.0]\r\n### Added\r\n- New update\r\n## [0.9.0]\r\n### Fixed\r\n- **Installed** change\r\n## [0.8.0]\r\n- Older update';
+  assert.equal(notesForVersion(changelog, '0.9.0'), '### Fixed\n- **Installed** change');
+  assert.equal(notesForVersion(changelog, '0.9.1'), '');
+});
 
 test('updates download once, retain verified bytes for install retry, and prevent concurrent actions', async () => {
   let checks = 0;

@@ -17,7 +17,7 @@ stage changes for the user to review, and read the current configuration.
 
 Rules:
 1. If the luma_* tools are not available, stop and tell the user to open
-   Luma > Settings > MCP customization > AI access and add the server shown there.
+   Luma > Settings > Add-ons > AI access and add the server shown there.
    Do not guess connection details.
 2. Start with luma_capabilities_get and luma_config_get. Do not invent
    components, properties, themes, screens, or extension permissions.
@@ -27,7 +27,7 @@ Rules:
 4. Validate a complete candidate, then stage it. Tell the user that the change
    is waiting for review and that they must press Keep in Luma.
    For a plugin, read luma://plugins/schema, validate and stage the package,
-   then tell the user to open Settings > Plugins and press Preview and enable,
+   then tell the user to open Settings > Add-ons > Plugins and press Preview and enable,
    then Keep. Never claim it is enabled until the user does that.
 5. Never claim a change is applied, saved, or live until the user confirms they
    kept it, or until a subsequent read shows a new revision.
@@ -182,7 +182,7 @@ Rules:
       mcp = { enabled: result.enabled, endpoint: result.endpoint };
       if (!result.enabled) {
         token = '';
-        mcpNote = 'AI access is off. The old token no longer works, and access stays off after a restart.';
+        mcpNote = 'AI access is off. The old token is invalid.';
       } else if (action === 'disable') {
         token = '';
         mcpNote = 'AI access is still on. Try turning it off again.';
@@ -286,7 +286,7 @@ Rules:
       if (disposed) return;
       resetConfirming = false;
       onchanged?.();
-      resetNote = 'Appearance and Home reset to defaults. Plugins that controlled these fields were detached, and their saved settings stay. App order, sounds, accounts, app locations, and saved versions were kept.';
+      resetNote = 'Appearance and Home reset to defaults.';
       focusActiveSectionTab();
       if (document.revision !== loadedRevision) await loadHistory(document.revision);
     } catch (error) {
@@ -302,13 +302,13 @@ Rules:
   }
 
   onMount(() => {
-    if (native) void loadMcp();
+    if (native && section === 'ai') void loadMcp();
     else mcpLoading = false;
   });
 
   $effect(() => {
     const current = revision;
-    if (!native || current === loadedRevision) return;
+    if (!native || section !== 'versions' || current === loadedRevision) return;
     void loadHistory(current);
   });
 
@@ -325,7 +325,7 @@ Rules:
       <h3>AI access</h3>
       {#if native && mcp}<span class={`settings-badge ${mcpTone}`}>{mcp.enabled ? 'On' : 'Off'}</span>{/if}
     </div>
-    <p class="panel-description">Let an MCP client on this PC inspect Luma and stage changes for your review. Nothing an agent stages is applied until you press Keep in Luma.</p>
+    <p class="panel-description">Let an AI tool on this PC suggest changes. Review them in Luma before keeping them.</p>
     {#if !native}
       <p class="panel-description">Available in the desktop application.</p>
     {:else if mcpLoading}
@@ -339,7 +339,7 @@ Rules:
       <div class="settings-row">
         <div class="settings-row-copy">
           <strong>{mcp.enabled ? 'AI access is on' : 'AI access is off'}</strong>
-          <span>{mcp.enabled ? 'An MCP client can connect while Luma is running.' : 'Luma keeps agent access off and will not start it until you turn it on.'}</span>
+          <span>{mcp.enabled ? 'An MCP client can connect while Luma is running.' : 'Turn on access when you are ready to connect.'}</span>
         </div>
       </div>
       {#if mcp.enabled}
@@ -364,20 +364,19 @@ Rules:
       </div>
       {#if mcpNote}<p class="panel-description" role="status">{mcpNote}</p>{/if}
       {#if mcpError}<p class="error" role="alert">{mcpError}</p>{/if}
-      <p class="panel-description">{mcp.enabled ? 'Access is on for this session. It turns off when Luma quits, so turn it on again next time.' : 'Access is off by default and stays off after Luma restarts. Turn it on when you are ready to connect an MCP client.'}</p>
       {#if mcp.enabled}
         {#if token}
           <div class="mcp-credential">
             <h4>Connection details ready</h4>
-            <p>Copy these now. The token is not saved; it is only available until you leave MCP customization settings or Luma quits.</p>
+            <p>Copy the token before leaving this page. AI access ends when Luma quits.</p>
             <button class="panel-secondary is-primary" data-mcp-copy disabled={mcpBusy || !mcp.endpoint} onclick={copyConnection}>Copy connection details</button>
-            <p class="mcp-warning">This text is a credential. Paste it only into your MCP client configuration, never into a chat, issue, or repository.</p>
+            <p class="mcp-warning">This text is a credential. Paste it only into your MCP client settings.</p>
           </div>
         {:else}
-          <p class="panel-description">The token is not shown again after you leave MCP customization settings. Rotate it to create new connection details. Luma also needs access turned on again after it restarts.</p>
+          <p class="panel-description">Create a new token to reconnect. AI access ends when Luma quits.</p>
         {/if}
         <p class="mcp-subhead">Set up your MCP client</p>
-        <p class="panel-description">Your MCP client must already support connecting to a local server on this PC. Luma cannot configure the client for you, and not every client can reach a local address.</p>
+        <p class="panel-description">Use a client that supports local MCP servers.</p>
         <div class="settings-actions">
           <button class="panel-secondary" disabled={mcpBusy} onclick={copySetupPrompt}>Copy setup prompt</button>
         </div>
@@ -390,82 +389,84 @@ Rules:
     {/if}
   </section>
 {:else if section === 'versions'}
-  <section class="settings-group" {@attach mountRoot} aria-busy={native && (historyLoading || documentBusy)}>
-    <div class="settings-group-head">
-      <h3>Saved versions</h3>
-      {#if native && entries.length}<span class="settings-badge is-muted">{entries.length} {entries.length === 1 ? 'version' : 'versions'}</span>{/if}
-    </div>
-    <p class="panel-description">Luma keeps the last ten saved customization versions here. Restoring one creates a new revision, so you can return to what you have now.</p>
-    {#if historyNote}<p class="panel-description" role="status">{historyNote}</p>{/if}
-    {#if !native}
-      <p class="panel-description">Available in the desktop application.</p>
-    {:else if historyLoading}
-      <p class="panel-description" role="status">Loading saved versions…</p>
-    {:else if historyError}
-      <p class="error" role="alert">{historyError}</p>
-      <div class="settings-actions">
-        <button class="panel-secondary" onclick={() => void loadHistory(revision, true)}>Try again</button>
+  <div {@attach mountRoot}>
+    <section class="settings-group" aria-busy={native && (historyLoading || documentBusy)}>
+      <div class="settings-group-head">
+        <h3>Saved versions</h3>
+        {#if native && entries.length}<span class="settings-badge is-muted">{entries.length} {entries.length === 1 ? 'version' : 'versions'}</span>{/if}
       </div>
-    {:else if !entries.length}
-      <p class="panel-description">No saved versions yet. Change the theme or Home layout, and the new version will appear here.</p>
-    {:else}
-      <div class="history-list">
-        {#each entries as entry (entry.revision)}
-          <div class="settings-row">
-            <div class="settings-row-copy">
-              <strong>{savedLabel(entry.savedAt)}</strong>
-              <span>{describe(entry)} · Revision {entry.revision}</span>
-            </div>
-            {#if entry.revision === revision}
-              <span class="settings-badge is-good">Current</span>
-            {:else}
-              <button class="panel-secondary" data-restore={entry.revision} disabled={documentBusy} aria-label={`Restore ${versionLabel(entry.savedAt)}`} onclick={() => askRestore(entry.revision)}>Restore</button>
-            {/if}
-          </div>
-          {#if restoreTarget === entry.revision}
-            <div class="history-confirm" role="group" aria-label="Confirm restoring a saved version">
-              <p>Restore {versionLabel(entry.savedAt)}? This replaces the current theme, layout, widgets, app order, and sound. Accounts and app locations stay. Plugins from that version are re-enabled only when the same version is still installed; otherwise they stay disabled with an explanation. A new revision is created, so this version stays in history.</p>
-              {#if restoreError}<p class="error" role="alert">{restoreError}</p>{/if}
-              <div class="settings-actions">
-                <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelRestore}>Cancel</button>
-                <button class="panel-secondary is-primary" disabled={documentBusy} onclick={() => restoreVersion(entry)}>{restoreBusy ? 'Restoring…' : 'Restore version'}</button>
-              </div>
-            </div>
-          {/if}
-        {/each}
-      </div>
-    {/if}
-  </section>
-{:else if section === 'reset'}
-  <section class="settings-group" {@attach mountRoot} aria-busy={resetBusy}>
-    <h3>Reset appearance and Home</h3>
-    <p class="panel-description">Return the visual style, Home layout, and widgets to their defaults. This creates a new saved version, so you can restore the previous setup from Saved versions.</p>
-    {#if !native}
-      <p class="panel-description">Available in the desktop application.</p>
-    {:else}
-      <ul class="reset-scope">
-        <li>Theme returns to {defaultThemeName}.</li>
-        <li>Density, tile shape, text size, and motion return to their defaults.</li>
-        <li>Home rows, columns, and widgets return to their defaults.</li>
-        <li>Enabled plugins that control these fields are detached; they stay installed and keep their saved settings.</li>
-      </ul>
-      {#if !resetConfirming}
+      <p class="panel-description">Restore one of your last ten setups. Luma saves your current setup first.</p>
+      {#if historyNote}<p class="panel-description" role="status">{historyNote}</p>{/if}
+      {#if !native}
+        <p class="panel-description">Available in the desktop application.</p>
+      {:else if historyLoading}
+        <p class="panel-description" role="status">Loading saved versions…</p>
+      {:else if historyError}
+        <p class="error" role="alert">{historyError}</p>
         <div class="settings-actions">
-          <button class="panel-secondary" data-reset-trigger disabled={documentBusy} onclick={askReset}>Reset to defaults</button>
+          <button class="panel-secondary" onclick={() => void loadHistory(revision, true)}>Try again</button>
         </div>
+      {:else if !entries.length}
+        <p class="panel-description">No saved versions yet. Change the theme or Home layout, and the new version will appear here.</p>
       {:else}
-        <div class="reset-confirm" role="group" aria-label="Confirm resetting appearance and Home">
-          <p>Reset appearance and Home to defaults? Plugins that control these fields are detached but stay installed with their settings. App order, sounds, accounts, app locations, and saved versions stay.</p>
-          {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}
-          <div class="settings-actions">
-            <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelReset}>Cancel</button>
-            <button class="panel-secondary is-primary" disabled={documentBusy} onclick={resetDefaults}>{resetBusy ? 'Resetting…' : 'Reset to defaults'}</button>
-          </div>
+        <div class="history-list">
+          {#each entries as entry (entry.revision)}
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>{savedLabel(entry.savedAt)}</strong>
+                <span>{describe(entry)} · Revision {entry.revision}</span>
+              </div>
+              {#if entry.revision === revision}
+                <span class="settings-badge is-good">Current</span>
+              {:else}
+                <button class="panel-secondary" data-restore={entry.revision} disabled={documentBusy} aria-label={`Restore ${versionLabel(entry.savedAt)}`} onclick={() => askRestore(entry.revision)}>Restore</button>
+              {/if}
+            </div>
+            {#if restoreTarget === entry.revision}
+              <div class="history-confirm" role="group" aria-label="Confirm restoring a saved version">
+                <p>Restore {versionLabel(entry.savedAt)}? This restores the saved look, Home, app order, and sounds. Only matching installed plugin versions can be re-enabled.</p>
+                {#if restoreError}<p class="error" role="alert">{restoreError}</p>{/if}
+                <div class="settings-actions">
+                  <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelRestore}>Cancel</button>
+                  <button class="panel-secondary is-primary" disabled={documentBusy} onclick={() => restoreVersion(entry)}>{restoreBusy ? 'Restoring…' : 'Restore version'}</button>
+                </div>
+              </div>
+            {/if}
+          {/each}
         </div>
       {/if}
-      {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
-    {/if}
-  </section>
+    </section>
+
+    <section class="settings-group" aria-busy={resetBusy}>
+      <h3>Reset appearance and Home</h3>
+      <p class="panel-description">Start fresh with the default look, Home layout, and widgets. You can undo this from Saved versions.</p>
+      {#if !native}
+        <p class="panel-description">Available in the desktop application.</p>
+      {:else}
+        <ul class="reset-scope">
+          <li>Theme returns to {defaultThemeName}.</li>
+          <li>Density, tile shape, text size, and motion return to their defaults.</li>
+          <li>Home rows, columns, and widgets return to their defaults.</li>
+          <li>Enabled plugins that control these fields are detached; they stay installed and keep their saved settings.</li>
+        </ul>
+        {#if !resetConfirming}
+          <div class="settings-actions">
+            <button class="panel-secondary" data-reset-trigger disabled={documentBusy} onclick={askReset}>Reset to defaults</button>
+          </div>
+        {:else}
+          <div class="reset-confirm" role="group" aria-label="Confirm resetting appearance and Home">
+            <p>Reset appearance and Home? Plugins that control these settings will be disconnected from them.</p>
+            {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}
+            <div class="settings-actions">
+              <button class="panel-secondary" disabled={documentBusy} {@attach focusCancel} onclick={cancelReset}>Cancel</button>
+              <button class="panel-secondary is-primary" disabled={documentBusy} onclick={resetDefaults}>{resetBusy ? 'Resetting…' : 'Reset to defaults'}</button>
+            </div>
+          </div>
+        {/if}
+        {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}
+      {/if}
+    </section>
+  </div>
 {/if}
 
 <style>

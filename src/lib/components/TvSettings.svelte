@@ -47,31 +47,31 @@
 </script>
 
 <section class="settings-group" aria-busy={busy}>
-  <h3>Devices</h3>
-  <p class="panel-description">Choose the screen and sound output for watching from the sofa. Keep Windows in Extend mode to leave your desktop on its own screen.</p>
+  <h3>TV &amp; audio output</h3>
+  <p class="panel-description">Choose where Luma opens and where sound plays. In Windows, use Extend to keep your desktop on a separate screen.</p>
   {#if !native}
     <p class="panel-description">Open the desktop app to choose your TV and sound output.</p>
   {:else}
     {#if setup}
-      <div class="settings-form-grid">
-        <label class="field">TV screen
+      <div class="settings-choice-list">
+        <label class="settings-row field settings-choice">
+          <span class="settings-row-copy"><strong>TV screen</strong><span>Where Luma opens.</span></span>
           <select bind:value={display} disabled={busy}>
             <option value="">Use the current screen</option>
             {#if display && !setup.displays.some(item => item.id === display)}<option value={display}>{display} — disconnected</option>{/if}
             {#each setup.displays as screen (screen.id)}<option value={screen.id}>{screen.id} — {screen.width} × {screen.height}</option>{/each}
           </select>
-          <span class="field-hint">Luma and playback windows open here. Use Left and Right on your remote to change a choice, and Up or Down to move on. If the TV is disconnected, Luma opens on an available screen.</span>
         </label>
-        <label class="field">TV sound output
+        <label class="settings-row field settings-choice">
+          <span class="settings-row-copy"><strong>Sound output</strong><span>Changes audio output for this PC.</span></span>
           <select bind:value={audio} disabled={busy}>
             <option value="">Use Windows audio output</option>
             {#if audio && !setup.audio.some(item => item.id === audio)}<option value={audio}>Saved output — disconnected</option>{/if}
             {#each setup.audio as output (output.id)}<option value={output.id}>{output.name}</option>{/each}
           </select>
-          <span class="field-hint">Choose your TV, HDMI receiver, or speakers. This changes Windows playback audio for the whole PC. Apps with their own output setting may need to be changed separately.</span>
         </label>
       </div>
-      <p class="panel-description">PC audio returns when you close Luma to the tray or quit. Remote volume controls adjust Windows volume; use the TV remote for the TV’s own volume.</p>
+      <p class="panel-description">Luma adjusts Windows volume. Use your TV remote for TV volume.</p>
     {/if}
     <div class="settings-actions">
       <button class="panel-secondary" disabled={busy} onclick={refresh}>{busy ? 'Updating devices…' : 'Refresh devices'}</button>

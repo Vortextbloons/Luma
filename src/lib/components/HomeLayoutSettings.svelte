@@ -148,7 +148,7 @@
   <header class="layout-head">
     <div class="layout-head-copy">
       <h3>Home layout</h3>
-      <p class="panel-description">Choose how many columns Home uses, which rows appear, and the order they play in. Select Move, then use the arrow keys or the up and down buttons to place the row. Changes stay a draft until you preview Home and keep them.</p>
+      <p class="panel-description">Arrange or hide rows, then preview Home to keep your changes.</p>
     </div>
     <button class="panel-secondary layout-reset" disabled={busy} onclick={reset}>Reset layout</button>
   </header>

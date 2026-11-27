@@ -861,7 +861,7 @@ pub(crate) fn runtime_package(store: &Store, plugin_id: &str) -> Result<RuntimeP
     let Some(grant) = load_grant(&connection, plugin_id)? else {
         return Err(Error::new(
             "plugin_denied",
-            "This plugin has no approved runtime grant. Enable it in Settings > Plugins.",
+            "This plugin has no approved runtime grant. Enable it in Settings > Add-ons > Plugins.",
         ));
     };
     if grant.version != plugin.manifest.version {
@@ -1005,7 +1005,7 @@ fn command_spec_for(
     let Some(grant) = load_grant(connection, plugin_id)? else {
         return Err(Error::new(
             "plugin_denied",
-            "This plugin has no approved runtime grant. Enable it in Settings > Plugins.",
+            "This plugin has no approved runtime grant. Enable it in Settings > Add-ons > Plugins.",
         ));
     };
     if grant.version != plugin.manifest.version {
@@ -3473,7 +3473,7 @@ fn install(
             return Err(Error::new(
                 "plugin_enabled",
                 format!(
-                    "{} is enabled. Disable it in Luma > Settings > Plugins before staging an update.",
+                    "{} is enabled. Disable it in Luma > Settings > Add-ons > Plugins before staging an update.",
                     package.manifest.name
                 ),
             ));
@@ -3966,7 +3966,7 @@ pub(crate) fn disable_on_crash(
     notice(
         app,
         format!(
-            "{} was disabled after repeated runtime failures. Open Settings > Plugins for details.",
+            "{} was disabled after repeated runtime failures. Open Settings > Add-ons > Plugins for details.",
             name.unwrap_or_else(|| plugin_id.to_string())
         ),
     );
@@ -4206,7 +4206,7 @@ pub fn schema_document() -> Value {
                     "background": ["launcher-open", "startup", "always"]
                 },
                 "homeCommands": "API version 3 packages use the on-demand trigger and run only for a selected Home card or paired-phone panel command.",
-                "behavior": "Executable packages install disabled. The user reviews the exact declared permissions, network origins, and trigger in Settings > Plugins; that consent is required before the runtime starts. Isolated-ui packages open in a host-owned window with a package-specific origin and a fixed bridge. Background packages run headless in the same isolated runtime. Disable, removal, and exit stop the runtime."
+                "behavior": "Executable packages install disabled. The user reviews the exact declared permissions, network origins, and trigger in Settings > Add-ons > Plugins; that consent is required before the runtime starts. Isolated-ui packages open in a host-owned window with a package-specific origin and a fixed bridge. Background packages run headless in the same isolated runtime. Disable, removal, and exit stop the runtime."
             },
             "unsupportedBehavior": "The main-page runtime installs disabled and can never be enabled. It is never executed inside the main window."
         },

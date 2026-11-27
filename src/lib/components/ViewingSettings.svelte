@@ -114,7 +114,7 @@
 
 <section class="settings-group">
   <h3>Multi Watch</h3>
-  <p class="panel-description">Choose a layout, then add up to two players from Luma or any open app or browser window. Select a player to direct remote input to it.</p>
+  <p class="panel-description">Open up to two players. Select a player to control it with your remote.</p>
   {#if !native}<p class="panel-description">Available in the desktop application.</p>{/if}
   <div class="viewing-modes" role="group" aria-label="Viewing layout">
     {#each modes as mode (mode.id)}
@@ -149,7 +149,7 @@
   </div>
   <div class="viewing-source">
     <label for="viewing-window">Add an open window</label>
-    <p class="panel-description">Open the player or browser window you want, then refresh this list. Separate windows from the same app can be added when the app supports them. Removing a window restores its previous placement.</p>
+    <p class="panel-description">Open a player on your PC, then refresh this list.</p>
     <div class="viewing-picker">
       <select id="viewing-window" bind:value={windowId} disabled={!native || busy || windowsLoading || !availableWindows.length}>
         <option value="" disabled>{windowsLoading ? 'Loading windows...' : 'Choose a window'}</option>
@@ -161,14 +161,14 @@
     {#if viewing.mode === 'single'}<p class="panel-description">Choose Side by side, Separate displays, or Floating video before adding a window.</p>{/if}
     {#if !windowsLoading && native && !availableWindows.length}<p class="panel-description">No other windows are available. Open a player and refresh the list.</p>{/if}
     {#if windowError}<p class="panel-description" role="alert">{windowError}</p>{/if}
-    <p class="panel-description">External windows use their app's audio and playback controls. Window placement and directional remote input are available; some apps require windowed mode to resize.</p>
+    <p class="panel-description">Use the app’s own volume and playback controls.</p>
   </div>
   {#if error}<p class="panel-description" role="alert">{error}</p><button class="panel-secondary" disabled={busy} onclick={() => void refresh()}>Refresh players</button>{/if}
   {#if message}<p class="panel-description" role="status">{message}</p>{/if}
 </section>
 <section class="settings-group">
   <h3>Switch display</h3>
-  <p class="panel-description">Press Ctrl+Alt+M anywhere on Windows, or use the button to move Luma and its current viewing layout to the next connected monitor. Your saved TV display remains the startup default.</p>
+  <p class="panel-description">Move Luma to the next screen now. You can also press Ctrl+Alt+M.</p>
   <button class="panel-secondary" disabled={!native || busy} onclick={() => void action('switch_display', {}, 'Display switched.')}>Switch display</button>
 </section>
 

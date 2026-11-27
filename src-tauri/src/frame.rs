@@ -342,7 +342,7 @@ async fn perform(app: &tauri::AppHandle, command: &str) -> Option<Result<(), Str
         "musicprevious" => media::music(app, "previous").await,
         "musicnext" => media::music(app, "next").await,
         "volumeup" | "volumedown" | "mute" => volume(command),
-        "youtube" => youtube::open_youtube(app.clone(), true).await,
+        "youtube" => youtube::open_youtube(app.clone(), true, None).await,
         _ => match apps::app_command(command) {
             Some(name) => {
                 apps::launch_app(name.into(), app.state::<apps::Apps>(), app.clone()).await

@@ -4,7 +4,7 @@
   import ProviderIcon from './ProviderIcon.svelte';
   import { openSetupLink } from '../../services/tauri';
 
-  let { activity, native, view = 'all' }: { activity: ActivityState; native: boolean; view?: 'all' | 'accounts' | 'history' | 'clear' } = $props();
+  let { activity, native, view = 'all' }: { activity: ActivityState; native: boolean; view?: 'all' | 'accounts' | 'history' | 'providers' } = $props();
 
   type Form = { serverUrl: string; userId: string; clientId: string; token: string };
   const blank = (): Form => ({ serverUrl: '', userId: '', clientId: '', token: '' });
@@ -93,22 +93,22 @@
     <h3>Watch history</h3>
     {#if native}<span class={activity.trackingEnabled ? 'settings-badge is-good' : 'settings-badge is-muted'}>{activity.trackingEnabled ? 'On' : 'Paused'}</span>{/if}
   </div>
-  <p class="panel-description">Luma can remember what you watch and play so you can pick up where you left off. History stays on this PC and is never uploaded to a Luma account.</p>
+  <p class="panel-description">Luma stores watch history on this PC so you can pick up where you left off.</p>
   {#if !native}
     <p class="panel-description">Watch history is available in the desktop application.</p>
   {:else}
     <label class="setting-toggle">
-      <span class="setting-toggle-copy"><span>Remember what I watch and play</span><small>Adds titles you open and playback progress to history on this PC.</small></span>
+      <span class="setting-toggle-copy"><span>Remember what I watch and play</span><small>Save titles and playback progress.</small></span>
       <input type="checkbox" checked={activity.trackingEnabled} disabled={busy !== ''} onchange={event => { const enabled = event.currentTarget.checked; run('tracking', () => activity.setTracking(enabled)); }} />
     </label>
   {/if}
 </section>
 {/if}
 
-{#if view === 'history'}
+{#if view === 'providers'}
 <section class="settings-group">
-  <h3>Providers on Home</h3>
-  <p class="panel-description">Choose which connected services can add rows and cards to Home. Hidden services still keep their history and can be shown again at any time.</p>
+  <h3>Services on Home</h3>
+  <p class="panel-description">Choose which services show up on Home. Hiding a service keeps its history.</p>
   {#if !native}
     <p class="panel-description">Provider visibility is available in the desktop application.</p>
   {:else}
@@ -128,10 +128,10 @@
 </section>
 {/if}
 
-{#if view === 'all' || view === 'clear'}
+{#if view === 'all' || view === 'history'}
 <section class="settings-group">
   <h3>Clear history</h3>
-  <p class="panel-description">Removing history deletes it from Luma on this PC. It does not sign you out, disconnect a service, or change anything in your accounts.</p>
+  <p class="panel-description">Clear history from this PC. Your accounts stay connected.</p>
   {#if !native}
     <p class="panel-description">Clearing history is available in the desktop application.</p>
   {:else}
@@ -139,7 +139,7 @@
       <button class="text-link is-danger" disabled={busy !== ''} onclick={clearAll}>{confirming ? 'Clear watch history now' : 'Clear watch history'}</button>
       {#if confirming}<button class="text-link" onclick={() => { confirming = false; note = ''; }}>Cancel</button>{/if}
     </div>
-    {#if view === 'clear'}
+    {#if view === 'history'}
       <div class="provider-list clear-list">
         {#each activity.providers as provider (provider.id)}
           <article class="provider-row provider-row-compact">
@@ -160,7 +160,7 @@
 {#if native}
 <section class="settings-group">
   <h3>Connected services</h3>
-  <p class="panel-description">Connect the services you use to see what you're watching in Luma. Each service is optional, and one that is offline will not stop the rest of Luma. Visibility is under History &amp; Privacy.</p>
+  <p class="panel-description">Connect a service to bring your viewing activity into Luma. Choose what appears under Home → Services on Home.</p>
   <div class="provider-list">
     {#each activity.providers as provider (provider.id)}
       <article class="provider-row">

@@ -132,7 +132,7 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             "Layout",
             "layout",
             "App tile shape",
-            "Wide cards suit artwork; squares fit more apps.",
+            "Choose wide or square app tiles.",
             &config.app_tile_shape,
             vec![
                 setting_option("wide", "Pills"),
@@ -143,7 +143,7 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             "density",
             "Layout",
             "layout",
-            "Layout density",
+            "Spacing",
             "Compact fits more rows on screen.",
             &config.density,
             vec![
@@ -156,7 +156,7 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             "Layout",
             "layout",
             "Text size",
-            "Scales text and controls for easier reading from the sofa.",
+            "Make text and controls easier to read from the sofa.",
             &config.text_size,
             vec![
                 setting_option("standard", "Standard"),
@@ -170,7 +170,7 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             section: "layout".into(),
             kind: "toggle".into(),
             label: "Reduce motion".into(),
-            description: "Turns off screen transitions and animated height changes.".into(),
+            description: "Use fewer animations.".into(),
             options: vec![setting_option("true", "On"), setting_option("false", "Off")],
             value: config.reduced_motion.to_string(),
         },
@@ -178,8 +178,8 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             "interfaceSounds",
             "Sound",
             "sound",
-            "Sound set",
-            "Feedback for focus, select, back, and app launch.",
+            "Menu sounds",
+            "Play a sound when moving or selecting.",
             &config.interface_sounds,
             vec![
                 setting_option("real", "Real hardware"),
@@ -192,7 +192,7 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
             "soundLevel",
             "Sound",
             "sound",
-            "Sound level",
+            "Menu volume",
             "Standard is tuned for a quiet room.",
             &config.sound_level,
             vec![

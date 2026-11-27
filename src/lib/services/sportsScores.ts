@@ -47,20 +47,26 @@ export function parseScoreboard(value: unknown, league: string): GameScore[] {
 const normalize = (name: string) => name.toLowerCase().replace(/\blos angeles\b/g, 'la')
   .replace(/\bsaint\b/g, 'st').replace(/[^a-z0-9]/g, '');
 
-export function matchScore(event: { league: string; teams: { name: string }[] }, scores: GameScore[]): GameScore | undefined {
-  if (event.teams.length !== 2) return;
-  const names = event.teams.map(team => normalize(team.name));
-  const matches = scores.filter(game => game.league === event.league
-    && game.teams.length === 2 && game.teams.every(team => names.includes(normalize(team.name))));
-  return matches.length === 1 ? matches[0] : undefined;
+type Matchup = { league: string; teams: { name: string }[] };
+
+function matchupKey(game: Matchup) {
+  if (game.teams.length !== 2) return;
+  const first = normalize(game.teams[0].name);
+  const second = normalize(game.teams[1].name);
+  if (!first || !second || first === second) return;
+  return first < second ? `${game.league}|${first}|${second}` : `${game.league}|${second}|${first}`;
 }
 
-export function matchEvent<T extends { league: string; teams: { name: string }[] }>(game: GameScore, events: T[]): T | undefined {
-  if (game.teams.length !== 2) return;
-  const names = game.teams.map(team => normalize(team.name));
-  const matches = events.filter(event => event.league === game.league
-    && event.teams.length === 2 && event.teams.every(team => names.includes(normalize(team.name))));
-  return matches.length === 1 ? matches[0] : undefined;
+export function indexMatchups<T extends Matchup>(games: readonly T[]) {
+  const index = new Map<string, T | undefined>();
+  for (const game of games) {
+    const key = matchupKey(game);
+    if (key) index.set(key, index.has(key) ? undefined : game);
+  }
+  return (game: Matchup) => {
+    const key = matchupKey(game);
+    return key ? index.get(key) : undefined;
+  };
 }
 
 export function scoreTeam(game: GameScore | undefined, name: string): GameTeam | undefined {
@@ -86,4 +92,9 @@ export function matchSportsBadge(event: { league: string; teams: { name: string 
     && badge.league.toLowerCase() === league
     && badge.teams.length >= 2
     && event.teams.every(team => badge.teams.some(candidate => teamMatches(team.name, candidate))));
+}
+
+export function badgeSideValue(badge: SportsBadge | undefined, teamName: string) {
+  if (!badge?.sides?.length) return undefined;
+  return badge.sides.find(side => teamMatches(teamName, side.team));
 }

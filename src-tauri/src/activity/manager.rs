@@ -479,7 +479,7 @@ impl Activity {
             .ok_or("That activity item is no longer stored.")?;
         if item.item_type == super::models::ActivityType::Application {
             if item.title == "YouTube" {
-                commands::youtube::open_youtube(app.clone(), fullscreen).await?;
+                commands::youtube::open_youtube(app.clone(), fullscreen, None).await?;
                 return Ok(OpenOutcome {
                     kind: ResumeKind::Service,
                     message: "YouTube opened.".into(),
@@ -512,7 +512,7 @@ impl Activity {
                 .clone()
                 .ok_or("This item does not name a service to open.")?;
             if name == "YouTube" {
-                commands::youtube::open_youtube(app.clone(), fullscreen).await?;
+                commands::youtube::open_youtube(app.clone(), fullscreen, None).await?;
             } else {
                 apps::launch_app(name, app.state::<apps::Apps>(), app.clone()).await?;
             }

@@ -50,7 +50,6 @@
     <div class="settings-service-title"><h3>Spotify</h3><p>Music controls for the Spotify app on this PC.</p></div>
     <span class={`settings-badge ${stateTone}`}>{stateLabel}</span>
   </div>
-  <p class="panel-description">Luma controls the Spotify app installed on this PC. Playback stays in Spotify.</p>
 
   <div class="settings-status-panel">
     <p class="settings-status-line"><span class={`settings-status-dot ${connection.processRunning ? 'is-good' : ''}`}></span>{native ? connection.processRunning ? 'Spotify is running.' : connection.starting ? 'Spotify is starting…' : connection.installed ? 'Spotify is installed but closed.' : 'Spotify is not installed on this PC.' : 'Available in the desktop application.'}</p>
@@ -69,7 +68,7 @@
       <span class="settings-advanced-mark" aria-hidden="true"><MusicIcon name="chevron-right" /></span>
     </summary>
     <div class="settings-advanced-body">
-      <p class="panel-description">Play, pause, skip, and volume work with the installed app. A connected account adds playlists, saved music, search, recent listening, queue, and device controls. Luma uses your own Spotify developer app for this optional connection.</p>
+      <p class="panel-description">Link a Spotify developer app to browse your music and playlists in Luma.</p>
       <ol class="spotify-steps">
         <li><button class="text-link" disabled={!native} onclick={openGuide}>Open Spotify Developer Dashboard</button>, sign in, and choose Create app.</li>
         <li>Give the app a name, such as Luma, and select Web API.</li>
@@ -77,7 +76,7 @@
         <li>Save the app in Spotify, open its Settings, and copy the Client ID. Paste it below and choose Save Client ID. You do not need the Client Secret.</li>
         <li>Choose Connect Spotify. Luma opens your browser for sign-in and finishes the connection locally.</li>
       </ol>
-      <p class="panel-description">Development Mode apps require the app owner to have Spotify Premium, are limited to five authorized users, and support a smaller set of features. Playback control through the Spotify account requires Spotify Premium. Some library items may be unavailable for playlists you do not own.</p>
+      <p class="panel-description">Spotify Premium is required for developer app owners and account playback controls. Development Mode allows up to five authorized users.</p>
 
       <label class="field">Spotify Client ID<input bind:value={clientId} placeholder="Paste the Client ID" spellcheck="false" autocomplete="off" /></label>
       <div class="settings-actions">

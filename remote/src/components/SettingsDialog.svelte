@@ -23,57 +23,48 @@
 
   type Category = {
     id: string;
-    group: string;
     title: string;
     blurb: string;
     heading: string;
-    description: string;
     note?: string;
     sections?: SettingSection[];
   };
 
   const remoteCategories: Category[] = [
-    { id: "controls", group: "This remote", title: "Controls", blurb: "Touchpad or directional pad", heading: "Controls", description: "Choose how this phone's pad drives Luma. Other remotes keep their own setting." },
-    { id: "browser", group: "This remote", title: "This browser", blurb: "Theme, fullscreen, music", heading: "This browser", description: "Appearance and window options saved on this device." },
-    { id: "connection", group: "This remote", title: "Connection", blurb: "Pairing and this session", heading: "Connection", description: "The link between this browser and your PC." },
+    { id: "controls", title: "Controls", blurb: "Touchpad or directional pad", heading: "Controls" },
+    { id: "browser", title: "This browser", blurb: "Theme, fullscreen, music", heading: "This browser" },
+    { id: "connection", title: "Connection", blurb: "Pairing and this session", heading: "Connection" },
   ];
 
-  const appCategoryMeta: Record<string, { title: string; blurb: string; heading: string; description: string; note: string }> = {
-    "appearance-home": {
-      title: "Appearance & Home",
-      blurb: "Theme, layout, and Home",
-      heading: "Appearance & Home",
-      description: "The look and layout of Luma on the TV and connected displays.",
-      note: "Home rows and widgets are arranged on the PC.",
+  const appCategoryMeta: Record<string, { title: string; blurb: string; heading: string; note: string }> = {
+    "appearance": {
+      title: "Appearance",
+      blurb: "Theme, text, and motion",
+      heading: "Appearance",
+      note: "",
     },
     "display-sound": {
       title: "Display & Sound",
       blurb: "Sound and active window",
       heading: "Display & Sound",
-      description: "Interface sounds and the window Luma is controlling.",
       note: "TV screen and audio are chosen on the PC.",
     },
-    "apps-services": {
-      title: "Apps & Services",
-      blurb: "Dock order and apps",
-      heading: "Apps & Services",
-      description: "The shared app dock and the apps available on this remote.",
-      note: "App paths, accounts, history, and system settings are managed on the PC.",
+    home: {
+      title: "Home",
+      blurb: "App order and columns",
+      heading: "Home",
+      note: "Manage Home rows and widgets in Luma on your PC.",
     },
   };
 
-  const appCategoryOrder = ["appearance-home", "display-sound", "apps-services"];
+  const appCategoryOrder = ["appearance", "home", "display-sound"];
 
   const sectionMeta: Record<string, { category: string; heading: string; order: number }> = {
-    theme: { category: "appearance-home", heading: "Theme", order: 0 },
-    layout: { category: "appearance-home", heading: "Layout", order: 1 },
-    "remote-layout": { category: "appearance-home", heading: "Layout", order: 1 },
-    sound: { category: "display-sound", heading: "Sound", order: 1 },
+    theme: { category: "appearance", heading: "Theme", order: 0 },
+    layout: { category: "appearance", heading: "Text, spacing & motion", order: 1 },
+    "remote-layout": { category: "home", heading: "Home layout", order: 1 },
+    sound: { category: "display-sound", heading: "Menu sounds", order: 1 },
   };
-
-  const cardId = (section: string): string =>
-    section === "remote-layout" ? "layout"
-      : section;
 
   let lumaCategories: Category[] = $derived.by(() => {
     const categories = new Map<string, Category>();
@@ -81,11 +72,9 @@
       const meta = appCategoryMeta[id];
       categories.set(id, {
         id,
-        group: "Luma app",
         title: meta.title,
         blurb: meta.blurb,
         heading: meta.heading,
-        description: meta.description,
         note: meta.note,
         sections: [],
       });
@@ -96,11 +85,9 @@
       if (!category) {
         category = {
           id,
-          group: "Luma app",
           title: fallbackTitle,
           blurb: "Luma app settings",
           heading: fallbackTitle,
-          description: "Settings shared with the TV and connected displays.",
           note: "",
           sections: [],
         };
@@ -117,7 +104,7 @@
         order: 50,
       };
       const category = ensure(meta.category, choice.group || "Luma app");
-      const id = cardId(section);
+      const id = section;
       let card = category.sections?.find(item => item.id === id);
       if (!card) {
         card = { id, heading: meta.heading, choices: [] };
@@ -126,9 +113,9 @@
       card.choices.push(choice);
     }
 
-    ensure("apps-services", "Apps & Services").sections?.push({
+    ensure("home", "Home").sections?.push({
       id: "order",
-      heading: "Dock",
+      heading: "App order",
       choices: [],
       action: "order",
     });
@@ -445,9 +432,7 @@
           <Icon name="back" className="size-[14px]" />
           All settings
         </button>
-        <span class="panel-tag">{active.group}</span>
         <h2 data-panel={category} tabindex="-1">{active.heading}</h2>
-        <p>{active.description}</p>
       </div>
 
       {#if category === "controls"}
@@ -456,7 +441,7 @@
           <div class="row">
             <span class="row-copy">
               <b>Touchpad mode</b>
-              <small>Drag the pad to move the PC pointer and tap to click. Leave this off for directional keys on Luma and TV-style apps.</small>
+              <small>Use the pad as a mouse for PC apps. Turn this off to use arrow buttons.</small>
             </span>
             <SettingSwitch
               checked={control.mode === "touchpad"}
@@ -464,7 +449,6 @@
               onchange={value => setControlMode(value ? "touchpad" : "dpad")}
             />
           </div>
-          <p class="row-note">This setting is saved on this phone. Touchpad mode is for desktop-style apps; the D-pad is the default for Luma.</p>
         </section>
       {/if}
 
@@ -597,8 +581,8 @@
             {#if section.action === "order"}
               <div class="row">
                 <span class="row-copy">
-                  <b>App order</b>
-                  <small>Move apps into the order you want.</small>
+                  <b>Shared app order</b>
+                  <small>Applies to Home, this remote, and the Display Box.</small>
                 </span>
                 <button type="button" class="pill" data-order-trigger onclick={() => (orderOpen = true)}>Edit</button>
               </div>
@@ -606,7 +590,7 @@
               <div class="row">
                 <span class="row-copy">
                   <b>Fullscreen window</b>
-                  <small>Toggles full screen on the Luma or app window currently in front.</small>
+                  <small>Changes fullscreen for the active PC window.</small>
                 </span>
                 <button
                   type="button"
@@ -871,17 +855,6 @@
     border-bottom: 1px solid var(--line);
   }
 
-  .panel-tag {
-    width: max-content;
-    padding: 4px 9px;
-    border: 1px solid var(--line-strong);
-    border-radius: 99px;
-    background: rgba(255, 255, 255, .05);
-    color: var(--faint);
-    font-size: 10px;
-    font-weight: 700;
-  }
-
   .panel-head h2 {
     margin: 0;
     font-size: clamp(24px, 3.4vw, 30px);
@@ -891,14 +864,6 @@
   }
 
   .panel-head h2:focus { outline: none; }
-
-  .panel-head p {
-    max-width: 62ch;
-    margin: 0;
-    color: var(--muted);
-    font-size: 12.5px;
-    line-height: 1.55;
-  }
 
   .settings-back {
     display: none;

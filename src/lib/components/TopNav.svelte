@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { slideIndicator } from '../services/motion';
-  let { active, navigate, settings, connect, fullscreen, toggle, viewing, switchDisplay, startScreensaver, searchQuery = $bindable(''), onsearch }: { active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void; viewing: () => void; switchDisplay: () => void; startScreensaver: () => void; searchQuery?: string; onsearch: () => void } = $props();
+  import { connectedControllers, controllerActions, controllerButtonLabel, controllerFamily } from '../services/controller';
+  import type { Settings } from '../types';
+  let { native, controllerEnabled, binds, sleep, exit, active, navigate, settings, connect, fullscreen, toggle, viewing, switchDisplay, startScreensaver, searchQuery = $bindable(''), onsearch }: { native: boolean; controllerEnabled: boolean; binds: Settings["controllerBinds"]; sleep: () => Promise<void>; exit: () => void; active: string; navigate: (tab: string) => void; settings: () => void; connect: () => void; fullscreen: boolean; toggle: () => void; viewing: () => void; switchDisplay: () => void; startScreensaver: () => void; searchQuery?: string; onsearch: () => void } = $props();
   function search(event: SubmitEvent) {
     event.preventDefault();
     onsearch();
@@ -9,6 +11,25 @@
   let menu: HTMLDialogElement;
   let menuButton: HTMLButtonElement;
   let menuOpen = $state(false);
+  let view = $state<'quick' | 'bindings' | 'sleep'>('quick');
+  let family = $state(controllerFamily(null));
+  let sleepError = $state('');
+  let sleeping = $state(false);
+
+  async function showView(next: typeof view) {
+    if (next === 'bindings') family = controllerFamily(connectedControllers()[0]);
+    view = next;
+    await tick();
+    menu.querySelector<HTMLElement>(next === 'quick' ? '[data-quick-first]' : '[data-quick-back]')?.focus();
+  }
+
+  async function sleepNow() {
+    sleeping = true;
+    sleepError = '';
+    try { await sleep(); closeMenu(); }
+    catch (error) { sleepError = String(error); }
+    finally { sleeping = false; }
+  }
 
   export function closeMenu() {
     if (!menu?.open) return false;
@@ -18,7 +39,16 @@
     return true;
   }
 
+  export function backMenu() {
+    if (!menu?.open) return false;
+    if (view === 'quick') return closeMenu();
+    void showView('quick');
+    return true;
+  }
+
   function openMenu() {
+    view = 'quick';
+    sleepError = '';
     menu.style.top = `${menuButton.getBoundingClientRect().bottom + 8}px`;
     menu.showModal();
     menuOpen = true;
@@ -87,15 +117,36 @@
     <button class="header-btn is-icon" title="Settings" aria-label="Open settings" onclick={settings}>
       <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M10 3h4l.7 2.6 2 .9 2.4-1.3 2 3.5-1.7 2v2.6l1.7 2-2 3.5-2.4-1.3-2 .9L14 21h-4l-.7-2.6-2-.9-2.4 1.3-2-3.5 1.7-2v-2.6l-1.7-2 2-3.5 2.4 1.3 2-.9z" /></svg>
     </button>
-    <button bind:this={menuButton} class="header-btn is-icon" title="More options" aria-label="More options" aria-haspopup="dialog" aria-expanded={menuOpen} onclick={openMenu}>
+    <button bind:this={menuButton} class="header-btn is-icon" title="Quick menu" aria-label="Quick menu" aria-haspopup="dialog" aria-expanded={menuOpen} onclick={openMenu}>
       <svg class="header-icon dots" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>
     </button>
-    <dialog bind:this={menu} class="header-menu" aria-label="More options" oncancel={event => { event.preventDefault(); closeMenu(); }} onpointerdown={event => { if (event.target === menu) closeMenu(); }}>
+    <dialog bind:this={menu} class="header-menu" aria-label="More options" oncancel={event => { event.preventDefault(); backMenu(); }} onpointerdown={event => { if (event.target === menu) closeMenu(); }}>
       <div class="menu-content">
+        {#if view === 'quick'}
+        <button data-quick-first onclick={() => void showView('bindings')}>Gamepad bindings</button>
         <button onclick={() => run(viewing)}>Multi Watch</button>
-        <button onclick={() => run(switchDisplay)}>Switch display</button>
+        {#if native}
+          <button onclick={() => run(switchDisplay)}>Switch display</button>
+          <button onclick={() => void showView('sleep')}>Sleep PC</button>
+          <button onclick={() => run(exit)}>Exit Luma</button>
+        {/if}
         <button onclick={() => run(connect)}>Connect a remote</button>
         <button onclick={() => run(startScreensaver)}>Start screensaver</button>
+        {:else}
+          <button data-quick-back onclick={() => void showView('quick')}>Back to Quick menu</button>
+          {#if view === 'bindings'}
+            {#if controllerEnabled}
+              <dl class="quick-bindings">
+                {#each controllerActions as action (action.key)}
+                  <div><dt>{action.label}</dt><dd>{controllerButtonLabel(binds[action.key], family)}</dd></div>
+                {/each}
+              </dl>
+            {:else}<p>Gamepad controls are turned off.</p>{/if}
+          {:else}
+            <button disabled={sleeping} onclick={sleepNow}>{sleeping ? 'Putting PC to sleep…' : 'Confirm Sleep PC'}</button>
+            {#if sleepError}<p role="alert">{sleepError}</p>{/if}
+          {/if}
+        {/if}
       </div>
     </dialog>
   </div>
@@ -106,6 +157,10 @@
   .dots { fill: currentColor; stroke: none; }
   .header-menu { position: fixed; inset: 0 var(--side) auto auto; margin: 0; padding: 0; width: min(16rem, calc(100vw - 2 * var(--side))); border: 1px solid var(--line-strong); border-radius: var(--control-radius); background: var(--surface-2); color: var(--text); box-shadow: 0 16px 36px #0008; }
   .header-menu::backdrop { background: #0003; }
+  .quick-bindings { padding: 0 12px; margin: 0; }
+  .quick-bindings div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+  .quick-bindings dd { margin: 0; color: var(--muted); text-align: end; }
+  .header-menu { max-height: 75dvh; overflow: auto; }
   .menu-content { display: grid; gap: 4px; padding: 8px; }
   .menu-content button { min-height: 44px; padding: 0 12px; text-align: start; border-radius: 8px; background: transparent; color: inherit; }
   .menu-content button:hover, .menu-content button:focus-visible { background: var(--surface-3); }

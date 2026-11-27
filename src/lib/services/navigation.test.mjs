@@ -56,13 +56,31 @@ test('directional navigation follows the row and scrolls the focused tile into v
   assert.equal(c.clicks, 1);
 });
 
+test('directional input scrolls the changelog and returns to Close at the top', () => {
+  const f = fixture();
+  const close = f.button(500, 0), reader = f.button(0, 100);
+  reader.matches = selector => selector === '[data-release-notes-scroll]';
+  reader.clientHeight = 400;
+  reader.scrollTop = 0;
+  reader.scrollBy = ({ top }) => { reader.scrollTop += top; };
+  f.modal([close, reader]);
+
+  reader.focus();
+  f.navigation.dispatch('down');
+  assert.ok(reader.scrollTop > 0);
+  assert.equal(f.document.activeElement, reader);
+  f.navigation.dispatch('up');
+  f.navigation.dispatch('up');
+  assert.equal(f.document.activeElement, close);
+});
+
 test('settings remote navigation enters the content, visits every control, and returns to categories', () => {
   const f = fixture();
   const display = f.button(0, 0), appearance = f.button(0, 100);
   const first = f.button(400, 300), second = f.button(700, 300), save = f.button(700, 500);
   const categories = { contains: el => [display, appearance].includes(el) };
   const content = { contains: el => [first, second, save].includes(el) };
-  const page = { querySelector: () => display };
+  const page = { querySelector: selector => selector === '.settings-category.selected' ? display : null };
   for (const el of [display, appearance, first, second, save]) {
     el.closest = selector => selector === '.settings-page' ? page
       : selector === '.settings-categories' && categories.contains(el) ? categories
@@ -92,18 +110,46 @@ test('settings section tabs move down into their content instead of the next tab
   const categories = { contains: el => el === display };
   const content = { contains: el => [theme, layout, first, second].includes(el) };
   const sections = { contains: el => [theme, layout].includes(el) };
-  const page = { querySelector: () => display };
+  const page = { querySelector: selector => selector === '.settings-section-tab.selected' ? layout : display };
   for (const el of [display, theme, layout, first, second]) {
     el.closest = selector => selector === '.settings-page' ? page
       : selector === '.settings-categories' && categories.contains(el) ? categories
       : selector === '.settings-content' && content.contains(el) ? content
       : selector === '.settings-sections' && sections.contains(el) ? sections : null;
   }
-  theme.focus();
+  display.focus();
+  f.navigation.dispatch('right');
+  assert.equal(f.document.activeElement, layout);
   f.navigation.dispatch('down');
   assert.equal(f.document.activeElement, first);
   f.navigation.dispatch('down');
   assert.equal(f.document.activeElement, second);
+  f.navigation.dispatch('up');
+  f.navigation.dispatch('up');
+  assert.equal(f.document.activeElement, layout);
+  f.navigation.dispatch('up');
+  assert.equal(f.document.activeElement, display);
+});
+
+test('narrow settings use left and right for categories and down to enter', () => {
+  const f = fixture();
+  const first = f.button(0, 0), second = f.button(100, 0), setting = f.button(0, 100);
+  const categories = { contains: el => el === first || el === second };
+  first.closest = second.closest = selector => selector === '.settings-categories' ? categories : null;
+  setting.closest = selector => selector === '.settings-content' ? { contains: el => el === setting } : null;
+  const previousWindow = globalThis.window;
+  globalThis.window = { matchMedia: () => ({ matches: true }) };
+  try {
+    first.focus();
+    f.navigation.dispatch('right');
+    assert.equal(f.document.activeElement, second);
+    f.navigation.dispatch('left');
+    assert.equal(f.document.activeElement, first);
+    f.navigation.dispatch('down');
+    assert.equal(f.document.activeElement, setting);
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });
 
 test('modal navigation stays in the overlay and Tab wraps in both directions', () => {

@@ -571,21 +571,21 @@ fn load_path(app: &AppHandle, path: &Path) -> Result<Value, Error> {
     let mut enabled = change.enabled;
     let mut review_required = change.review_required;
     let mut message = if review_required {
-        "The package requested different access. Review it in Settings > Plugins.".to_string()
+        "The package requested different access. Review it in Settings > Add-ons > Plugins.".to_string()
     } else if enabled {
         format!("Reloaded {name} {version}.")
     } else {
         format!("Reloaded {name} {version}. The package is disabled.")
     };
     if identity_changed {
-        message = "The package id changed. Review it in Settings > Plugins.".to_string();
+        message = "The package id changed. Review it in Settings > Add-ons > Plugins.".to_string();
         if let Some(previous_id) = previous_id {
             extension_spike::invalidate(app, previous_id);
         }
     } else if change.first_install && profile.review_initial {
         review_required = true;
         message = format!(
-            "Loaded {name} {version}. Review its access in Settings > Plugins to enable it."
+            "Loaded {name} {version}. Review its access in Settings > Add-ons > Plugins to enable it."
         );
     } else if change.first_install {
         let revision = store
@@ -636,7 +636,7 @@ fn load_path(app: &AppHandle, path: &Path) -> Result<Value, Error> {
     {
         review_required = true;
         message = format!(
-            "{} {name} {version}. Review its access in Settings > Plugins to enable it.",
+            "{} {name} {version}. Review its access in Settings > Add-ons > Plugins to enable it.",
             if change.first_install {
                 "Loaded"
             } else {
@@ -1654,9 +1654,9 @@ pub(crate) async fn mcp_start(app: &AppHandle, submission: Value) -> Result<Valu
         "message": if let Some(reason) = execution_reason {
             format!("Loaded {plugin_name} {plugin_version}, but it cannot run in this Luma: {reason}")
         } else {
-            format!("Loaded {plugin_name} {plugin_version}. Review its access in Settings > Plugins in the Luma Development window to enable it.")
+            format!("Loaded {plugin_name} {plugin_version}. Review its access in Settings > Add-ons > Plugins in the Luma Development window to enable it.")
         },
-        "next": "Ask the user to review and enable the plugin in the Luma Development window under Settings > Plugins. No MCP tool can approve access."
+        "next": "Ask the user to review and enable the plugin in the Luma Development window under Settings > Add-ons > Plugins. No MCP tool can approve access."
     }))
 }
 
@@ -1790,11 +1790,11 @@ pub(crate) async fn mcp_reload(
                 "next": if execution_reason.is_some() {
                     "The reloaded package cannot run in this Luma version. Check the plugin's execution reason and update the host or package."
                 } else if review_required {
-                    "Ask the user to review the changed access in Settings > Plugins in the Luma Development window. No MCP tool can approve access."
+                    "Ask the user to review the changed access in Settings > Add-ons > Plugins in the Luma Development window. No MCP tool can approve access."
                 } else if enabled {
                     "The reloaded package kept its existing approval and is active."
                 } else {
-                    "The reloaded package is disabled. The user can review it in Settings > Plugins."
+                    "The reloaded package is disabled. The user can review it in Settings > Add-ons > Plugins."
                 }
             }))
         }

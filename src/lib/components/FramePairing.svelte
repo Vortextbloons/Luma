@@ -128,7 +128,7 @@
     <h3>Web remote &amp; Display Box</h3>
     {#if status}<span class={`settings-badge ${tone}`}>{badge}</span>{/if}
   </div>
-  <p class="panel-description">Use a browser or Display Box to control Luma from another screen. Luma remembers paired devices after a restart.</p>
+  <p class="panel-description">Pair a phone browser or Display Box to control Luma.</p>
   <p class="panel-description">Using a VPN? Allow local network access in your VPN settings so your web remote and Display Box can reach this PC.</p>
   {/if}
   {#if error}<p role="alert" class="error">{error}</p>{/if}

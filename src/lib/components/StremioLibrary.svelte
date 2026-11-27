@@ -3,7 +3,8 @@
   import PageHeader from './PageHeader.svelte';
   import EmptyState from './EmptyState.svelte';
   import PosterImage from './PosterImage.svelte';
-  let { status, native, open, connect, sync }: {
+  let { status, native, open, connect, sync, loadError, loading, retry }: {
+    loadError: string; loading: boolean; retry: () => Promise<void>;
     status: StremioStatus | null; native: boolean;
     open: (id: string) => void; connect: () => void; sync: () => Promise<void>;
   } = $props();
@@ -31,6 +32,12 @@
   </PageHeader>
   {#if !native}
     <EmptyState variant="panel" title="Desktop app required" description="Stremio account integration is available in the Luma desktop application." />
+  {:else if loadError || error}
+    <EmptyState variant="panel" role="alert" title="Stremio library could not load" description={error || loadError}>
+      {#snippet actions()}<button class="btn btn-glass" disabled={busy || loading} onclick={error ? synchronize : retry}>Retry</button>{/snippet}
+    </EmptyState>
+  {:else if !status && loading}
+    <EmptyState variant="panel" role="status" title="Loading Stremio library" />
   {:else if !status?.connected}
     <EmptyState variant="panel" title="Connect Stremio" description="Link your account once, then your Continue Watching and library appear here. Luma never asks for your Stremio password.">
       {#snippet actions()}<button class="btn btn-primary" onclick={connect}>Connect Stremio</button>{/snippet}
@@ -54,7 +61,6 @@
     </div>
     {#if status.items.length > limit}<button class="library-more-titles" onclick={() => limit += 60}>Show more titles</button>{/if}
   {/if}
-  {#if error}<p class="stremio-error library-error" role="alert">{error}</p>{/if}
 </section>
 
 <style>

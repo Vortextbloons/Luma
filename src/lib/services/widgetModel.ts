@@ -323,7 +323,7 @@ const cornerCycle: WidgetPlacement[] = ['top-right', 'bottom-right', 'top-left',
 
 export function applyPlacementPreset(widgets: Settings['widgets'], preset: PlacementPreset) {
   const items = widgetInstances(widgets);
-  const docked = items.find(item => item.meta?.defaultPlacement === 'bar') ?? items[0];
+  const docked = items.find(item => item.meta?.defaultPlacement === 'bar');
   items.forEach((item, index) => {
     item.config.position = null;
     item.config.placement = preset === 'dock'

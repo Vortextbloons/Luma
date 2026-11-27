@@ -4,13 +4,14 @@
   import { appProviders } from '../services/activity';
   import { slideIndicator } from '../services/motion';
   import ProviderIcon from './activity/ProviderIcon.svelte';
-  let { order, launch, preview, launching = null, active = null, smoothHover = true }: {
+  let { order, launch, preview, launching = null, active = null, smoothHover = true, grid = false }: {
     order: AppId[];
     launch: (id: AppId) => void;
     preview?: (id: AppId) => void;
     launching?: AppId | null;
     active?: AppId | null;
     smoothHover?: boolean;
+    grid?: boolean;
   } = $props();
   const className = (id: AppId) => id.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '-');
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
@@ -43,7 +44,7 @@
 </script>
 
 <section id="apps" class="content-row apps-row">
-  <div class={['app-track', { 'has-smooth-hover': smoothHover }]} use:slideIndicator={{ key: active }}>
+  <div class={['app-track', { 'has-smooth-hover': smoothHover, 'is-grid': grid }]} use:slideIndicator={{ key: active }}>
     {#if smoothHover}<span class="app-indicator" aria-hidden="true"></span>{/if}
     {#each order as id (id)}
       <button data-focus-key={id} class={`app-card ${className(id)}`} class:is-launching={launching === id} class:is-active={active === id} aria-busy={launching === id} onclick={() => handleClick(id)} onmouseenter={() => handleEnter(id)} onmouseleave={clearHoverTimer} onfocus={() => handleFocus(id)}>

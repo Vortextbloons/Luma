@@ -68,6 +68,7 @@
   const addResponseModifier = modifier => responseModifiers.push(modifier);
 
   const OriginalXHR = window.XMLHttpRequest;
+  const isHomeFeed = url => url?.startsWith('/youtubei/v1/browse') && (!location.hash || location.hash === '#/');
   const nativeResponseText = Object.getOwnPropertyDescriptor(OriginalXHR.prototype, 'responseText').get;
   const nativeResponse = Object.getOwnPropertyDescriptor(OriginalXHR.prototype, 'response').get;
   const responseEvents = ['readystatechange', 'load', 'loadend'];
@@ -172,6 +173,10 @@
       request++;
       return originalOpen.apply(this, arguments);
     };
+
+    originalAddEventListener.call(xhr, 'loadend', () => {
+      if (isHomeFeed(url) && (xhr.status < 200 || xhr.status >= 300)) publishFeed(null);
+    });
 
     xhr.send = function () {
       return originalSend.apply(this, arguments);
@@ -304,16 +309,22 @@
       if (title) videos.push({ id: tile.contentId, title });
       if (videos.length >= 24) break;
     }
-    if (videos.length < 4) return;
-    const stamp = videos.map(video => video.id).join(',');
+    publishFeed(videos);
+  }
+
+  function publishFeed(videos) {
+    if (!BRIDGE) return;
+    const stamp = JSON.stringify(videos);
     if (stamp === reportedFeed) return;
     reportedFeed = stamp;
     fetch(`${BRIDGE}/feed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
-      body: JSON.stringify(videos),
-    }).catch(() => {});
+      body: stamp,
+    }).then(response => {
+      if (!response.ok && reportedFeed === stamp) reportedFeed = '';
+    }).catch(() => { if (reportedFeed === stamp) reportedFeed = ''; });
   }
 
   addResponseModifier((url, text) => {
@@ -341,7 +352,10 @@
       }
     }
     const tiles = collectTiles(url, json);
-    if (url.startsWith('/youtubei/v1/browse') && (!location.hash || location.hash === '#/')) reportFeed(tiles);
+    if (isHomeFeed(url)) {
+      if (json.error) publishFeed(null);
+      else if (json.contents) reportFeed(tiles);
+    }
     for (const item of tiles) {
       const tile = item?.tileRenderer;
       if (tile?.contentType !== 'TILE_CONTENT_TYPE_VIDEO' || !tile.contentId || !tile.metadata) continue;

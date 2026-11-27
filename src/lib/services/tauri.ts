@@ -11,11 +11,12 @@ export const hideToTray = () => invoke<void>('hide_to_tray');
 export const setFastAppSwitch = (enabled: boolean) => invoke<void>('set_fast_app_switch', { enabled });
 export const setControllerHome = (enabled: boolean, homeButton: number | null) => invoke<void>('set_controller_home', { enabled, homeButton });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });
-export const openYouTube = (fullscreen: boolean) => invoke<void>('open_youtube', { fullscreen })
+export const openYouTube = (fullscreen: boolean, retryFeed = false) => invoke<void>('open_youtube', { fullscreen, retryFeed })
 export const searchYouTube = (query: string) => invoke<YouTubeFeedItem[]>('youtube_search', { query });
-export const youtubeFeed = () => invoke<YouTubeFeedItem[]>('youtube_feed');
+export type YouTubeFeed = { items: YouTubeFeedItem[] | null; failed: boolean };
+export const youtubeFeed = () => invoke<YouTubeFeed>('youtube_feed');
 export const openYouTubeVideo = (videoId: string, fullscreen: boolean) => invoke<void>('youtube_open_video', { videoId, fullscreen });
-export const onYouTubeFeed = (callback: (items: YouTubeFeedItem[]) => void) => listen<YouTubeFeedItem[]>('youtube-feed', event => callback(event.payload));
+export const onYouTubeFeed = (callback: (feed: YouTubeFeed) => void) => listen<YouTubeFeed>('youtube-feed', event => callback(event.payload));
 export const activitySnapshot = () => invoke<ActivitySnapshot>('activity_snapshot');
 export const steamRecentGames = () => invoke<SteamGame[]>('steam_recent_games');
 export const steamStoreRecommendations = (appid: number) => invoke<SteamGame[]>('steam_recommendations', { appid });

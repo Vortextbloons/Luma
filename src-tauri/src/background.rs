@@ -138,15 +138,19 @@ pub(crate) async fn main_window(app: &tauri::AppHandle) -> Result<tauri::Webview
 }
 
 pub fn show(app: &tauri::AppHandle) {
-    show_with(app, None);
+    show_with(app, None, None);
 }
 
-fn show_with(app: &tauri::AppHandle, plugin_id: Option<String>) {
+pub fn show_at_sign_in(app: &tauri::AppHandle) {
+    show_with(app, None, Some(true));
+}
+
+fn show_with(app: &tauri::AppHandle, plugin_id: Option<String>, fullscreen: Option<bool>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match main_window(&app).await {
             Ok(window) => {
-                if present(window, None).await.is_ok() {
+                if present(window, fullscreen).await.is_ok() {
                     crate::extension_spike::launcher_presented(&app);
                     if let Some(plugin_id) = plugin_id {
                         if let Err(error) = crate::extension_spike::open(&app, &plugin_id) {
@@ -397,7 +401,7 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
             } else if id == "quit" {
                 request_exit(app);
             } else if let Some(plugin_id) = id.strip_prefix("plugin:open:") {
-                show_with(app, Some(plugin_id.to_string()));
+                show_with(app, Some(plugin_id.to_string()), None);
             } else if let Some(plugin_id) = id.strip_prefix("plugin:disable:") {
                 disable_plugin(app, plugin_id.to_string());
             }
@@ -418,10 +422,92 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    if !std::env::args().any(|arg| arg == "--background") {
+    #[cfg(windows)]
+    migrate_startup(app.handle());
+    if std::env::args().any(|arg| arg == "--sign-in") {
+        show_at_sign_in(app.handle());
+    } else if !std::env::args().any(|arg| arg == "--background") {
         show(app.handle());
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn migrate_startup(app: &tauri::AppHandle) {
+    use windows::Win32::System::Registry::HKEY_CURRENT_USER;
+
+    let legacy = crate::commands::apps::reg_text(
+        HKEY_CURRENT_USER,
+        Some(r"Software\Microsoft\Windows\CurrentVersion\Run"),
+        Some(&app.package_info().name),
+    )
+    .is_some_and(|entry| entry.trim_end().ends_with(" --background"));
+    if legacy && matches!(app.autolaunch().is_enabled(), Ok(true)) {
+        if let Err(error) = app.autolaunch().enable() {
+            eprintln!("Could not update Windows startup: {error}");
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn sleep_pc() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        #[link(name = "PowrProf")]
+        extern "system" {
+            fn SetSuspendState(hibernate: u8, force: u8, disable_wake: u8) -> u8;
+        }
+
+        tauri::async_runtime::spawn_blocking(|| unsafe {
+            use windows::Win32::{
+                Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE},
+                Security::{
+                    AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES,
+                    SE_PRIVILEGE_ENABLED, SE_SHUTDOWN_NAME, TOKEN_ADJUST_PRIVILEGES,
+                    TOKEN_PRIVILEGES, TOKEN_QUERY,
+                },
+                System::Threading::{GetCurrentProcess, OpenProcessToken},
+            };
+
+            static SLEEP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let _guard = SLEEP.try_lock().map_err(|_| "Sleep is already in progress.".to_string())?;
+            let mut token = HANDLE::default();
+            OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut token)
+                .map_err(|error| error.to_string())?;
+            let result = (|| {
+                let mut privilege = TOKEN_PRIVILEGES {
+                    PrivilegeCount: 1,
+                    Privileges: [LUID_AND_ATTRIBUTES {
+                        Attributes: SE_PRIVILEGE_ENABLED,
+                        ..Default::default()
+                    }],
+                };
+                LookupPrivilegeValueW(None, SE_SHUTDOWN_NAME, &mut privilege.Privileges[0].Luid)?;
+                let mut previous = TOKEN_PRIVILEGES::default();
+                let mut length = 0;
+                AdjustTokenPrivileges(
+                    token, false, Some(&privilege), std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
+                    Some(&mut previous), Some(&mut length),
+                )?;
+                if GetLastError() == ERROR_NOT_ALL_ASSIGNED {
+                    return Err(windows::core::Error::from_win32());
+                }
+                let slept = if SetSuspendState(0, 0, 0) == 0 {
+                    Err(windows::core::Error::from_win32())
+                } else {
+                    Ok(())
+                };
+                AdjustTokenPrivileges(token, false, Some(&previous), 0, None, None)?;
+                slept
+            })();
+            let _ = CloseHandle(token);
+            result.map_err(|error| format!("Windows could not sleep: {error}"))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    Err("Sleep is available on Windows.".to_string())
 }
 
 #[tauri::command]

@@ -131,10 +131,10 @@
       <button class="panel-secondary" disabled={busy} onclick={sync}>{busy ? 'Synchronizing…' : 'Sync now'}</button>
       <button class="text-link" disabled={busy} onclick={disconnect}>Sign out</button>
     </div>
-    <p class="panel-description">Luma remembers this connection when you restart. Sign out to choose a different account. Signing out closes Stremio and removes Luma's saved connection; your Stremio account and library are preserved.</p>
+    <p class="panel-description">Sign out to switch accounts. Your Stremio library stays in your account.</p>
   {:else if waiting}
     <div class="stremio-link">
-      <p class="panel-description">On your phone or another device, open the link below and sign in to Stremio, or scan the QR code. Luma will connect automatically. The code expires after five minutes.</p>
+      <p class="panel-description">Open the link or scan the code to sign in. The code lasts five minutes.</p>
       <span class="stremio-code" aria-label={`Stremio link code ${waiting.code}`}>{waiting.code}</span>
       <img class="stremio-qr" src={waiting.qr} alt="QR code for the Stremio device link" decoding="async" />
       <p class="stremio-link-url">{waiting.link}</p>
