@@ -1,6 +1,6 @@
 # Local customization server foundation
 
-Implemented: native Home/appearance ownership, registered Home sections, one/two-column layouts, recoverable preview/Keep, ten saved versions, the opt-in MCP endpoint, and declarative appearance/Home plugins with settings and portable ZIP import/export. Executable plugin runtimes, nested containers, and AI chat remain future work. See [plugins](PLUGINS.md) and [the roadmap](CUSTOMIZATION-ROADMAP.md).
+Implemented: native Home/appearance ownership, registered Home sections, one/two-column layouts, recoverable preview/Keep, ten saved versions, the opt-in MCP endpoint, and declarative appearance/Home plugins with settings and portable ZIP import/export. Executable plugin runtimes, nested containers, and AI chat remain future work. See [plugins](PLUGINS.md) for the current contract.
 
 ## Enable locally
 

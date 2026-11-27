@@ -86,7 +86,7 @@ These are facts about the current checkout, not the target design.
 | --- | --- | --- |
 | Theme contract | `src/lib/services/theme.ts` defines six built-in themes and 20 semantic CSS tokens (`--bg` through `--rating`). | A custom theme is a complete validated palette, not a loose accent value. |
 | Applied tokens | The selected palette is written to the document root. The same palette and theme list are sent to the Rust remote. | Custom themes must be usable by the desktop and remote with the same token set. |
-| Limits | `src-tauri/src/remote/server.rs` caps appearance payloads at 24 tokens and 8 themes, and validates token names and hex colors. | A large custom-theme library needs an explicit payload decision; silently truncating is unacceptable. |
+| Limits | `src-tauri/src/remote/server.rs` caps appearance payloads at 24 tokens and 12 themes, and validates token names and hex colors. | A large custom-theme library needs an explicit payload decision; silently truncating is unacceptable. |
 | Other appearance controls | `density`, `appTileShape`, `textSize`, `reducedMotion`, `interfaceSounds`, and `soundLevel` are owned fields in the native document. | Decide whether sound belongs to "appearance" for reset. See D2. |
 | Surface override | The web remote can keep its own theme override (`remote/src/lib/appearance.ts` and remote tests) while layout, sound, and app order follow Luma. | Surface-scoped appearance is already a product concept; extend it deliberately. |
 
@@ -961,8 +961,6 @@ This planning change needs no application build. Implementation should use the s
 
 ## 15. Relationship to existing documents
 
-- [CUSTOMIZATION.md](CUSTOMIZATION.md) — assessment of the current foundation and open product decisions. This plan supersedes its one-previous-revision and Home-only assumptions where the accepted intent is broader, but does not retroactively claim those features shipped.
-- [CUSTOMIZATION-ROADMAP.md](CUSTOMIZATION-ROADMAP.md) — phase history and earlier gates. Stages here extend that pathway; update both at each checkpoint so they do not disagree.
 - [CUSTOMIZATION-SERVER.md](CUSTOMIZATION-SERVER.md) — shipped local REST API and its current full-trust token. §6.6 and D15 define the separate agent permission model.
 - [CUSTOMIZATION-MCP-PLAN.md](CUSTOMIZATION-MCP-PLAN.md) — authoritative transport, authentication, tool schema, and final generic setup-prompt wording. Cross-layer requirements are in §6.6–§6.7.
 - [CUSTOMIZATION-DISPLAY-BOX.md](CUSTOMIZATION-DISPLAY-BOX.md) — authoritative frame client and protocol detail. Cross-layer expectations are in §5.7 and §4.1.

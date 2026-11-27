@@ -6,7 +6,7 @@ Status: planning document, no application code written. Assessed 2026-11-15 agai
 
 This document covers one connected question: how the customization layers reach the two non-TV surfaces — the native Android frame (Display Box) and the browser web remote — without turning either into a general-purpose extension host. Layer names follow the canonical [customization layers](CUSTOMIZATION-LAYERS.md) map; where this document needs to say what a layer means for a display, it does, and otherwise defers to that map rather than redefining it.
 
-Read [the assessment](CUSTOMIZATION.md), [the local server notes](CUSTOMIZATION-SERVER.md), [the MCP and recovery plan](CUSTOMIZATION-MCP-PLAN.md), and [the roadmap](CUSTOMIZATION-ROADMAP.md) for the implemented foundation, wire rules, review rules, and phase gates.
+Read [the local server notes](CUSTOMIZATION-SERVER.md), [the MCP and recovery plan](CUSTOMIZATION-MCP-PLAN.md), and [the runtime record](CUSTOMIZATION-RUNTIME-SPIKE.md) for the implemented foundation, wire rules, and review rules.
 
 ## Status vocabulary used here
 
@@ -41,7 +41,7 @@ Anything not labelled **Shipped** is not a capability claim.
 - `GET /apps` returns the compiled app catalog in the shared dock order, with PNG icon paths; `GET /apps/{command}/icon` serves those PNGs (`frame.rs:461-552`).
 - `GET /phone/ws` is an authenticated socket for the web remote. Incoming frames are capped at 4 KiB; appearance, app-order, and music changes are pushed unsolicited from `watch` channels (`frame.rs:644-726`).
 - The working tree also contains uncommitted remote work: an optional compact `music` object on `AppState` (title, artist, position, capabilities, artwork flag; no artwork URL), music commands, and `GET /phone/music/art` serving current artwork bytes with `no-store`. A native test asserts the music object serializes under 512 bytes (`src-tauri/src/remote/server.rs`, `frame.rs`). This is in-progress work by another agent, not a committed feature; it is cited here only as evidence of the host-served, bounded-image pattern.
-- Appearance is a fixed 20-token palette contract with validated `#rrggbb`/`#rrggbbaa` values, at most 24 tokens and 8 themes (`remote/server.rs:6-30`; `src/lib/services/theme.ts`).
+- Appearance is a fixed 20-token palette contract with validated `#rrggbb`/`#rrggbbaa` values, at most 24 tokens and 12 themes (`remote/server.rs:6-30`; `src/lib/services/theme.ts`).
 - The web remote is a standalone Svelte/TypeScript/Tailwind app in `remote/`, built by Vite and inlined into the generated `src-tauri/src/phone.html` (`docs/DEVELOPMENT.md`, "Local remote server → Web remote"). The generated page was 171,203 bytes at inspection.
 - The web remote renders `RemoteScreen` (Back/Home/more row, D-pad, transport deck), `AppsScreen`, `SettingsDialog`, and pairing/boot/offline states. Settings cards are derived from the `settings` payload's `group`/`section`/`kind`, so ordinary new settings appear without a page change (`remote/src/App.svelte`, `remote/src/components/SettingsDialog.svelte:112-149`).
 - The web remote applies the TV palette through CSS custom properties, with a local "follow TV" override (`remote/src/lib/appearance.ts`).
@@ -311,7 +311,7 @@ Not satisfied today; listed so they are not mistaken for completed work.
 
 Luma (working tree at assessment):
 
-- [`docs/CUSTOMIZATION.md`](CUSTOMIZATION.md), [`docs/CUSTOMIZATION-SERVER.md`](CUSTOMIZATION-SERVER.md), [`docs/CUSTOMIZATION-ROADMAP.md`](CUSTOMIZATION-ROADMAP.md), [`docs/CUSTOMIZATION-MCP-PLAN.md`](CUSTOMIZATION-MCP-PLAN.md), [`docs/CUSTOMIZATION-DISTRIBUTION.md`](CUSTOMIZATION-DISTRIBUTION.md), [`docs/DEVELOPMENT.md`](DEVELOPMENT.md)
+- [`docs/CUSTOMIZATION-SERVER.md`](CUSTOMIZATION-SERVER.md), [`docs/CUSTOMIZATION-MCP-PLAN.md`](CUSTOMIZATION-MCP-PLAN.md), [`docs/CUSTOMIZATION-DISTRIBUTION.md`](CUSTOMIZATION-DISTRIBUTION.md), [`docs/DEVELOPMENT.md`](DEVELOPMENT.md)
 - `src-tauri/src/frame.rs`: routes and limits, state, commands, apps/icons, phone socket, pairing and origin checks.
 - `src-tauri/src/remote/server.rs`: `AppState`, appearance and settings contracts, snapshots.
 - `src-tauri/src/customization/mod.rs`, `document.rs`: revisioned store, single previous revision, validation rules.

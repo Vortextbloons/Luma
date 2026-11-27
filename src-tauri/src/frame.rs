@@ -862,7 +862,7 @@ enum SearchTarget {
     Series { id: String },
     Video { id: String },
     Activity { id: String },
-    Sports { url: String, title: String, sources: Option<Vec<String>> },
+    Sports { url: String, title: String, sources: Option<Vec<String>>, #[serde(default)] league: Option<String> },
 }
 
 async fn remote_search_open(
@@ -877,7 +877,7 @@ async fn remote_search_open(
         SearchTarget::Series { id } => crate::commands::stremio::stremio_open(app.clone(), app.state::<crate::commands::stremio::Stremio>(), Some(id), Some("series".into())).await,
         SearchTarget::Video { id } => youtube::open_video(app.clone(), &id, true).await,
         SearchTarget::Activity { id } => crate::activity::manager::open_activity(app.clone(), id, true).await.map(|_| ()),
-        SearchTarget::Sports { url, title, sources } => crate::commands::sports::sports_open(app.clone(), url, 0, title, String::new(), sources).await,
+        SearchTarget::Sports { url, title, sources, league } => crate::commands::sports::sports_open(app.clone(), url, 0, title, String::new(), sources, league).await,
     };
     Ok(Json(match result {
         Ok(()) => serde_json::json!({"accepted": true}),

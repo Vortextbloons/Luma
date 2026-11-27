@@ -5,6 +5,8 @@ dist-ssr
 *.local
 .DS_Store
 .vite
+.tmp-shots
+docs/cursor-freeze-test.html
 
 # Editor
 .vscode/*

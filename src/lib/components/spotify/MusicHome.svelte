@@ -145,7 +145,7 @@
         <section class="music-starting">
           <div>
             <h2>{connection.installed ? 'Ready to listen?' : 'Spotify was not found'}</h2>
-            <p>{connection.installed ? 'Open Spotify to start listening.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
+            <p>{connection.installed ? 'Start Spotify in the background to begin listening.' : 'Install the Spotify desktop app on this PC, then return to Luma.'}</p>
           </div>
           {#if connection.installed}<button class="btn btn-glass" disabled={spotify.busy} onclick={() => spotify.start()}>Start Spotify</button>{:else}<button class="btn btn-glass" onclick={onsettings}>Open settings</button>{/if}
         </section>

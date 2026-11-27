@@ -962,7 +962,7 @@ pub fn update_appearance(
 mod tests {
     use super::{
         frontend_receives, should_wake, show_main, spike_route, validate_appearance, Appearance,
-        NavigationCommand, SoundPreset, SpikeRoute, ThemeOption,
+        NavigationCommand, SoundPreset, SpikeRoute, ThemeOption, MAX_THEMES,
     };
     use std::collections::BTreeMap;
 
@@ -1018,11 +1018,11 @@ mod tests {
     #[test]
     fn appearance_validation_rejects_too_many_themes() {
         let mut appearance = valid_appearance();
-        appearance.themes = (0..9)
+        appearance.themes = (0..=MAX_THEMES)
             .map(|index| theme(&format!("theme-{index}"), "Theme"))
             .collect();
         assert!(validate_appearance(&appearance).is_err());
-        appearance.themes.truncate(8);
+        appearance.themes.truncate(MAX_THEMES);
         assert!(validate_appearance(&appearance).is_ok());
     }
 

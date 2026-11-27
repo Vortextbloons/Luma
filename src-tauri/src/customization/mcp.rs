@@ -3553,7 +3553,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            6
+            THEMES.len()
         );
         assert_eq!(
             capabilities["composition"]["components"]
@@ -4441,7 +4441,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            6
+            THEMES.len()
         );
         assert_eq!(
             schema["properties"]["home"]["items"]["properties"]["component"]["enum"]

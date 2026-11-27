@@ -17,6 +17,8 @@
   import cfbIcon from '../../../src-tauri/resources/icons/sports-cfb.png';
   import ncaaMenIcon from '../../../src-tauri/resources/icons/sports-ncaa-men.png';
   import ncaaWomenIcon from '../../../src-tauri/resources/icons/sports-ncaa-women.png';
+  import boxingIcon from '../../../src-tauri/resources/icons/sports-boxing.png';
+  import ofcIcon from '../../../src-tauri/resources/icons/sports-ofc.png';
 
   let { native, sports, ondetailclose }: { native: boolean; sports: SportsState; ondetailclose?: () => void } = $props();
   const listing = $derived(sports.listing);
@@ -69,7 +71,7 @@
   });
   const extraLeagues = $derived([...new Set(events.map(event => event.league).filter(league => !majorSportsLeagues.includes(league)))].sort((a, b) => a.localeCompare(b)));
   const filters = $derived(['All', 'Your teams', ...majorSportsLeagues, ...extraLeagues]);
-  const leagueIcons: Record<string, string> = { NBA: nbaIcon, NFL: nflIcon, MLB: mlbIcon, NHL: nhlIcon, WNBA: wnbaIcon, CFB: cfbIcon, 'NCAA Men': ncaaMenIcon, 'NCAA Women': ncaaWomenIcon };
+  const leagueIcons: Record<string, string> = { NBA: nbaIcon, NFL: nflIcon, MLB: mlbIcon, NHL: nhlIcon, WNBA: wnbaIcon, CFB: cfbIcon, 'NCAA Men': ncaaMenIcon, 'NCAA Women': ncaaWomenIcon, Boxing: boxingIcon, OFC: ofcIcon };
   const visible = $derived(events.filter(event => filter === 'All' || (filter === 'Your teams' ? eventFavorite(event) : event.league === filter)));
   const liveEvents = $derived(visible.filter(event => live(event)));
   const upcoming = $derived.by(() => {
@@ -275,7 +277,7 @@
       <header><h2>More leagues</h2><button aria-label="Close league choices" onclick={() => { leaguesOpen = false; document.getElementById('extra-leagues-toggle')?.focus(); }}>Close</button></header>
       <div class="sports-filters">
         {#each extraLeagues as name (name)}
-          <button class={{ active: filter === name }} aria-pressed={filter === name} onclick={() => { setFilter(name); leaguesOpen = false; void tick().then(() => document.getElementById('extra-leagues-toggle')?.focus()); }}>{name}<span class="league-count">{events.filter(event => event.league === name).length}</span></button>
+          <button class={{ active: filter === name }} aria-pressed={filter === name} onclick={() => { setFilter(name); leaguesOpen = false; void tick().then(() => document.getElementById('extra-leagues-toggle')?.focus()); }}>{#if leagueIcons[name]}<img src={leagueIcons[name]} alt="" />{/if}{name}<span class="league-count">{events.filter(event => event.league === name).length}</span></button>
         {/each}
       </div>
     </section>

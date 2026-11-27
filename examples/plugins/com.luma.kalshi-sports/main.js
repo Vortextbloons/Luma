@@ -12,7 +12,10 @@ const SERIES = [
   { league: "NFL", ticker: "KXNFLGAME" },
   { league: "MLB", ticker: "KXMLBGAME" },
   { league: "NHL", ticker: "KXNHLGAME" },
-  { league: "NCAAB", ticker: "KXNCAABGAME" },
+  { league: "CFB", ticker: "KXNCAAFGAME" },
+  { league: "NCAA Men", ticker: "KXNCAAMBGAME" },
+  { league: "NCAA Men", ticker: "KXNCAABGAME" },
+  { league: "NCAA Women", ticker: "KXNCAAWBGAME" },
   { league: "WNBA", ticker: "KXWNBAGAME" },
 ];
 
@@ -27,10 +30,10 @@ let running = false;
 function toCents(dollars, centsFallback) {
   if (dollars !== undefined && dollars !== null && dollars !== "") {
     const parsed = Number(dollars);
-    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1) return parsed * 100;
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) return parsed * 100;
   }
   const fallback = Number(centsFallback);
-  if (Number.isFinite(fallback) && fallback > 0 && fallback <= 100) return fallback;
+  if (Number.isFinite(fallback) && fallback >= 0 && fallback <= 100) return fallback;
   return null;
 }
 
@@ -71,9 +74,17 @@ function parseEvents(league, payload) {
         sides.push({ team, value: `${pct}%`, pct });
       }
     }
+    if (sides.length === 1 && markets.length === 2) {
+      const otherMarket = markets.find(m => teamLabel(m) && teamLabel(m) !== sides[0].team);
+      if (otherMarket) {
+        const otherTeam = teamLabel(otherMarket);
+        const otherPct = Math.max(1, Math.min(99, 100 - sides[0].pct));
+        sides.push({ team: otherTeam, value: `${otherPct}%`, pct: otherPct });
+      }
+    }
     if (sides.length === 2) {
       const total = sides[0].pct + sides[1].pct;
-      if (total > 0 && Math.abs(total - 100) <= 8) {
+      if (total > 0 && Math.abs(total - 100) <= 15) {
         const first = Math.round((sides[0].pct / total) * 100);
         sides[0].pct = first;
         sides[0].value = `${first}%`;
@@ -103,7 +114,7 @@ async function fetchSeries(seriesTicker) {
           ["status", "open"],
           ["series_ticker", seriesTicker],
           ["with_nested_markets", "true"],
-          ["limit", "25"],
+          ["limit", "100"],
         ],
       });
       if (response && typeof response === "object") {
@@ -115,6 +126,16 @@ async function fetchSeries(seriesTicker) {
   }
   if (lastError) throw lastError;
   return null;
+}
+
+function matchLeague(seriesLeague, targetLeague) {
+  if (!targetLeague) return true;
+  const s = seriesLeague.toLowerCase();
+  const t = targetLeague.toLowerCase();
+  if (s === t) return true;
+  if ((s === "ncaa men" || s === "ncaab") && (t === "ncaa men" || t === "ncaab")) return true;
+  if ((s === "cfb" || s === "ncaaf") && (t === "cfb" || t === "ncaaf")) return true;
+  return false;
 }
 
 async function refresh() {
@@ -138,7 +159,7 @@ async function refresh() {
     } catch {}
 
     const targetSeries = activeLeague
-      ? SERIES.filter(item => item.league.toLowerCase() === activeLeague.toLowerCase())
+      ? SERIES.filter(item => matchLeague(item.league, activeLeague))
       : SERIES;
     const list = targetSeries.length ? targetSeries : SERIES;
 
@@ -150,8 +171,18 @@ async function refresh() {
       } catch {}
     }
 
+    const seen = new Set();
+    const uniqueBadges = [];
+    for (const badge of badges) {
+      const key = `${badge.league}:${[...badge.teams].sort().join(" vs ")}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueBadges.push(badge);
+      }
+    }
+
     await bridge("sports.badges.publish", {
-      badges: badges.slice(0, 400),
+      badges: uniqueBadges.slice(0, 400),
       showOnCards: Boolean(settings.showCardOdds),
       showInPlayer: Boolean(settings.showPlayerWidget),
     }).catch(() => {});

@@ -85,11 +85,19 @@ function teamMatches(a: string, b: string) {
   return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
 }
 
+function leagueMatches(a: string, b: string) {
+  const left = a.toLowerCase();
+  const right = b.toLowerCase();
+  if (left === right) return true;
+  if ((left === 'ncaa men' || left === 'ncaab') && (right === 'ncaa men' || right === 'ncaab')) return true;
+  if ((left === 'cfb' || left === 'ncaaf') && (right === 'cfb' || right === 'ncaaf')) return true;
+  return false;
+}
+
 export function matchSportsBadge(event: { league: string; teams: { name: string }[] }, badges: SportsBadge[]): SportsBadge | undefined {
   if (event.teams.length !== 2) return;
-  const league = event.league.toLowerCase();
   return badges.find(badge => badge.showOnCards
-    && badge.league.toLowerCase() === league
+    && leagueMatches(badge.league, event.league)
     && badge.teams.length >= 2
     && event.teams.every(team => badge.teams.some(candidate => teamMatches(team.name, candidate))));
 }

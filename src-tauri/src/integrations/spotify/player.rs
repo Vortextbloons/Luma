@@ -534,12 +534,20 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
             "Spotify is not installed. Install the Spotify desktop app on this PC first.".into(),
         );
     }
-    process::launch_minimized(&app)?;
+    process::launch_background(&app)?;
     crate::activity::record_launch(&app, "Spotify");
     let player = app.state::<Player>();
     player.starting.store(true, Ordering::SeqCst);
     set_error(&app, None);
     emit_connection(&app);
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..30 {
+            if process::hide_main_window() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    });
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut ready = false;

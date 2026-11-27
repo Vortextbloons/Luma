@@ -979,8 +979,8 @@ mod tests {
     #[test]
     fn unknown_choices_are_rejected() {
         let mut config = Config::default();
-        config.theme = "aurora".into();
-        assert_eq!(validate(&config), Err("Unknown theme: aurora.".into()));
+        config.theme = "midnight".into();
+        assert_eq!(validate(&config), Err("Unknown theme: midnight.".into()));
 
         let mut config = Config::default();
         config.density = "spacious".into();
@@ -1099,10 +1099,10 @@ mod tests {
     #[test]
     fn v2_migration_rejects_invalid_configuration() {
         let mut document = v2_document(&Config::default(), 3);
-        document["config"]["theme"] = json!("aurora");
+        document["config"]["theme"] = json!("midnight");
         assert_eq!(
             migrate_v2(&document.to_string()).unwrap_err(),
-            "Unknown theme: aurora."
+            "Unknown theme: midnight."
         );
 
         let mut document = v2_document(&Config::default(), 3);
@@ -1142,10 +1142,10 @@ mod tests {
         );
 
         let mut document = legacy_document(&Config::default(), 3);
-        document["config"]["theme"] = json!("aurora");
+        document["config"]["theme"] = json!("midnight");
         assert_eq!(
             migrate_legacy(&document.to_string()).unwrap_err(),
-            "Unknown theme: aurora."
+            "Unknown theme: midnight."
         );
 
         let mut document = legacy_document(&Config::default(), 3);

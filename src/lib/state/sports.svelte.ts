@@ -181,7 +181,7 @@ class SportsStore {
   }
 
   private async open(event: SportsEvent, game: GameScore | undefined, sourceIndex = 0) {
-    await openSportsStream(event.url, sourceIndex, event.title, game ? scoreSummary(game, sportsScoresHidden()) : '', event.sources);
+    await openSportsStream(event.url, sourceIndex, event.title, game ? scoreSummary(game, sportsScoresHidden()) : '', event.sources, event.league);
     this.watching = true;
     this.watchingGame = game ?? null;
     if (game) this.publishScore(game);

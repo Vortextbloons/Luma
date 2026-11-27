@@ -148,9 +148,9 @@ export function loadSportsListing(force = false) {
   return listingRequest;
 }
 
-export const openSportsStream = (url: string, sourceIndex: number, title: string, score: string, sources?: string[]) => {
+export const openSportsStream = (url: string, sourceIndex: number, title: string, score: string, sources?: string[], league?: string) => {
   const index = sources?.length ? sourceIndex % sources.length : 0;
-  return invoke<void>('sports_open', { url: sources?.length ? sources[index] + '#luma-plan=' + index : url, sourceIndex: sources?.length ? 0 : sourceIndex, title, score, sources });
+  return invoke<void>('sports_open', { url: sources?.length ? sources[index] + '#luma-plan=' + index : url, sourceIndex: sources?.length ? 0 : sourceIndex, title, score, sources, league });
 };
 
 export const updateSportsScore = (score: string) => invoke<void>('sports_update_score', { score });

@@ -21,6 +21,7 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 
 - **Living-room setup**: Choose a theme, pair a phone remote, connect Stremio and Spotify, and follow sports leagues or teams before opening Home.
 - **Quick menu and sign-in startup**: Open the controller binding guide, sleep the PC, switch displays, or exit Luma from the top bar. Windows sign-in can open Luma fullscreen on the selected TV.
+- **Keep launcher ready**: Off-by-default System setting that retains a blank browser runtime while Luma sits in the tray, so reopening the launcher from the tray is faster. Turning it off closes the retained runtime.
 
 - **Widget studio**: Place widgets using layout presets, customize sizes (compact, standard, expanded) and visual styles (glass, solid, minimal), configure presence triggers (always, music player, or idle-only), and add multiple widget instances with live preview across Home, the player HUD, and idle screens.
 - **Clock widget**: Built-in customizable Clock widget supporting 12/24-hour time, optional seconds and date display, custom timezone offsets, and opt-in display inside the music player HUD.

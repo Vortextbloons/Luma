@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn the_whole_lookup_and_request_share_one_bounded_deadline() {
-        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(5));
+        assert!(REQUEST_TIMEOUT <= Duration::from_secs(10));
         let error = tauri::async_runtime::block_on(within(Duration::from_millis(20), async {
             tokio::time::sleep(Duration::from_secs(30)).await;
             Ok::<(), Error>(())

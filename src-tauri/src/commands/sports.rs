@@ -231,6 +231,7 @@ pub async fn sports_open(
     title: String,
     score: String,
     sources: Option<Vec<String>>,
+    league: Option<String>,
 ) -> Result<(), String> {
     static WINDOW: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     let _guard = WINDOW
@@ -252,10 +253,12 @@ pub async fn sports_open(
     let position = main.outer_position().map_err(|error| error.to_string())?;
     let scale = main.scale_factor().map_err(|error| error.to_string())?;
     let navigation = app.clone();
-    let active_league = ["NBA", "NFL", "MLB", "NHL", "NCAAB", "WNBA"]
-        .into_iter()
-        .find(|league| title.to_ascii_uppercase().contains(league))
-        .map(str::to_string);
+    let active_league = league.or_else(|| {
+        ["NBA", "NFL", "MLB", "NHL", "CFB", "NCAA Men", "NCAA Women", "WNBA"]
+            .into_iter()
+            .find(|league| title.to_ascii_uppercase().contains(&league.to_ascii_uppercase()))
+            .map(str::to_string)
+    });
     if let Ok(mut guard) = app.state::<SportsActiveState>().0.lock() {
         *guard = SportsActive {
             watching: true,

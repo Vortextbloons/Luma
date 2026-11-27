@@ -1,7 +1,7 @@
 {
   "id": "com.luma.kalshi-sports",
   "name": "Kalshi Sports Odds",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "apiVersion": 3,
   "minHostVersion": "0.8.0",
   "description": "Shows live Kalshi prediction market win probabilities on Sports cards and while watching a game.",

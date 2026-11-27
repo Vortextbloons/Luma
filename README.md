@@ -70,6 +70,14 @@ Watch history sits in a local SQLite file. Tokens go into Windows Credential Man
   <em>First-run setup starts with a theme choice.</em>
 </p>
 
+## Download
+
+Luma ships as a signed Windows x64 installer from [Releases](https://github.com/Vortextbloons/Luma/releases/latest). Download `Luma_x.y.z_x64-setup.exe` and run it — Luma installs for the current user, needs no administrator prompt, and adds itself to the Start menu. Windows 10 or 11 and the WebView2 runtime are required; WebView2 is present on current Windows builds.
+
+Later versions install from inside Luma: **Settings → System → Updates** checks once per launch and offers **Update now** then **Restart to update**.
+
+The installer is not code-signed, so SmartScreen may ask you to confirm the publisher on first run. Choose **More info → Run anyway**. Updates are signed and verified separately by the updater.
+
 ## Run it
 
 You need Node.js LTS, Rust stable, WebView2, and the MSVC build tools Tauri expects on Windows.

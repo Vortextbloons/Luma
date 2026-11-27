@@ -3360,7 +3360,7 @@ pub(super) fn stage_submission(
 
 pub(super) fn seed_bundled(store: &Store) -> Result<(), Error> {
     let root = install_root(store)?;
-    let marker = root.join(".bundled-kalshi-v6");
+    let marker = root.join(".bundled-kalshi-v7");
     if marker.exists() {
         return Ok(());
     }

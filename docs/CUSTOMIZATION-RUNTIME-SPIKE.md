@@ -538,7 +538,6 @@ Repository (read-only for this record):
 
 - `docs/CUSTOMIZATION-LAYERS.md` — Stage 6 scope/exit criteria and §7.4 resource envelope.
 - `docs/PLUGINS.md` — shipped declarative contract and the future-runtime boundary.
-- `docs/CUSTOMIZATION-ROADMAP.md` — Phase 6 decision/spike framing.
 - `src-tauri/src/customization/plugin.rs` — manifest, runtime kinds, execution gate, install/update, tests.
 - `src-tauri/src/customization/mcp.rs` — capability discovery and tool boundary.
 - `src-tauri/capabilities/default.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/build.rs`.
