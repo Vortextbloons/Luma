@@ -8,6 +8,7 @@ export const launchApp = (name: Exclude<AppId, 'YouTube'>) => invoke<void>('laun
 export const closeLaunchedApp = () => invoke<void>('close_launched_app');
 export const quitLuma = () => invoke<void>('quit_app');
 export const hideToTray = () => invoke<void>('hide_to_tray');
+export const setKeepLauncherReady = (enabled: boolean) => invoke<void>('set_keep_launcher_ready', { enabled });
 export const setFastAppSwitch = (enabled: boolean) => invoke<void>('set_fast_app_switch', { enabled });
 export const setControllerHome = (enabled: boolean, homeButton: number | null) => invoke<void>('set_controller_home', { enabled, homeButton });
 export const saveAppPaths = (paths: Record<ExecutableAppId, string>) => invoke<void>('save_app_paths', { paths });

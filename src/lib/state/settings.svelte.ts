@@ -5,7 +5,7 @@ import { defaultWidgets, sanitizeWidgets } from '../services/widgetModel';
 import { resolveThemeId, themeById, applyTheme, appearanceFor } from '../services/theme';
 import { setSoundSettings } from '../services/sound';
 import { defaultControllerBinds, sanitizeControllerBinds } from '../services/controller';
-import { native, setControllerHome, setFastAppSwitch } from '../services/tauri';
+import { native, setControllerHome, setFastAppSwitch, setKeepLauncherReady } from '../services/tauri';
 import {
   createCustomizationSync, customizationConfig,
   type CustomizationDocument, type CustomizationPreview, type HomeDraft,
@@ -28,6 +28,7 @@ function defaultSettings(): Settings {
     homeShortcut: 'Ctrl+W',
     fullscreen: false,
     fastAppSwitch: true,
+    keepLauncherReady: false,
     interfaceSounds: 'real',
     soundLevel: 'standard',
     textSize: 'standard',
@@ -58,6 +59,7 @@ function readSettings() {
       }
       value.fullscreen = data.fullscreen === true;
       if (typeof data.fastAppSwitch === 'boolean') value.fastAppSwitch = data.fastAppSwitch;
+      if (typeof data.keepLauncherReady === 'boolean') value.keepLauncherReady = data.keepLauncherReady;
       if (data.interfaceSounds === 'google' || data.interfaceSounds === 'roku' || data.interfaceSounds === 'off') value.interfaceSounds = data.interfaceSounds;
       if (data.soundLevel === 'soft' || data.soundLevel === 'loud') value.soundLevel = data.soundLevel;
       if (data.textSize === 'large' || data.textSize === 'larger') value.textSize = data.textSize;
@@ -150,6 +152,9 @@ class SettingsStore {
         if (native) void setFastAppSwitch(this.value.fastAppSwitch).catch(error => this.notice = String(error));
       });
       $effect(() => {
+        if (native) void setKeepLauncherReady(this.value.keepLauncherReady).catch(error => this.notice = String(error));
+      });
+      $effect(() => {
         if (native) void setControllerHome(this.value.controllerEnabled, this.value.controllerBinds.home).catch(() => {});
       });
       $effect(() => {
@@ -168,7 +173,7 @@ class SettingsStore {
       localStorage.setItem('luma-v1', JSON.stringify({
         homeShortcut: this.value.homeShortcut, shortcutVersion: 1, theme: this.value.theme,
         density: this.value.density, appTileShape: this.value.appTileShape, fullscreen: this.value.fullscreen,
-        fastAppSwitch: this.value.fastAppSwitch, interfaceSounds: this.value.interfaceSounds,
+        fastAppSwitch: this.value.fastAppSwitch, keepLauncherReady: this.value.keepLauncherReady, interfaceSounds: this.value.interfaceSounds,
         soundLevel: this.value.soundLevel, textSize: this.value.textSize, reducedMotion: this.value.reducedMotion, smoothAppHover: this.value.smoothAppHover,
         controllerEnabled: this.value.controllerEnabled, controllerBinds: this.value.controllerBinds,
         home: this.value.home, homeColumns: this.value.homeColumns, widgets: this.value.widgets, order: this.value.order,

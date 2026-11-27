@@ -399,6 +399,10 @@
               <span class="setting-toggle-copy"><span>Fast app switching</span><small>{native ? 'Keeps YouTube and Stremio ready to reopen faster, using more memory.' : 'Available in the desktop application.'}</small></span>
               <input type="checkbox" bind:checked={settings.fastAppSwitch} disabled={!native} />
             </label>
+            <label class="setting-toggle">
+              <span class="setting-toggle-copy"><span>Keep launcher ready</span><small>Reopens Luma from the tray faster by keeping its browser runtime in memory.</small></span>
+              <input type="checkbox" bind:checked={settings.keepLauncherReady} disabled={!native} />
+            </label>
           </div>
           <div class="settings-actions"><button class="panel-secondary" onclick={resetSystem}>Reset fast app switching</button></div>
           {#if resetNote}<p class="panel-description" role="status">{resetNote}</p>{/if}

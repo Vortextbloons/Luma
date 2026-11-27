@@ -227,6 +227,7 @@ pub fn run() {
             background::quit_app,
             background::hide_to_tray,
             background::set_fast_app_switch,
+            background::set_keep_launcher_ready,
             background::set_startup,
             apps::launch_app,
             steam::steam_recent_games,

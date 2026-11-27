@@ -50,6 +50,7 @@ export interface Settings {
   homeShortcut: string;
   fullscreen: boolean;
   fastAppSwitch: boolean;
+  keepLauncherReady: boolean;
   interfaceSounds: SoundPreset;
   soundLevel: SoundLevel;
   textSize: TextSize;

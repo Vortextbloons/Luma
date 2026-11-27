@@ -13,6 +13,8 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 
+static KEEP_LAUNCHER_READY: AtomicBool = AtomicBool::new(false);
+const LAUNCHER_RUNTIME: &str = "launcher-runtime";
 static RETAIN_VIEWS: AtomicBool = AtomicBool::new(false);
 const TRAY_ID: &str = "luma-tray";
 const MAX_TRAY_PLUGIN_NAME: usize = 40;
@@ -42,6 +44,11 @@ pub(crate) fn unload(app: &tauri::AppHandle, label: &str) {
         let Some(window) = handle.get_webview_window(&name) else {
             return;
         };
+        if name == "main" && KEEP_LAUNCHER_READY.load(Ordering::Relaxed) {
+            if let Err(error) = keep_launcher_runtime(&handle) {
+                eprintln!("Could not keep the launcher ready: {error}");
+            }
+        }
         if let Ok(mut labels) = unloading().lock() {
             labels.insert(name.clone());
         }
@@ -71,6 +78,42 @@ pub(crate) fn dismiss(app: &tauri::AppHandle, label: &str) {
     crate::viewing::release(app, label);
     if !retains_views() {
         unload(app, label);
+    }
+}
+
+fn keep_launcher_runtime(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(LAUNCHER_RUNTIME).is_none() {
+        tauri::WebviewWindowBuilder::new(
+            app,
+            LAUNCHER_RUNTIME,
+            tauri::WebviewUrl::External("about:blank".parse().expect("valid blank URL")),
+        )
+        .additional_browser_args(crate::BROWSER_ARGS)
+        .inner_size(1.0, 1.0)
+        .visible(false)
+        .focused(false)
+        .skip_taskbar(true)
+        .build()?;
+    }
+    Ok(())
+}
+
+fn drop_launcher_runtime(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(LAUNCHER_RUNTIME) {
+        let _ = window.destroy();
+    }
+}
+
+#[tauri::command]
+pub fn set_keep_launcher_ready(app: tauri::AppHandle, enabled: bool) {
+    let was_enabled = KEEP_LAUNCHER_READY.swap(enabled, Ordering::Relaxed);
+    if was_enabled && !enabled {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if !KEEP_LAUNCHER_READY.load(Ordering::Relaxed) {
+                drop_launcher_runtime(&handle);
+            }
+        });
     }
 }
 
@@ -126,6 +169,9 @@ pub(crate) async fn main_window(app: &tauri::AppHandle) -> Result<tauri::Webview
                     .map_err(|error| error.to_string())
             }
         };
+        if result.is_ok() {
+            drop_launcher_runtime(&handle);
+        }
         let _ = sender.send(result);
     })
     .map_err(|error| error.to_string())?;
