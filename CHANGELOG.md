@@ -7,7 +7,9 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 ### Core Changes
 
 - **Game controller navigation & background guide button**: Full gamepad control (Xbox, PlayStation, Nintendo, generic) across the launcher and settings, plus an XInput background guide button that brings Luma to the front over fullscreen games.
+- **First-run living-room setup & quick menu**: Complete setup flow to choose themes, pair phone remotes, connect Stremio and Spotify, and follow sports leagues or teams, plus a top bar quick menu with controller bindings, display switching, and sleep controls.
 - **Widget studio & Clock widget**: Place, resize, and style multiple widget instances with layout presets for Home, the player HUD, and idle screens, including a customizable Clock widget.
+- **Appearance plugins & custom plugin widgets**: Plugins can contribute shell design tokens and theme palettes (including a bundled Apple TV Look) as well as dynamic widgets with interactive selections and live game scoreboard pinning.
 - **Steam non-Steam game shortcuts**: Launch non-Steam games alongside Steam titles with automatic artwork and binary `shortcuts.vdf` integration.
 - **Streamlined 8-category TV Settings**: Settings reorganized for 10-foot TV viewing with controller bumper category cycling, responsive subpanels, and faster back navigation.
 - **Live sports prediction odds**: Real-time probability lines, odds badges, and team win-rate split bars on sports cards and hero matchups via market plugins like Kalshi.
@@ -22,9 +24,10 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 - **Living-room setup**: Choose a theme, pair a phone remote, connect Stremio and Spotify, and follow sports leagues or teams before opening Home.
 - **Quick menu and sign-in startup**: Open the controller binding guide, sleep the PC, switch displays, or exit Luma from the top bar. Windows sign-in can open Luma fullscreen on the selected TV.
 - **Keep launcher ready**: Off-by-default System setting that retains a blank browser runtime while Luma sits in the tray, so reopening the launcher from the tray is faster. Turning it off closes the retained runtime.
-
 - **Widget studio**: Place widgets using layout presets, customize sizes (compact, standard, expanded) and visual styles (glass, solid, minimal), configure presence triggers (always, music player, or idle-only), and add multiple widget instances with live preview across Home, the player HUD, and idle screens.
 - **Clock widget**: Built-in customizable Clock widget supporting 12/24-hour time, optional seconds and date display, custom timezone offsets, and opt-in display inside the music player HUD.
+- **Plugin widgets & live sports scoreboard**: Dynamic widget contribution support in plugin manifests, featuring a bundled sports scoreboard widget with live game tracking and score updates.
+- **Widget selections & game pinning**: Interactive widget parameter selections in plugin manifests, plus the ability to pin live games from the Sports Hub directly to the scoreboard widget for glanceable Home screen tracking.
 - **Ambient screensaver**: Living-room idle screensaver with configurable timeout (1–30 minutes), clock overlay, and smooth visual backdrops that instantly wake on any remote, keyboard, or controller input.
 - **New themes**: Added Aurora, Synthwave, and Biolume themes to Luma's built-in theme presets, featuring rich ambient gradients and accent styling across the launcher and web remote.
 - **Game controller navigation & settings**: Full directional and action gamepad navigation for Xbox, PlayStation, Nintendo, and generic controllers across the launcher, with customizable button bindings, brand detection, and an interactive controller diagram in Settings.
@@ -32,17 +35,20 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 - **Steam non-Steam game shortcuts**: Read, add, remove, and launch non-Steam shortcuts directly within Luma via Steam's binary `shortcuts.vdf` format, complete with automatic app ID calculation and artwork resolution.
 - **Display Box TV Remote routes**: Frame-authenticated `/display/*` REST API routes for remote playback control, settings synchronization, app dock ordering, plugin panels, panel action execution, and Spotify album artwork.
 - **Aggregated display search**: Unified search endpoint aggregating results across Cinemeta movies and series, YouTube videos, live sports streams (StreamEast and Sportsurge), and local watch history in parallel with bounded timeouts.
-- **Expanded sports & prediction markets**: Live scores, game cards, and streaming shortcuts for College Football (CFB), NCAA Men's Basketball, NCAA Women's Basketball, and the WNBA, alongside live game badge contributions from plugins like Kalshi sports prediction markets.
+- **Expanded sports coverage**: Live scores, game cards, and streaming shortcuts for College Football (CFB), NCAA Men's Basketball, NCAA Women's Basketball, WNBA, Boxing, and Oceania Football (OFC), alongside live game badge contributions from plugins like Kalshi sports prediction markets.
 - **Live sports prediction odds**: Event cards, the featured hero matchup, and game detail dialogs display live probability odds and visual comparison bars contributed by plugin badges (such as Kalshi prediction markets) alongside live scores and stream links.
 - **Plugin runtime log inspection**: View real-time plugin stdout, stderr, and lifecycle diagnostic logs directly within Settings to troubleshoot and verify sandboxed background and UI plugins.
 - **Appearance plugins and Apple TV Look**: Plugins can contribute validated palettes and bounded shell design tokens over Luma's existing theme system. A bundled, off-by-default Apple TV Look adds a frosted sidebar, cinematic type, and grayscale focus throughout the desktop UI.
 - **Plugin SDK sports event badges**: Added `luma.sports.onEventBadges()` and `luma.sports.setBadges()` to the Plugin SDK, enabling plugins to contribute live game badges, odds, and metadata.
+- **Background Spotify launch**: Launching Spotify automatically minimizes and hides its desktop window in the background to preserve the TV UI, with seamless playback to active Spotify devices.
+- **In-app release notes viewer**: Full markdown release notes dialog accessible from Settings and displayed on update to highlight what's new.
 
 #### Changed
 
 - Reorganized Settings into 8 TV-first categories (Appearance, Home, Display & Sound, Apps & Accounts, Controls, Watch History, System, and Add-ons) with controller bumper category cycling and dedicated subpanel back navigation.
 - Overhauled the Widget Studio in Settings with a responsive container layout, collapsible per-widget options, and cleaner placement selectors.
 - Realigned the web phone remote settings to mirror the TV launcher categories (Appearance, Home, Display & Sound) with simplified living-room descriptions and shared app dock ordering directly under Home.
+- Sports Hub features a prominent hero matchup card with real-time prediction odds, badges, and instant stream links.
 - Widgets sharing a corner or rail stack in order rather than overlapping.
 - Widget settings store presentation per instance (`type`, placement, size, look, presence, order, and widget-specific settings), decoupling widget definitions from rigid Rust and MCP schemas.
 - Added smooth app hover animation toggle in Appearance settings.
@@ -55,6 +61,8 @@ Notable changes to Luma, newest first. Releases publish the matching section as 
 
 - Settings subpanels cleanly trap back navigation and preserve previous focus when closing nested editors.
 - Sports badge subscriptions automatically clean up when unmounting or leaving the Sports screen to prevent background listener leaks.
+- Fixed layout alignment and spacing in the sidebar and top navigation when the mini-player bar is present.
+- Avoided re-locking connection during icon retrieval from plugin manifests.
 
 ## [0.9.0] - 2026-11-20
 

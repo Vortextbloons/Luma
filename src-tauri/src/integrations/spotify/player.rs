@@ -399,7 +399,12 @@ pub async fn play_uri(
         .lock()
         .ok()
         .and_then(|device| device.clone());
-    let devices = api::devices(auth).await.unwrap_or_default();
+    let devices = api::devices(auth).await?;
+    if device_id.is_none() && devices.iter().any(|device| device.active) {
+        api::play(auth, uri, None, context_uri).await?;
+        refresh_later(app.clone());
+        return Ok(());
+    }
     let target = device_id
         .map(str::to_string)
         .or_else(|| {
