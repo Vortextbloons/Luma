@@ -310,7 +310,6 @@
         const stopMusic = await onOpenMusic(() => { if (!disposed) void openMusic(); });
         if (disposed) { stopMusic(); return; }
         track(stopMusic);
-        track(await listen<string>('luma:plugin-log', event => console.info('[Luma Plugin]', event.payload)));
         track(await listen<boolean>('window-visibility', event => {
           setAppVisible(event.payload);
           if (event.payload && !disposed) void steamState.refresh(true);

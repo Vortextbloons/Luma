@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { pluginLogs } from '../services/tauri';
   import type { PluginRecord, PluginSettingValue, PluginTrigger, PluginsState } from '../services/plugins';
   import {
     pluginControlSummary, pluginDefaultTrigger, pluginFieldLabel, pluginPermissionDescription,
@@ -25,7 +26,22 @@
   let deleteData = $state(false);
   let consentTarget = $state<string | null>(null);
   let consentTrigger = $state<PluginTrigger>('launcher-open');
+  let logsById = $state<Record<string, string[]>>({});
+  let logsLoading = $state<Record<string, boolean>>({});
   let root = $state<HTMLElement>();
+
+  async function loadLogs(pluginId: string) {
+    if (!native || logsLoading[pluginId]) return;
+    logsLoading = { ...logsLoading, [pluginId]: true };
+    try {
+      const entries = await pluginLogs(pluginId);
+      logsById = { ...logsById, [pluginId]: entries };
+    } catch {
+      logsById = { ...logsById, [pluginId]: [] };
+    } finally {
+      logsLoading = { ...logsLoading, [pluginId]: false };
+    }
+  }
 
   const list = $derived(plugins?.plugins ?? []);
   const enabledCount = $derived(list.filter(plugin => plugin.enabled).length);
@@ -488,7 +504,7 @@
                 {/each}
               </div>
             {/if}
-            <details class="plugin-details">
+            <details class="plugin-details" ontoggle={event => { if ((event.currentTarget as HTMLDetailsElement).open && record.executable) void loadLogs(record.id); }}>
               <summary>Details</summary>
               <p>{record.id} · API {record.apiVersion} · {bytesLabel(record.sizeBytes)} · {record.assets.length + record.sourceFiles.length} files{#if record.executable && record.enabled} · {pluginTriggerSummary(pluginDefaultTrigger(record))}{/if}</p>
               {#if record.executable}
@@ -498,6 +514,21 @@
                 {#if record.grantedPermissions?.length || record.grantedNetwork?.length}
                   <p>Granted permissions: {record.grantedPermissions?.length ? record.grantedPermissions.join(', ') : 'None'}</p>
                   {#if record.grantedNetwork?.length}<p>Granted network: {record.grantedNetwork.join(', ')}</p>{/if}
+                {/if}
+                {#if native}
+                  <div class="plugin-logs">
+                    <div class="plugin-logs-head">
+                      <span>Recent runtime logs</span>
+                      <button type="button" class="plugin-logs-refresh" disabled={Boolean(logsLoading[record.id])} onclick={() => void loadLogs(record.id)}>
+                        {logsLoading[record.id] ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                    {#if logsById[record.id]?.length}
+                      <pre class="plugin-logs-body">{logsById[record.id].join('\n')}</pre>
+                    {:else}
+                      <p>No recent runtime logs.</p>
+                    {/if}
+                  </div>
                 {/if}
               {/if}
               {#if record.author}<p>By {record.author}</p>{/if}
@@ -566,6 +597,11 @@
   .plugin-details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: clamp(12px, .8vw, 14px); }
   .plugin-details summary { cursor: pointer; color: var(--text-dim); font-weight: 600; }
   .plugin-details p { margin: 6px 0 0; }
+  .plugin-logs { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .plugin-logs-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .plugin-logs-refresh { padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; }
+  .plugin-logs-refresh:disabled { opacity: .5; cursor: default; }
+  .plugin-logs-body { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--surface-2) 85%, transparent); color: var(--text-dim); font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
   .plugin-hash { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; overflow-wrap: anywhere; }
   @media (max-width: 640px) { .plugin-setting { grid-template-columns: 1fr; } }
 </style>

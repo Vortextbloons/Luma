@@ -7,7 +7,7 @@ export type SaverSettings = {
 
 const defaults: SaverSettings = {
   enabled: true, mode: 'movies', minutes: 5, seconds: 15, shuffle: true,
-  fit: 'contain', clock: false, music: true, brightness: 80, player: true, placement: 'left',
+  fit: 'contain', clock: false, music: true, brightness: 100, player: true, placement: 'left',
 };
 
 export function loadSaver(): SaverSettings {

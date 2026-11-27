@@ -46,13 +46,16 @@ const MAX_HOME_CARDS: usize = 8;
 const MAX_COMMANDS: usize = 8;
 const MAX_CARD_TITLE: usize = 48;
 const MAX_LOCAL_ID: usize = 32;
-const BUILTIN_THEMES: [&str; 6] = [
+const BUILTIN_THEMES: [&str; 9] = [
     "violet-night",
     "sapphire",
     "mint",
     "ember",
     "graphite",
     "onyx",
+    "aurora",
+    "synthwave",
+    "biolume",
 ];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const TILE_SHAPES: [&str; 2] = ["wide", "square"];
@@ -735,12 +738,15 @@ impl StoredPlugin {
             .unwrap_or_else(|| definition.default.clone())
     }
 
+    fn requires_on_demand_surface(&self) -> bool {
+        self.manifest.api_version == HOME_API_VERSION
+            && self.manifest.runtime.kind == RuntimeKind::IsolatedUi
+    }
+
     fn accepts_grant(&self, grant: &Grant) -> bool {
         grant.version == self.manifest.version
             && grant.trigger.supports(self.manifest.runtime.kind)
-            && (self.manifest.api_version != HOME_API_VERSION
-                || self.manifest.runtime.kind != RuntimeKind::IsolatedUi
-                || grant.trigger == Trigger::OnDemand)
+            && (!self.requires_on_demand_surface() || grant.trigger == Trigger::OnDemand)
     }
 }
 
@@ -870,10 +876,7 @@ pub(crate) fn runtime_package(store: &Store, plugin_id: &str) -> Result<RuntimeP
             "This plugin's runtime grant does not allow this runtime. Review its permissions again.",
         ));
     }
-    if plugin.manifest.api_version == HOME_API_VERSION
-        && plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
-        && grant.trigger != Trigger::OnDemand
-    {
+    if plugin.requires_on_demand_surface() && grant.trigger != Trigger::OnDemand {
         return Err(Error::new(
             "plugin_denied",
             "API version 3 command packages require the on-demand trigger. Review its permissions again.",
@@ -4396,10 +4399,7 @@ pub(crate) fn command_enable_runtime(
             ),
         ));
     }
-    if plugin.manifest.api_version == HOME_API_VERSION
-        && plugin.manifest.runtime.kind == RuntimeKind::IsolatedUi
-        && trigger != Trigger::OnDemand
-    {
+    if plugin.requires_on_demand_surface() && trigger != Trigger::OnDemand {
         return Err(Error::new(
             "plugin_trigger",
             "API version 3 Home cards start on demand. Choose the on-demand trigger.",

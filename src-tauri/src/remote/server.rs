@@ -26,7 +26,7 @@ const APPEARANCE_TOKENS: [&str; 20] = [
     "--rating",
 ];
 const MAX_APPEARANCE_TOKENS: usize = 24;
-const MAX_THEMES: usize = 8;
+const MAX_THEMES: usize = 12;
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -122,6 +122,9 @@ fn setting_catalog(config: &crate::customization::document::Config) -> Vec<Setti
                 setting_option("ember", "Ember"),
                 setting_option("graphite", "Graphite"),
                 setting_option("onyx", "Onyx"),
+                setting_option("aurora", "Aurora"),
+                setting_option("synthwave", "Synthwave"),
+                setting_option("biolume", "Biolume"),
             ],
         ),
         setting_choice(

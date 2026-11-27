@@ -11,7 +11,16 @@ export type ControllerAction = NavigationCommand
   | 'tracknext'
   | 'scores';
 export type ControllerBinds = Record<ControllerAction, number | null>;
-export type ThemeId = 'violet-night' | 'sapphire' | 'mint' | 'ember' | 'graphite' | 'onyx';
+export type ThemeId =
+  | 'violet-night'
+  | 'sapphire'
+  | 'mint'
+  | 'ember'
+  | 'graphite'
+  | 'onyx'
+  | 'aurora'
+  | 'synthwave'
+  | 'biolume';
 export type SoundPreset = 'real' | 'google' | 'roku' | 'off';
 export type SoundLevel = 'soft' | 'standard' | 'loud';
 export type TextSize = 'standard' | 'large' | 'larger';

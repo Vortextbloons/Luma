@@ -47,13 +47,16 @@ const PHONE_SCRIPT: &str = include_str!("../../templates/phone-command/ui/main.j
 const PHONE_STYLE: &str = include_str!("../../templates/phone-command/ui/style.css");
 const INSTRUCTIONS: &str = "Luma is a Windows TV launcher with an agent-first authoring contract for customization and plugins. Start with luma_capabilities_get, luma_plugins_list, and luma_status, then read the resource that matches the task. For customization, call luma_config_get, build a complete candidate, call luma_candidate_validate, then luma_candidate_preview; the user must press Keep in Luma. For a plugin, read luma://plugins/schema and one complete template from luma://plugins/templates/declarative, luma://plugins/templates/weather, or luma://plugins/templates/phone-command. Edit the template in your workspace and pass its submission object to luma_plugin_validate. luma_plugin_stage installs a package disabled for production review: declarative packages are then previewed and enabled by the user with Keep, while executable isolated-ui and background packages require the user to review their exact permissions, network origins, and trigger in Settings > Plugins before anything runs. For an executable draft, call luma_plugin_dev_start with the validated submission; it returns a sessionId and starts a disposable Luma profile with separate app data and grants. The draft stays disabled until the user approves access in the development window. Use luma_plugin_dev_invoke for a declared command, luma_plugin_dev_status for readiness and diagnostics, luma_plugin_dev_reload for the same session, and luma_plugin_dev_stop when finished. Development tools never change the production profile. No MCP tool can approve access, enable, keep, commit, disable, remove, export, restore, reset, launch, or execute a package in production. Settings changes for an installed plugin can be staged with luma_plugin_settings_stage for the same user Keep review. Report validation and revision errors exactly, then re-read before retrying.";
 
-const THEMES: [&str; 6] = [
+const THEMES: [&str; 9] = [
     "violet-night",
     "sapphire",
     "mint",
     "ember",
     "graphite",
     "onyx",
+    "aurora",
+    "synthwave",
+    "biolume",
 ];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const TILE_SHAPES: [&str; 2] = ["wide", "square"];

@@ -50,21 +50,6 @@ fn default_true() -> bool {
 #[derive(Default)]
 pub struct SportsBadgesState {
     badges: Mutex<BTreeMap<String, Vec<SportsBadge>>>,
-    logs: Mutex<Vec<String>>,
-}
-
-pub(crate) fn push_log(app: &AppHandle, message: String) {
-    if let Ok(mut guard) = app.state::<SportsBadgesState>().logs.lock() {
-        if guard.len() >= 30 {
-            guard.remove(0);
-        }
-        guard.push(message);
-    }
-}
-
-#[tauri::command]
-pub fn plugin_sports_logs(state: State<'_, SportsBadgesState>) -> Vec<String> {
-    state.logs.lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 pub(crate) fn active_snapshot(app: &AppHandle) -> SportsActive {

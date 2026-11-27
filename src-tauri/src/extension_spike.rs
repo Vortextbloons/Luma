@@ -203,6 +203,7 @@ pub(crate) struct Supervisor {
     runtimes: Mutex<BTreeMap<String, Runtime>>,
     epochs: Mutex<BTreeMap<String, u64>>,
     dispatching: Mutex<BTreeSet<String>>,
+    logs: Mutex<BTreeMap<String, Vec<String>>>,
     closed: AtomicBool,
 }
 
@@ -211,6 +212,24 @@ impl Supervisor {
         self.runtimes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn push_log(&self, plugin_id: &str, message: impl Into<String>) {
+        let mut logs = self.logs.lock().unwrap_or_else(|error| error.into_inner());
+        let entry = logs.entry(plugin_id.to_string()).or_default();
+        if entry.len() >= 25 {
+            entry.remove(0);
+        }
+        entry.push(message.into());
+    }
+
+    fn logs(&self, plugin_id: &str) -> Vec<String> {
+        self.logs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn begin_dispatch(&self, plugin_id: &str) -> bool {
@@ -758,6 +777,11 @@ fn start(
             previous.cancel.send_replace(true);
             destroy_window(app, previous.session.label);
         }
+        let initial_state = if package.kind == RuntimeKind::Background {
+            Lifecycle::Running
+        } else {
+            Lifecycle::Starting
+        };
         runtimes.insert(
             plugin_id.to_string(),
             Runtime {
@@ -765,7 +789,7 @@ fn start(
                 cancel,
                 kind: package.kind,
                 trigger: grant.trigger,
-                state: Lifecycle::Starting,
+                state: initial_state,
                 reason: None,
                 restarts,
                 crashes,
@@ -782,13 +806,11 @@ fn start(
         "starting",
         format!("{} {}", package.name, package.version),
     );
-    #[cfg(debug_assertions)]
-    {
-        use tauri::Emitter;
-        let msg = format!("start:{plugin_id}");
-        crate::commands::sports::push_log(app, msg.clone());
-        let _ = app.emit_to("main", "luma:plugin-log", msg);
-    }
+    record_log(
+        app,
+        plugin_id,
+        format!("start {} ({})", package.version, package.kind.label()),
+    );
     let url = match format!("{}/{token}/{entry}", origin(slot), entry = package.entry)
         .parse::<tauri::Url>()
     {
@@ -868,12 +890,14 @@ fn start(
         _ => {}
     });
     monitor_process(app, &window, plugin_id, generation);
-    watchdog(
-        app.clone(),
-        plugin_id.to_string(),
-        generation,
-        session.token,
-    );
+    if package.kind != RuntimeKind::Background {
+        watchdog(
+            app.clone(),
+            plugin_id.to_string(),
+            generation,
+            session.token,
+        );
+    }
 }
 
 fn watchdog(app: AppHandle, plugin_id: String, generation: u64, token: String) {
@@ -1007,6 +1031,7 @@ fn handle_crash(app: &AppHandle, plugin_id: &str, generation: u64, reason: &str)
             epoch,
         )
     };
+    record_log(app, plugin_id, format!("crash: {reason}"));
     let (runtime_label, trigger, crashes, restarts, restore_focus, epoch) = prepared;
     crate::developer::runtime_event(app, plugin_id, "failed", reason);
     destroy_window(app, runtime_label);
@@ -1795,19 +1820,25 @@ fn failure(code: &'static str, message: impl ToString) -> Value {
     json!({ "code": code, "message": message.to_string() })
 }
 
+fn record_log(app: &AppHandle, plugin_id: &str, message: impl Into<String>) {
+    if let Some(supervisor) = supervisor_of(app) {
+        supervisor.push_log(plugin_id, message);
+    }
+}
+
+#[tauri::command]
+pub fn plugin_logs(app: AppHandle, plugin_id: String) -> Vec<String> {
+    supervisor_of(&app)
+        .map(|supervisor| supervisor.logs(&plugin_id))
+        .unwrap_or_default()
+}
+
 fn log_bridge(app: &AppHandle, plugin_id: &str, operation: &str, error: &Value) {
     let message = error
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("The bridge request was rejected.");
-    #[cfg(debug_assertions)]
-    {
-        use tauri::Emitter;
-        let msg = format!("{plugin_id}:{operation}: {message}");
-        eprintln!("[plugin:{msg}]");
-        crate::commands::sports::push_log(app, msg.clone());
-        let _ = app.emit_to("main", "luma:plugin-log", msg);
-    }
+    record_log(app, plugin_id, format!("{operation}: {message}"));
     crate::developer::bridge_error(app, plugin_id, operation, message);
 }
 
@@ -2299,14 +2330,11 @@ where
                 match sanitize_sports_badges(&session.plugin_id, request.args) {
                     Ok(badges) => {
                         let count = badges.len();
-                        #[cfg(debug_assertions)]
-                        {
-                            use tauri::Emitter;
-                            let msg = format!("{}:sports.badges.publish: published {count} badges", session.plugin_id);
-                            eprintln!("[plugin:{msg}]");
-                            crate::commands::sports::push_log(&app, msg.clone());
-                            let _ = app.emit_to("main", "luma:plugin-log", msg);
-                        }
+                        record_log(
+                            &app,
+                            &session.plugin_id,
+                            format!("sports.badges.publish: published {count} badges"),
+                        );
                         crate::commands::sports::set_plugin_badges(
                             &app,
                             &session.plugin_id,

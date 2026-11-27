@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 
-const themes = ['violet-night', 'sapphire', 'mint', 'ember', 'graphite', 'onyx'].map(id => ({ id, name: id }));
+const themes = ['violet-night', 'sapphire', 'mint', 'ember', 'graphite', 'onyx', 'aurora', 'synthwave', 'biolume'].map(id => ({ id, name: id }));
 const source = stripTypeScriptTypes(readFileSync(new URL('./settings.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, ''));
 const moduleSource = `const defaultThemeId = 'violet-night'; const themes = ${JSON.stringify(themes)};\n${source}`;
 const { applySettingValue, resetSettingChoices, settingChoices, settingValue } = await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`);

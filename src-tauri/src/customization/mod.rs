@@ -1311,6 +1311,9 @@ mod tests {
             "ember",
             "graphite",
             "onyx",
+            "aurora",
+            "synthwave",
+            "biolume",
         ];
         let mut document = first;
         for index in 0..11 {

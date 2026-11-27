@@ -7,7 +7,8 @@ export type Permission =
   | "settings.read"
   | "network.get"
   | "playback.read"
-  | "playback.control";
+  | "playback.control"
+  | "sports.read";
 
 export const PERMISSIONS: readonly Permission[];
 
@@ -21,6 +22,8 @@ export type BridgeOperation =
   | "playback.toggle"
   | "playback.next"
   | "playback.previous"
+  | "sports.active.read"
+  | "sports.badges.publish"
   | "surface.ready"
   | "surface.close"
   | "commands.pending"
@@ -126,6 +129,19 @@ export interface LumaBridge {
   togglePlayback(): Promise<PlaybackCommandResult>;
   nextTrack(): Promise<PlaybackCommandResult>;
   previousTrack(): Promise<PlaybackCommandResult>;
+  readActiveSports(): Promise<{ watching: boolean; league: string | null; title: string | null; home: string | null; away: string | null }>;
+  publishSportsBadges(args: {
+    badges: Array<{
+      eventId?: string;
+      league: string;
+      home: string;
+      away: string;
+      homeProb: number;
+      awayProb: number;
+      label?: string;
+      marketUrl?: string;
+    }>;
+  }): Promise<{ published: number }>;
   ready(): Promise<SurfaceReadyResult>;
   close(): Promise<SurfaceClosedResult>;
   pendingCommand(): Promise<CommandDelivery | null>;

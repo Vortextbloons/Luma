@@ -266,7 +266,7 @@ pub fn run() {
             sports::sports_listing,
             sports::sports_streameast_listing,
             sports::plugin_sports_badges,
-            sports::plugin_sports_logs,
+            extension_spike::plugin_logs,
             sports::sports_open,
             sports::sports_scoreboard,
             sports::sports_teams,

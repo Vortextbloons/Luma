@@ -37,5 +37,6 @@ export const stremioOpenDetail = (kind: string, id: string) => invoke<void>('str
 export const onActivity = (callback: (snapshot: ActivitySnapshot) => void) => listen<ActivitySnapshot>('activity-updated', event => callback(event.payload));
 export const onNavigation = (callback: (command: NavigationCommand) => void) => listen<NavigationCommand>('remote-navigation', event => callback(event.payload));
 export const pluginSportsBadges = () => invoke<SportsBadge[]>('plugin_sports_badges');
+export const pluginLogs = (pluginId: string) => invoke<string[]>('plugin_logs', { pluginId });
 export const onSportsBadges = (callback: (badges: SportsBadge[]) => void) => listen<SportsBadge[]>('luma:sports-badges', event => callback(event.payload));
 export const onOpenMusic = (callback: () => void) => listen('open-music', callback);

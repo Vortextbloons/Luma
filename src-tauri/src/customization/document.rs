@@ -2,13 +2,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-const THEMES: [&str; 6] = [
+const THEMES: [&str; 9] = [
     "violet-night",
     "sapphire",
     "mint",
     "ember",
     "graphite",
     "onyx",
+    "aurora",
+    "synthwave",
+    "biolume",
 ];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const TILE_SHAPES: [&str; 2] = ["wide", "square"];

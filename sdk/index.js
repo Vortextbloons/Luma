@@ -8,6 +8,7 @@ export const PERMISSIONS = Object.freeze([
   "network.get",
   "playback.read",
   "playback.control",
+  "sports.read",
 ]);
 
 export const BRIDGE_OPERATIONS = Object.freeze([
@@ -20,6 +21,8 @@ export const BRIDGE_OPERATIONS = Object.freeze([
   "playback.toggle",
   "playback.next",
   "playback.previous",
+  "sports.active.read",
+  "sports.badges.publish",
   "surface.ready",
   "surface.close",
   "commands.pending",
@@ -36,6 +39,8 @@ export const OPERATION_PERMISSIONS = Object.freeze({
   "playback.toggle": "playback.control",
   "playback.next": "playback.control",
   "playback.previous": "playback.control",
+  "sports.active.read": "sports.read",
+  "sports.badges.publish": null,
   "surface.ready": null,
   "surface.close": null,
   "commands.pending": null,
@@ -162,6 +167,8 @@ export function createBridge(invoke = hostInvoke) {
     togglePlayback: () => request("playback.toggle"),
     nextTrack: () => request("playback.next"),
     previousTrack: () => request("playback.previous"),
+    readActiveSports: () => request("sports.active.read"),
+    publishSportsBadges: args => request("sports.badges.publish", args),
     ready: () => request("surface.ready"),
     close: () => request("surface.close"),
     pendingCommand: () => request("commands.pending"),

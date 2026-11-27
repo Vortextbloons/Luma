@@ -2,16 +2,27 @@
 
 Notable changes to Luma, newest first. Releases publish the matching section as the GitHub release notes and in-app update notes.
 
-## [Unreleased]
+## [1.0.0] - 2026-11-27
 
 ### Added
 
-- **Widget studio**: place widgets with layout presets, choose sizes and looks, preview Home, the player, and idle, and add multiple widget instances. The new Clock widget can stay in the player HUD, and widgets can appear only when the launcher is idle.
-- Widget settings now store presentation per instance (`type`, placement, size, look, presence, order, and widget-specific settings), so future widgets do not need new configuration fields in Rust or the MCP schema.
+- **Widget studio**: Place widgets using layout presets, customize sizes (compact, standard, expanded) and visual styles (glass, solid, minimal), configure presence triggers (always, music player, or idle-only), and add multiple widget instances with live preview across Home, the player HUD, and idle screens.
+- **Clock widget**: Built-in customizable Clock widget supporting 12/24-hour time, optional seconds and date display, custom timezone offsets, and opt-in display inside the music player HUD.
+- **Ambient screensaver**: Living-room idle screensaver with configurable timeout (1–30 minutes), clock overlay, and smooth visual backdrops that instantly wake on any remote, keyboard, or controller input.
+- **Game controller navigation & settings**: Full directional and action gamepad navigation for Xbox, PlayStation, Nintendo, and generic controllers across the launcher, with customizable button bindings, brand detection, and an interactive controller diagram in Settings.
+- **XInput background home button**: Dedicated background listener for controller guide / home button input via Windows XInput, restoring and focusing Luma even while external games or applications are running in fullscreen.
+- **Steam non-Steam game shortcuts**: Read, add, remove, and launch non-Steam shortcuts directly within Luma via Steam's binary `shortcuts.vdf` format, complete with automatic app ID calculation and artwork resolution.
+- **Display Box TV Remote routes**: Frame-authenticated `/display/*` REST API routes for remote playback control, settings synchronization, app dock ordering, plugin panels, panel action execution, and Spotify album artwork.
+- **Aggregated display search**: Unified search endpoint aggregating results across Cinemeta movies and series, YouTube videos, live sports streams (StreamEast and Sportsurge), and local watch history in parallel with bounded timeouts.
+- **Expanded sports & prediction markets**: Live scores, game cards, and streaming shortcuts for College Football (CFB), NCAA Men's Basketball, NCAA Women's Basketball, and the WNBA, alongside live game badge contributions from plugins like Kalshi sports prediction markets.
 
 ### Changed
 
-- Widgets no longer overlap when they share a corner or rail; they stack in order. The player shows opted-in compact widgets while music is open.
+- Widgets sharing a corner or rail stack in order rather than overlapping.
+- Widget settings store presentation per instance (`type`, placement, size, look, presence, order, and widget-specific settings), decoupling widget definitions from rigid Rust and MCP schemas.
+- Added smooth app hover animation toggle in Appearance settings.
+- Activity history automatically prunes records older than 90 days or exceeding 500 items while preserving installed application entries, followed by automatic WAL checkpoint truncation.
+- Refreshed Stremio library rows and cards with item count badges and refined layout styling.
 
 ## [0.9.0] - 2026-11-20
 

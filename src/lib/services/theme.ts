@@ -156,6 +156,66 @@ const onyx: ThemeTokens = {
   '--accent-soft': '#ffffff0a',
 };
 
+const aurora: ThemeTokens = {
+  ...semantic,
+  '--bg': '#040b10',
+  '--bg-soft': '#08141c',
+  '--ambient': '#12384a',
+  '--surface': '#101f28',
+  '--surface-2': '#0a161d',
+  '--surface-3': '#182c38',
+  '--line': '#ffffff17',
+  '--line-strong': '#ffffff26',
+  '--text': '#f2fbfb',
+  '--text-dim': '#cde5e8',
+  '--muted': '#9db8be',
+  '--dim': '#849ea4',
+  '--accent': '#5ee8d4',
+  '--accent-strong': '#9af6e8',
+  '--accent-ink': '#041018',
+  '--accent-soft': '#5ee8d43d',
+};
+
+const synthwave: ThemeTokens = {
+  ...semantic,
+  '--bg': '#0b0614',
+  '--bg-soft': '#120a1f',
+  '--ambient': '#3a1858',
+  '--surface': '#1a1028',
+  '--surface-2': '#12091c',
+  '--surface-3': '#251538',
+  '--line': '#ffffff17',
+  '--line-strong': '#ffffff26',
+  '--text': '#faf5ff',
+  '--text-dim': '#e2d0f5',
+  '--muted': '#b39ac9',
+  '--dim': '#9a82b0',
+  '--accent': '#ff5ec8',
+  '--accent-strong': '#ff96de',
+  '--accent-ink': '#0a0412',
+  '--accent-soft': '#ff5ec83d',
+};
+
+const biolume: ThemeTokens = {
+  ...semantic,
+  '--bg': '#020908',
+  '--bg-soft': '#051210',
+  '--ambient': '#0a3d32',
+  '--surface': '#0c1e1a',
+  '--surface-2': '#071412',
+  '--surface-3': '#122a24',
+  '--line': '#ffffff17',
+  '--line-strong': '#ffffff26',
+  '--text': '#effcf8',
+  '--text-dim': '#c8ebe0',
+  '--muted': '#98b8ad',
+  '--dim': '#7e9d93',
+  '--accent': '#3dffc8',
+  '--accent-strong': '#88ffd9',
+  '--accent-ink': '#02100c',
+  '--accent-soft': '#3dffc83d',
+};
+
 export const themes: ThemeDefinition[] = [
   { id: 'violet-night', name: 'Violet Night', description: 'Lavender glow on a midnight base.', tokens: violetNight },
   { id: 'sapphire', name: 'Sapphire', description: 'Cool blue light over deep navy.', tokens: sapphire },
@@ -163,6 +223,9 @@ export const themes: ThemeDefinition[] = [
   { id: 'ember', name: 'Ember', description: 'Warm peach light over charcoal.', tokens: ember },
   { id: 'graphite', name: 'Graphite', description: 'Neutral, quiet, and distraction-free.', tokens: graphite },
   { id: 'onyx', name: 'Onyx', description: 'Pure black with no ambient glow.', tokens: onyx },
+  { id: 'aurora', name: 'Aurora', description: 'Polar teal light across a frozen night sky.', tokens: aurora },
+  { id: 'synthwave', name: 'Synthwave', description: 'Neon magenta over a retro violet dusk.', tokens: synthwave },
+  { id: 'biolume', name: 'Biolume', description: 'Abyssal dark with a living green glow.', tokens: biolume },
 ];
 
 export const defaultThemeId: ThemeId = 'violet-night';

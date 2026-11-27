@@ -225,22 +225,16 @@
       else schedule();
     }, sports.watching || events.some(event => live(event)) ? 30000 : 120000); };
     let stopBadges: (() => void) | undefined;
-    let stopPluginLog: (() => void) | undefined;
     if (native) {
       void load();
-      void pluginSportsBadges().then(list => { console.info('[Luma Sports] pluginSportsBadges:', list.length); if (active) badges = list; }).catch(err => console.warn('[Luma Sports] pluginSportsBadges error:', err));
-      void invoke<string[]>('plugin_sports_logs').then(logs => { if (logs.length) console.info('[Luma Plugin history]', logs); }).catch(() => {});
-      void onSportsBadges(list => { console.info('[Luma Sports] onSportsBadges:', list.length); if (active) badges = list; }).then(unlisten => {
+      void pluginSportsBadges().then(list => { if (active) badges = list; }).catch(() => {});
+      void onSportsBadges(list => { if (active) badges = list; }).then(unlisten => {
         if (active) stopBadges = unlisten;
-        else unlisten();
-      }).catch(() => {});
-      void listen<string>('luma:plugin-log', event => console.info('[Luma Plugin]', event.payload)).then(unlisten => {
-        if (active) stopPluginLog = unlisten;
         else unlisten();
       }).catch(() => {});
       schedule();
     }
-    return () => { active = false; clearTimeout(timer); stopBadges?.(); stopPluginLog?.(); };
+    return () => { active = false; clearTimeout(timer); stopBadges?.(); };
   });
 </script>
 

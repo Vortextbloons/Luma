@@ -620,7 +620,7 @@
     "themeBound": {
       "oneOf": [
         {
-          "enum": ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx"]
+          "enum": ["violet-night", "sapphire", "mint", "ember", "graphite", "onyx", "aurora", "synthwave", "biolume"]
         },
         {
           "$ref": "#/$defs/settingBinding"
