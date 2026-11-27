@@ -42,6 +42,9 @@ export interface WidgetMeta {
   defaultSettings: Record<string, unknown>;
   settings: WidgetSettingField[];
   maxInstances?: number;
+  pluginId?: string;
+  widgetId?: string;
+  selection?: { setting: string; source: string; label: string };
 }
 
 export const widgetPlacements: WidgetPlacement[] = [
@@ -197,8 +200,8 @@ export function isVisibility(value: unknown): value is WidgetVisibility {
   return value === 'always' || value === 'playing' || value === 'available';
 }
 
-const instancePattern = /^[A-Za-z0-9_-]{1,64}$/;
-const typePattern = /^[A-Za-z0-9_.-]{1,64}$/;
+const instancePattern = /^[A-Za-z0-9_.-]{1,160}$/;
+const typePattern = /^[A-Za-z0-9_.-]{1,160}$/;
 const variantPattern = /^[A-Za-z0-9_-]{1,32}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

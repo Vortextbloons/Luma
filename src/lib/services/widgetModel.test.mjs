@@ -30,6 +30,15 @@ test('multiple instances keep their own identity, order, and settings', () => {
   assert.deepEqual(widgets['clock-2'].settings, { hour12: false, showDate: false });
 });
 
+test('qualified plugin widget ids survive sanitizing', () => {
+  const id = 'com.luma.kalshi-sports.live-scoreboard';
+  const widgets = sanitizeWidgets({
+    [id]: { type: id, placement: 'bottom-right', presence: ['home'], order: 0 },
+  });
+  assert.equal(widgets[id].type, id);
+  assert.equal(widgets[id].placement, 'bottom-right');
+});
+
 test('invalid widget values fall back to the type defaults', () => {
   const widgets = sanitizeWidgets({
     clock: {

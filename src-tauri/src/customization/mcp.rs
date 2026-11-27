@@ -2469,6 +2469,12 @@ fn candidate_schema() -> Value {
             "widgets": {
                 "type": "object",
                 "maxProperties": 32,
+                "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9_.-]+$"
+                },
                 "additionalProperties": {
                     "type": "object",
                     "additionalProperties": false,
@@ -2476,7 +2482,7 @@ fn candidate_schema() -> Value {
                         "type": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 64,
+                            "maxLength": 160,
                             "pattern": "^[A-Za-z0-9_.-]+$"
                         },
                         "enabled": { "type": "boolean" },

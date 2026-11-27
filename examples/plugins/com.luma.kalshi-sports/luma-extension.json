@@ -1,7 +1,7 @@
 {
   "id": "com.luma.kalshi-sports",
   "name": "Sports Hub",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "apiVersion": 3,
   "minHostVersion": "0.8.0",
   "description": "Live game scoreboard tracker, Kalshi win probabilities, and sports alerts across major leagues.",
@@ -37,7 +37,12 @@
           "defaultSize": "medium",
           "defaultVariant": "glass",
           "defaultPresence": ["home", "idle"],
-          "maxInstances": 1
+          "maxInstances": 1,
+          "selection": {
+            "setting": "trackedGame",
+            "source": "sports.game",
+            "label": "Pin to Live Scoreboard"
+          }
         }
       ]
     }
@@ -81,6 +86,15 @@
       "type": "string",
       "default": "",
       "maxLength": 48
+    },
+    {
+      "key": "trackedGame",
+      "label": "Pinned game",
+      "description": "Game selected from Luma Sports. Leave blank to follow the tracked league and team automatically.",
+      "tab": "Scoreboard",
+      "type": "string",
+      "default": "",
+      "maxLength": 240
     },
     {
       "key": "spoilerFree",

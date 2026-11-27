@@ -8,6 +8,8 @@
   import { loadSportsTeams, isSportsFavorite, majorSportsLeagues, readSportsFavorites, sportsScoresHidden, toggleSportsFavorite, writeSportsFavorites, type SportsTeam, type SportsEvent, type SportsFavorite } from '../services/sports';
   import { badgeSideValue, matchSportsBadge, scoreTeam } from '../services/sportsScores';
   import { appVisible } from '../services/visibility';
+  import { saveWidgetSelection, widgetSelectionTargets, type WidgetSelectionTarget } from '../services/pluginSelections';
+  import type { PluginsState } from '../services/plugins';
   import type { SportsState } from '../state/sports.svelte';
   import nbaIcon from '../../../src-tauri/resources/icons/sports-nba.png';
   import nflIcon from '../../../src-tauri/resources/icons/sports-nfl.png';
@@ -20,7 +22,7 @@
   import boxingIcon from '../../../src-tauri/resources/icons/sports-boxing.png';
   import ofcIcon from '../../../src-tauri/resources/icons/sports-ofc.png';
 
-  let { native, sports, ondetailclose }: { native: boolean; sports: SportsState; ondetailclose?: () => void } = $props();
+  let { native, sports, plugins = null, ondetailclose }: { native: boolean; sports: SportsState; plugins?: PluginsState | null; ondetailclose?: () => void } = $props();
   const listing = $derived(sports.listing);
   const scores = $derived(sports.scores);
   const loading = $derived(sports.loading);
@@ -40,6 +42,9 @@
   let selected = $state<SportsEvent | null>(null);
   let hovered = $state.raw<SportsEvent | null>(null);
   let detailError = $state('');
+  let pinning = $state('');
+  let pinNote = $state('');
+  const selectionTargets = $derived(widgetSelectionTargets(plugins, 'sports.game'));
   let favorites = $state<SportsFavorite[]>(readSportsFavorites());
   let hideScores = $state(sportsScoresHidden());
   const badges = $derived(sports.badges);
@@ -140,7 +145,24 @@
     await tick();
     document.querySelector<HTMLElement>('.sports-filters button[aria-pressed="true"]')?.focus({ preventScroll: true });
   }
-  function selectEvent(event: SportsEvent, origin: HTMLElement) { returnFocus = origin; selected = event; detailError = ''; }
+  function selectEvent(event: SportsEvent, origin: HTMLElement) { returnFocus = origin; selected = event; detailError = ''; pinNote = ''; }
+  async function pinSelected(target: WidgetSelectionTarget) {
+    if (!selected || !live(selected) || pinning) return;
+    pinning = target.pluginId;
+    pinNote = '';
+    try {
+      await saveWidgetSelection(target, JSON.stringify({
+        league: selected.league,
+        title: selected.title,
+        teams: selected.teams.map(team => team.name),
+      }));
+      pinNote = `Pinned to ${target.label}.`;
+    } catch (error) {
+      pinNote = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error);
+    } finally {
+      pinning = '';
+    }
+  }
   export function closeDetail() {
     if (leaguesOpen) {
       leaguesOpen = false;
@@ -154,6 +176,7 @@
     teamRequest++;
     selected = null;
     detailError = '';
+    pinNote = '';
     const target = returnFocus;
     returnFocus = null;
     void tick().then(() => {
@@ -334,6 +357,14 @@
     {/if}
     {#if detailError}<p class="sports-feedback" role="alert">{detailError}</p>{/if}
     <div class="detail-actions"><button class="btn btn-primary" data-sports-action="watch" disabled={opening || !native || !live(selected) || !selected.url} onclick={() => void openStream()}>{opening ? 'Starting stream…' : '▶ Watch fullscreen'}</button><button class="btn btn-glass" disabled={opening || !native || !live(selected) || !selected.url} onclick={() => void openStream(true)}>Try another source</button></div>
+    {#if live(selected) && selectionTargets.length}
+      <div class="detail-actions detail-pin-actions">
+        {#each selectionTargets as target (target.pluginId + target.setting)}
+          <button class="btn btn-glass" disabled={!!pinning} onclick={() => void pinSelected(target)}>{pinning === target.pluginId ? 'Pinning…' : target.label}</button>
+        {/each}
+      </div>
+    {/if}
+    {#if pinNote}<p class="detail-hint" role="status">{pinNote}</p>{/if}
     <p class="detail-hint">{live(selected) ? 'Use your remote to play, pause, and change sources. Back returns to game details.' : selectedGame?.state === 'post' ? 'This game has ended. Replay availability is not provided.' : 'Live playback will be available when the game starts and a stream is listed.'}</p>
   </dialog>
 {/if}
@@ -384,7 +415,7 @@
   .section-heading { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 clamp(12px, 1vw, 20px); }
   .section-heading h2 { margin: 0; font-size: clamp(25px, 1.8vw, 38px); font-weight: 700; letter-spacing: -.025em; }
   .game-section{margin-bottom:28px}.sports-grid{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 54px)/4);gap:18px;overflow-x:auto;scroll-snap-type:x proximity;padding:7px;margin:-7px;scrollbar-width:none}.sports-grid::-webkit-scrollbar{display:none}.section-heading h2>span{font-size:clamp(14px,.86vw,18px);font-weight:500;color:var(--muted);margin-left:10px}.game-tags{display:flex;align-items:center;gap:10px;min-height:24px;font-size:12px;font-weight:700;letter-spacing:.045em}.league{padding:4px 10px;border:1px solid #ffffff35;border-radius:99px;color:var(--text)}.live-badge{color:#ffb4be;background:#a12c4338;padding:4px 9px;border-radius:99px}.team-logo{display:grid;place-items:center;flex:none;width:42px;height:42px;font-weight:700}.team-logo img{width:100%;height:100%;object-fit:contain}.sports-feedback{color:var(--warn);font-size:clamp(14px,.86vw,18px);line-height:1.5}.sports-home>.sports-feedback{margin:0 0 12px}.scores-credit{font-size:12px;color:var(--dim);margin:14px 0 0}
-  .sports-dialog{width:min(760px,calc(100vw - 48px));max-height:calc(100dvh - 48px);margin:auto;padding:32px;overflow-y:auto;border:1px solid var(--line-strong);border-radius:24px;background:var(--surface-2);color:var(--text);box-shadow:0 24px 90px #0008}.sports-dialog::backdrop{background:#05060acb;backdrop-filter:blur(8px)}.detail-top{display:flex;align-items:center;justify-content:space-between;gap:20px}.sports-dialog h2{margin:20px 0 10px;font-size:clamp(28px,2.5vw,42px);line-height:1.1;letter-spacing:-.035em}.detail-status{color:var(--muted);font-size:16px;line-height:1.5}.detail-teams{display:grid;gap:12px;margin:28px 0}.detail-team{display:flex;align-items:center;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#ffffff04}.detail-team .team-logo{width:56px;height:56px}.detail-team-name{flex:1;font-size:23px;font-weight:650}.detail-team-name small{display:block;color:var(--muted);font-size:14px;font-weight:500;margin-top:5px}.detail-score{font-size:36px;font-variant-numeric:tabular-nums}.detail-odds{flex:none;padding:4px 11px;border-radius:99px;background:#ffffff12;border:1px solid #ffffff20;color:var(--text-dim);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}.detail-odds-summary{display:grid;gap:8px;margin:-12px 0 22px;color:var(--muted);font-size:13px;font-weight:600}.detail-odds-bar{display:block;height:4px;border-radius:99px;background:#ffffff1a;overflow:hidden}.detail-odds-fill{display:block;height:100%;border-radius:99px;background:var(--accent)}.favorite-button{width:48px;height:48px;border:1px solid var(--line-strong);border-radius:50%;background:var(--surface-3);color:var(--text-dim);font-size:26px}.favorite-button[aria-pressed=true]{color:#ffd28d}.detail-actions{display:flex;gap:12px}.detail-actions .btn{flex:1;min-height:58px;font-size:18px}.detail-hint{margin:20px 0 0;color:var(--muted);font-size:14px;line-height:1.5}
+  .sports-dialog{width:min(760px,calc(100vw - 48px));max-height:calc(100dvh - 48px);margin:auto;padding:32px;overflow-y:auto;border:1px solid var(--line-strong);border-radius:24px;background:var(--surface-2);color:var(--text);box-shadow:0 24px 90px #0008}.sports-dialog::backdrop{background:#05060acb;backdrop-filter:blur(8px)}.detail-top{display:flex;align-items:center;justify-content:space-between;gap:20px}.sports-dialog h2{margin:20px 0 10px;font-size:clamp(28px,2.5vw,42px);line-height:1.1;letter-spacing:-.035em}.detail-status{color:var(--muted);font-size:16px;line-height:1.5}.detail-teams{display:grid;gap:12px;margin:28px 0}.detail-team{display:flex;align-items:center;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#ffffff04}.detail-team .team-logo{width:56px;height:56px}.detail-team-name{flex:1;font-size:23px;font-weight:650}.detail-team-name small{display:block;color:var(--muted);font-size:14px;font-weight:500;margin-top:5px}.detail-score{font-size:36px;font-variant-numeric:tabular-nums}.detail-odds{flex:none;padding:4px 11px;border-radius:99px;background:#ffffff12;border:1px solid #ffffff20;color:var(--text-dim);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}.detail-odds-summary{display:grid;gap:8px;margin:-12px 0 22px;color:var(--muted);font-size:13px;font-weight:600}.detail-odds-bar{display:block;height:4px;border-radius:99px;background:#ffffff1a;overflow:hidden}.detail-odds-fill{display:block;height:100%;border-radius:99px;background:var(--accent)}.favorite-button{width:48px;height:48px;border:1px solid var(--line-strong);border-radius:50%;background:var(--surface-3);color:var(--text-dim);font-size:26px}.favorite-button[aria-pressed=true]{color:#ffd28d}.detail-actions{display:flex;gap:12px}.detail-actions .btn{flex:1;min-height:58px;font-size:18px}.detail-pin-actions{margin-top:12px}.detail-pin-actions .btn{min-height:50px;font-size:16px}.detail-hint{margin:20px 0 0;color:var(--muted);font-size:14px;line-height:1.5}
   @media(max-width:1050px){.sports-grid{grid-auto-columns:calc((100% - 18px)/2)}.sports-toolbar{align-items:flex-start;flex-direction:column}}@media(max-width:760px){.sports-grid{grid-auto-columns:85%}.detail-actions{flex-direction:column}.detail-team-name{font-size:18px}}
   .sports-filters button:hover { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
   .sports-filters button:focus-visible { background: var(--accent-soft); color: var(--text); outline: 3px solid var(--accent); outline-offset: 4px; }

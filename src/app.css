@@ -474,6 +474,8 @@ html[data-design-nav="sidebar"] .header-right{order:4;display:flex;flex-wrap:wra
 html[data-design-nav="sidebar"] .header-time{width:100%;padding:0 4px 6px;font-size:clamp(12px,.82vw,14px)}
 html[data-design-nav="sidebar"] .header-btn.is-icon{width:42px;height:42px;min-height:42px}
 html[data-design-nav="sidebar"] .header-menu{top:auto!important;right:auto;bottom:24px;left:calc(12px + clamp(14px,1.2vw,22px));width:calc(var(--nav-w) - 24px - 2 * clamp(14px,1.2vw,22px))}
+html[data-design-nav="sidebar"] body:has(.mini-player[data-placement="bar"]) .topbar{bottom:calc(12px + var(--mini-bar-h))}
+html[data-design-nav="sidebar"] body:has(.mini-player[data-placement="bar"]) .header-menu{bottom:calc(24px + var(--mini-bar-h))}
 html[data-design-nav="sidebar"] .view-content{min-height:100vh}
 html[data-design-nav="sidebar"] .hero{margin-top:0}
 html[data-design-nav="sidebar"] .hero-inner{padding-top:clamp(56px,7vh,96px)}

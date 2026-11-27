@@ -69,6 +69,7 @@ const COMPONENTS: [&str; 7] = [
     "recent",
     "recentApps",
 ];
+const WIDGET_SELECTION_SOURCES: [&str; 1] = ["sports.game"];
 const PLACEMENTS: [&str; 9] = [
     "bar",
     "top-left",
@@ -387,6 +388,13 @@ impl Contributions {
 
     fn is_empty(&self) -> bool {
         self.fields().is_empty()
+            && self
+                .widgets
+                .as_ref()
+                .is_none_or(|widgets| widgets.items.is_empty())
+            && self.cards.is_empty()
+            && self.commands.is_empty()
+            && !self.sports_enrich
     }
 }
 
@@ -475,6 +483,16 @@ pub struct PluginWidgetDefinition {
     pub max_instances: Option<u8>,
     #[serde(default)]
     pub settings: Vec<PluginWidgetSettingField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<PluginWidgetSelection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginWidgetSelection {
+    pub setting: String,
+    pub source: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -655,6 +673,8 @@ pub struct PluginWidgetMeta {
     pub default_settings: BTreeMap<String, Value>,
     pub settings: Vec<PluginWidgetSettingField>,
     pub max_instances: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<PluginWidgetSelection>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1494,21 +1514,27 @@ pub(super) fn state(connection: &Connection, base: &Config) -> Result<PluginsSta
     })
 }
 
-pub(super) fn populate_icons(store: &Store, state: &mut PluginsState) {
+pub(super) fn populate_icons(
+    store: &Store,
+    connection: &Connection,
+    state: &mut PluginsState,
+) {
     let Ok(root) = install_root(store) else {
         return;
     };
-    let Ok(connection) = store.connection() else {
-        return;
-    };
-    let Ok(plugins) = load_plugins(&connection) else {
+    let Ok(plugins) = load_plugins(connection) else {
         return;
     };
     let icons: BTreeMap<String, String> = plugins
         .into_iter()
         .filter_map(|(id, plugin)| {
             let icon = plugin.manifest.icon?;
-            let url = read_icon_data_url(&root.join(&id).join(&icon))?;
+            let url = read_icon_data_url(
+                &root
+                    .join(&id)
+                    .join(&plugin.manifest.version)
+                    .join(&icon),
+            )?;
             Some((id, url))
         })
         .collect();
@@ -1617,6 +1643,7 @@ fn project_plugin_widgets(plugin: &StoredPlugin, grant: Option<&Grant>) -> Vec<P
                 default_settings,
                 settings: item.settings.clone(),
                 max_instances: item.max_instances.unwrap_or(1),
+                selection: item.selection.clone(),
             }
         })
         .collect()
@@ -1963,7 +1990,7 @@ pub(super) fn prepare_enable(
         ));
     }
     if !plugin.enabled
-        && plugin.manifest.contributes.fields().is_empty()
+        && plugin.manifest.contributes.is_empty()
         && plugin.manifest.remote.is_none()
     {
         return Err(Error::new(
@@ -3325,6 +3352,58 @@ fn validate_contributions(manifest: &Manifest) -> Result<(), Error> {
                     .field(format!("contributes.widgets.items[{idx}].placements")));
                 }
             }
+            if let Some(selection) = &item.selection {
+                if !WIDGET_SELECTION_SOURCES.contains(&selection.source.as_str()) {
+                    return Err(Error::new(
+                        "validation",
+                        format!("Unsupported widget selection source: {}.", selection.source),
+                    )
+                    .field(format!(
+                        "contributes.widgets.items[{idx}].selection.source"
+                    )));
+                }
+                let Some(definition) = manifest
+                    .settings
+                    .iter()
+                    .find(|definition| definition.key == selection.setting)
+                else {
+                    return Err(Error::new(
+                        "validation",
+                        format!(
+                            "Widget selection references unknown setting: {}.",
+                            selection.setting
+                        ),
+                    )
+                    .field(format!(
+                        "contributes.widgets.items[{idx}].selection.setting"
+                    )));
+                };
+                if definition.kind != SettingKind::String {
+                    return Err(Error::new(
+                        "validation",
+                        format!(
+                            "Widget selection setting {} must be a string.",
+                            selection.setting
+                        ),
+                    )
+                    .field(format!(
+                        "contributes.widgets.items[{idx}].selection.setting"
+                    )));
+                }
+                let label = selection.label.trim();
+                if label.is_empty()
+                    || label.chars().count() > MAX_REMOTE_LABEL
+                    || label.chars().any(char::is_control)
+                {
+                    return Err(Error::new(
+                        "validation",
+                        "Widget selection label must be 1-32 characters and contain no control characters.",
+                    )
+                    .field(format!(
+                        "contributes.widgets.items[{idx}].selection.label"
+                    )));
+                }
+            }
         }
     }
     if let Some(order) = &contributes.order {
@@ -3690,7 +3769,7 @@ struct BundledEnable {
 
 const BUNDLED_PACKAGES: [BundledPackage; 2] = [
     BundledPackage {
-        marker: ".bundled-sports-hub-v2",
+        marker: ".bundled-sports-hub-v4",
         manifest: include_str!(
             "../../../examples/plugins/com.luma.kalshi-sports/luma-extension.json"
         ),
@@ -3718,7 +3797,7 @@ const BUNDLED_PACKAGES: [BundledPackage; 2] = [
         }),
     },
     BundledPackage {
-        marker: ".bundled-apple-tv-look-v1",
+        marker: ".bundled-apple-tv-look-v2",
         manifest: include_str!(
             "../../../examples/plugins/com.luma.apple-tv-look/luma-extension.json"
         ),
@@ -4570,7 +4649,12 @@ pub fn schema_document() -> Value {
                     "defaultSize": "optional default size",
                     "defaultVariant": "optional default variant",
                     "defaultPresence": ["home", "idle"],
-                    "maxInstances": "optional max instances (default 1)"
+                    "maxInstances": "optional max instances (default 1)",
+                    "selection": {
+                        "setting": "declared string setting that receives the selected value",
+                        "source": WIDGET_SELECTION_SOURCES,
+                        "label": "1-32 character action label"
+                    }
                 }]
             },
             "order": "all twelve app ids exactly once, Custom last"
@@ -7277,6 +7361,90 @@ mod tests {
         assert_eq!(after.config, before.config);
         assert!(state_for_store(&store).plugins[0].enabled);
         assert!(root.join("com.example.lounge").join("1.0.0").is_dir());
+    }
+
+    #[test]
+    fn widget_selection_requires_a_declared_string_setting_and_known_source() {
+        let (store, _root) = store();
+        let mut value = manifest("com.example.selection", "1.0.0");
+        value["settings"] = serde_json::json!([
+            { "key": "trackedGame", "label": "Pinned game", "type": "string", "default": "" }
+        ]);
+        value["contributes"] = serde_json::json!({
+            "widgets": {
+                "items": [{
+                    "id": "board",
+                    "name": "Board",
+                    "selection": { "setting": "trackedGame", "source": "sports.game", "label": "Pin game" }
+                }]
+            }
+        });
+        stage_submission(
+            &store,
+            &serde_json::json!({ "manifest": value.clone(), "files": [] }),
+            "import",
+        )
+        .unwrap();
+
+        let mut unknown_source = value.clone();
+        unknown_source["id"] = serde_json::json!("com.example.selection-source");
+        unknown_source["contributes"]["widgets"]["items"][0]["selection"]["source"] =
+            serde_json::json!("unknown");
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": unknown_source, "files": [] }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+
+        let mut unknown_setting = value;
+        unknown_setting["id"] = serde_json::json!("com.example.selection-setting");
+        unknown_setting["contributes"]["widgets"]["items"][0]["selection"]["setting"] =
+            serde_json::json!("missing");
+        assert_eq!(
+            stage_submission(
+                &store,
+                &serde_json::json!({ "manifest": unknown_setting, "files": [] }),
+                "import"
+            )
+            .unwrap_err()
+            .code,
+            "validation"
+        );
+    }
+
+    #[test]
+    fn snapshots_load_manifest_icons_without_relocking_the_connection() {
+        let (store, _root) = store();
+        let mut value = manifest("com.example.icon", "1.0.0");
+        value["icon"] = serde_json::json!("icon.svg");
+        value["assets"] = serde_json::json!(["icon.svg"]);
+        stage_submission(
+            &store,
+            &serde_json::json!({
+                "manifest": value,
+                "files": [{ "path": "icon.svg", "text": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>" }]
+            }),
+            "import",
+        )
+        .unwrap();
+        let snapshot = store.snapshot().unwrap().unwrap();
+        let record = snapshot
+            .plugins
+            .plugins
+            .iter()
+            .find(|plugin| plugin.id == "com.example.icon")
+            .expect("staged icon plugin");
+        assert!(
+            record
+                .icon_url
+                .as_deref()
+                .is_some_and(|url| url.starts_with("data:image/svg+xml;base64,"))
+        );
     }
 
     #[test]

@@ -259,7 +259,7 @@ impl Store {
         };
         let effective = plugin::snapshot_for_connection(&connection, &document)?;
         let mut plugins = plugin::state(&connection, &document.config)?;
-        plugin::populate_icons(self, &mut plugins);
+        plugin::populate_icons(self, &connection, &mut plugins);
         Ok(Some(Snapshot {
             document: effective,
             plugins,

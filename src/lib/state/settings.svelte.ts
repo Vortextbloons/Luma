@@ -123,6 +123,9 @@ class SettingsStore {
           defaultSettings: w.defaultSettings ?? {},
           settings: w.settings ?? [],
           maxInstances: w.maxInstances ?? 1,
+          pluginId: w.pluginId,
+          widgetId: w.widgetId,
+          selection: w.selection,
         })));
         this.plugins = state;
         this.pluginsLoading = false;

@@ -113,6 +113,12 @@ export interface PluginWidgetData {
   updatedAt: number;
 }
 
+export interface PluginWidgetSelection {
+  setting: string;
+  source: string;
+  label: string;
+}
+
 export interface PluginWidgetMeta {
   type: string;
   pluginId: string;
@@ -137,6 +143,7 @@ export interface PluginWidgetMeta {
     options?: { value: string; label: string }[];
   }[];
   maxInstances?: number;
+  selection?: PluginWidgetSelection;
 }
 
 export interface PluginsState {

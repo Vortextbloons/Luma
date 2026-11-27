@@ -37,6 +37,9 @@
       "type": "string",
       "maxLength": 80
     },
+    "icon": {
+      "$ref": "#/$defs/path"
+    },
     "settings": {
       "type": "array",
       "maxItems": 24,
@@ -200,7 +203,7 @@
             "required": ["kind", "entry"],
             "properties": {
               "kind": {
-                "const": "isolated-ui"
+                "enum": ["isolated-ui", "background"]
               },
               "entry": {
                 "$ref": "#/$defs/entry"
@@ -209,7 +212,23 @@
           },
           "contributes": {
             "type": "object",
-            "required": ["cards", "commands"],
+            "anyOf": [
+              {
+                "required": ["cards", "commands"],
+                "properties": {
+                  "cards": true,
+                  "commands": true
+                }
+              },
+              {
+                "required": ["sportsEnrich"],
+                "properties": {
+                  "sportsEnrich": {
+                    "const": true
+                  }
+                }
+              }
+            ],
             "properties": {
               "theme": false,
               "density": false,
@@ -219,7 +238,6 @@
               "appearance": false,
               "homeColumns": false,
               "home": false,
-              "widgets": false,
               "order": false,
               "cards": {
                 "type": "array",
@@ -257,7 +275,42 @@
               }
             }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "type": "object",
+              "properties": {
+                "runtime": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "const": "background"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "contributes": {
+                  "type": "object",
+                  "properties": {
+                    "cards": {
+                      "type": "array",
+                      "maxItems": 0
+                    },
+                    "commands": {
+                      "type": "array",
+                      "maxItems": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -315,7 +368,7 @@
       }
     },
     "permission": {
-      "enum": ["settings.read", "network.get", "playback.read", "playback.control"]
+      "enum": ["settings.read", "network.get", "playback.read", "playback.control", "sports.read"]
     },
     "path": {
       "type": "string",
@@ -349,6 +402,12 @@
         "description": {
           "type": "string",
           "maxLength": 240
+        },
+        "tab": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "\\S"
         },
         "type": {
           "enum": ["boolean", "enum", "number", "string"]
@@ -580,6 +639,9 @@
         "order": {
           "$ref": "#/$defs/homeOrder"
         },
+        "sportsEnrich": {
+          "type": "boolean"
+        },
         "appearance": {
           "$ref": "#/$defs/appearance"
         },
@@ -802,6 +864,158 @@
               "$ref": "#/$defs/settingBinding"
             }
           ]
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/pluginWidget"
+          }
+        }
+      }
+    },
+    "pluginWidget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "glyph": {
+          "type": "string",
+          "maxLength": 8
+        },
+        "placements": {
+          "type": "array",
+          "maxItems": 9,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["bar", "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right", "rail-left", "rail-right"]
+          }
+        },
+        "sizes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["small", "medium", "large"]
+          }
+        },
+        "variants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "contexts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["home", "music", "idle"]
+          }
+        },
+        "defaultPlacement": {
+          "enum": ["bar", "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right", "rail-left", "rail-right"]
+        },
+        "defaultSize": {
+          "enum": ["small", "medium", "large"]
+        },
+        "defaultVariant": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "defaultPresence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["home", "music", "idle"]
+          }
+        },
+        "maxInstances": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "settings": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/pluginWidgetSetting"
+          }
+        },
+        "selection": {
+          "$ref": "#/$defs/widgetSelection"
+        }
+      }
+    },
+    "pluginWidgetSetting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "type"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "type": {
+          "enum": ["boolean", "choice"]
+        },
+        "options": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/settingOption"
+          }
+        },
+        "default": {}
+      }
+    },
+    "widgetSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setting", "source", "label"],
+      "properties": {
+        "setting": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9_-]{0,63}$"
+        },
+        "source": {
+          "enum": ["sports.game"]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "\\S"
         }
       }
     }

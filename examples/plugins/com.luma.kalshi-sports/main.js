@@ -22,6 +22,7 @@ const SERIES = [
 let settings = {
   trackedLeague: "Auto",
   trackedTeam: "",
+  trackedGame: "",
   spoilerFree: false,
   showWidgetOdds: true,
   showCardOdds: true,
@@ -194,6 +195,57 @@ function pickTrackedGame(games, teamQuery) {
   return games.find(g => g.state === "pre") || games[0];
 }
 
+function parsePinnedGame(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.league === "string") {
+      return {
+        league: parsed.league,
+        id: typeof parsed.id === "string" ? parsed.id : "",
+        title: typeof parsed.title === "string" ? parsed.title : "",
+        teams: Array.isArray(parsed.teams) ? parsed.teams.filter(team => typeof team === "string") : [],
+      };
+    }
+  } catch {}
+  const index = raw.indexOf(":");
+  if (index > 0 && index < raw.length - 1) {
+    return { league: raw.slice(0, index), id: raw.slice(index + 1), title: "", teams: [] };
+  }
+  return null;
+}
+
+function matchupTokens(value) {
+  return String(value || "")
+    .split(/\s+(?:vs\.?|@|at)\s+/i)
+    .map(normalizeTeam)
+    .filter(Boolean);
+}
+
+function matchPinnedGame(game, pinned) {
+  if (pinned.id && game.id === pinned.id) return true;
+  const tokens = matchupTokens(pinned.title);
+  const names = game.teams
+    .flatMap(team => [normalizeTeam(team.name), normalizeTeam(team.abbr)])
+    .filter(Boolean);
+  if (tokens.length >= 2) {
+    return tokens.every(token => names.some(name => name.includes(token) || token.includes(name)));
+  }
+  const candidates = [...tokens, ...pinned.teams.map(normalizeTeam)].filter(Boolean);
+  return candidates.some(token => names.some(name => name.includes(token) || token.includes(name)));
+}
+
+function findPinnedBadge(pinned, badges) {
+  if (!pinned || !badges.length) return null;
+  const tokens = [...matchupTokens(pinned.title), ...pinned.teams.map(normalizeTeam)].filter(Boolean);
+  return badges.find(badge => {
+    if (pinned.league && !matchLeague(badge.league, pinned.league)) return false;
+    const names = (badge.teams || []).map(normalizeTeam);
+    return tokens.some(token => names.some(name => name.includes(token) || token.includes(name)));
+  }) || null;
+}
+
 function findMatchingBadge(game, badges) {
   if (!game || !badges.length) return null;
   const gNames = game.teams.map(t => normalizeTeam(t.name));
@@ -205,10 +257,13 @@ function findMatchingBadge(game, badges) {
 }
 
 async function publishScoreboardWidget(badges, active) {
-  const configuredLeague = settings.trackedLeague || "Auto";
-  const leaguesToCheck = configuredLeague === "Auto"
-    ? (active?.watching && active.league ? [active.league, "NBA", "NFL", "MLB", "NHL"] : ["NBA", "NFL", "MLB", "NHL"])
-    : [configuredLeague];
+  const pinned = parsePinnedGame(settings.trackedGame);
+  const configuredLeague = pinned ? pinned.league : (settings.trackedLeague || "Auto");
+  const leaguesToCheck = pinned
+    ? [pinned.league]
+    : configuredLeague === "Auto"
+      ? (active?.watching && active.league ? [active.league, "NBA", "NFL", "MLB", "NHL"] : ["NBA", "NFL", "MLB", "NHL"])
+      : [configuredLeague];
   const uniqueLeagues = [...new Set(leaguesToCheck)];
 
   let games = [];
@@ -220,15 +275,45 @@ async function publishScoreboardWidget(badges, active) {
   }
 
   const teamFilter = settings.trackedTeam || (active?.watching && active.title ? active.title : "");
-  const game = pickTrackedGame(games, teamFilter);
+  const game = pinned ? games.find(candidate => matchPinnedGame(candidate, pinned)) : pickTrackedGame(games, teamFilter);
+  if (!game && pinned) {
+    const badge = findPinnedBadge(pinned, badges);
+    const first = badge?.sides?.[0];
+    const second = badge?.sides?.[1];
+    let progress;
+    let progressLabel;
+    let badgeText = "LIVE";
+    if (!settings.spoilerFree && first && second) {
+      progress = first.pct;
+      progressLabel = `${first.team} ${first.value} · ${second.team} ${second.value}`;
+      badgeText = `LIVE · ${first.value}`;
+    }
+    await bridge("widgets.publish", {
+      widgets: [{
+        id: "live-scoreboard",
+        available: true,
+        title: pinned.title || pinned.teams.join(" vs ") || `${pinned.league} game`,
+        subtitle: `${pinned.league} · In progress`,
+        badge: badgeText,
+        tone: "live",
+        progress,
+        progressLabel,
+        meta: settings.spoilerFree ? ["Spoiler-free"] : [],
+        updatedAt: Math.floor(Date.now() / 1000),
+      }],
+    }).catch(() => {});
+    return;
+  }
   if (!game) {
     const label = configuredLeague === "Auto" ? "Sports" : configuredLeague;
+    const title = settings.trackedTeam ? `No ${label} game found` : `${label} Scoreboard`;
+    const subtitle = settings.trackedTeam ? `Tracking "${settings.trackedTeam}"` : "No games scheduled right now";
     await bridge("widgets.publish", {
       widgets: [{
         id: "live-scoreboard",
         available: Boolean(settings.trackedTeam),
-        title: settings.trackedTeam ? `No ${label} game found` : `${label} Scoreboard`,
-        subtitle: settings.trackedTeam ? `Tracking "${settings.trackedTeam}"` : "No games scheduled right now",
+        title,
+        subtitle,
         tone: "muted",
         updatedAt: Math.floor(Date.now() / 1000),
       }],

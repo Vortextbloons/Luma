@@ -62,6 +62,7 @@ const WIDGET_PRESENCES: [&str; 3] = ["home", "music", "idle"];
 const WIDGET_VISIBILITIES: [&str; 3] = ["always", "available", "playing"];
 const MAX_WIDGETS: usize = 32;
 const MAX_WIDGET_SETTINGS: usize = 32;
+const MAX_WIDGET_ID: usize = 160;
 pub const APPEARANCE_TOKENS: [&str; 20] = [
     "--bg",
     "--bg-soft",
@@ -538,13 +539,14 @@ fn validate_widget_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("Widget id cannot be empty.".into());
     }
-    if id.len() > 64 {
-        return Err("Widget id must be at most 64 characters.".into());
+    if id.len() > MAX_WIDGET_ID {
+        return Err(format!(
+            "Widget id must be at most {MAX_WIDGET_ID} characters."
+        ));
     }
-    if !id
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-    {
+    if !id.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b'.'
+    }) {
         return Err(format!("Invalid widget id: {id}."));
     }
     Ok(())
@@ -554,8 +556,10 @@ fn validate_widget_type(kind: &str) -> Result<(), String> {
     if kind.is_empty() {
         return Err("Widget type cannot be empty.".into());
     }
-    if kind.len() > 64 {
-        return Err("Widget type must be at most 64 characters.".into());
+    if kind.len() > MAX_WIDGET_ID {
+        return Err(format!(
+            "Widget type must be at most {MAX_WIDGET_ID} characters."
+        ));
     }
     if !kind
         .bytes()
@@ -935,9 +939,17 @@ mod tests {
         config
             .widgets
             .insert("clock.primary".into(), widget(true, "top-right"));
+        assert_eq!(validate(&config), Ok(()));
+
+        let mut config = Config::default();
+        config
+            .widgets
+            .insert("x".repeat(MAX_WIDGET_ID + 1), widget(true, "top-right"));
         assert_eq!(
             validate(&config),
-            Err("Invalid widget id: clock.primary.".into())
+            Err(format!(
+                "Widget id must be at most {MAX_WIDGET_ID} characters."
+            ))
         );
     }
 

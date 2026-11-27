@@ -824,7 +824,7 @@
       actions={{ retryLeague: league => void sports.preview(league), retryStremio: () => void refreshStremio(true), openStremio, openStremioPairing, previewStremio: item => homeState.previewStremio(item), openSteamGame, previewSteamGame: item => homeState.previewSteamGame(item), openItem, removeItem, previewActivityItem, launch, preview, watchLeagueGame, previewLeagueGame: item => homeState.previewLeagueGame(item), openYouTubeItem, previewVideo: item => homeState.previewVideo(item), playMusic: async item => { if (await spotify.playUri(item.uri)) openPlayer(); }, previewMusicItem: item => homeState.previewMusicItem(item), openSteamStore, previewSteamRecommendation: item => homeState.previewSteamRecommendation(item), select, previewMovie, openPluginCard, retryPluginCard }} />
   {/if}
   {#if tab === 'Library'}<StremioLibrary status={stremio} loadError={stremioState.error} loading={stremioState.loading} retry={() => refreshStremio(true)} {native} open={openStremio} connect={openStremioPairing} sync={syncStremio} />{/if}
-  {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} {sports} ondetailclose={returnFromSportsDetail} />{/if}
+  {#if tab === 'Sports'}<SportsHome bind:this={sportsHome} {native} {sports} plugins={preferences.plugins} ondetailclose={returnFromSportsDetail} />{/if}
   {#if tab === 'Apps'}
     <PageHeader eyebrow="ON THIS PC" title="Apps" description="Open your streaming apps and keep the ones you use most in reach">
       {#snippet actions()}<button class="text-link" onclick={openApps}>Edit apps <span>→</span></button>{/snippet}
